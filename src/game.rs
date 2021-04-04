@@ -305,7 +305,8 @@ pub struct Game {
     deck: VecDeque<Card>,
     hands: Vec<Hand>,
     active_player: usize,
-    state: GameState,
+    pub state: GameState,
+    debug: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -337,7 +338,7 @@ pub trait PlayerStrategy {
 }
 
 impl Game {
-    pub fn new(players: &mut Vec<&mut dyn PlayerStrategy>) -> Self {
+    pub fn new(players: &mut Vec<&mut dyn PlayerStrategy>, debug: bool) -> Self {
         let suites = vec![
             Suite::Red(),
             Suite::Green(),
@@ -390,6 +391,7 @@ impl Game {
             active_player: 0,
             clues: 8,
             state: GameState::Early(),
+            debug,
         };
         for strategy in players.iter_mut() {
             strategy.init(&game);
@@ -431,8 +433,8 @@ impl Game {
         println!("  deck: {:?}", self.deck);
     }
 
-    pub fn run(&mut self, strategies: &mut Vec<&mut dyn PlayerStrategy>, debug: bool) -> u8 {
-        if debug {
+    pub fn run(&mut self, strategies: &mut Vec<&mut dyn PlayerStrategy>) -> u8 {
+        if self.debug {
             self.dump();
         }
         loop {
@@ -450,7 +452,7 @@ impl Game {
                 }
                 _ => break,
             }
-            if debug {
+            if self.debug {
                 self.dump();
             }
         }
@@ -554,10 +556,12 @@ impl Game {
                     return;
                 }
                 let card = card.unwrap();
-                println!(
-                    "Player {} discarded {:?} from pos {}",
-                    self.active_player, card, pos
-                );
+                if self.debug {
+                    println!(
+                        "Player {} discarded {:?} from pos {}",
+                        self.active_player, card, pos
+                    );
+                }
                 self.discard(card.card);
                 if let GameState::Early() = self.state {
                     self.state = GameState::Mid();
@@ -581,10 +585,12 @@ impl Game {
                 }
                 let card = card.unwrap();
                 if self.played_rank(&card.card.suite) + 1 == card.card.rank {
-                    println!(
-                        "Player {} played successfully {:?} from pos {}",
-                        self.active_player, card, pos
-                    );
+                    if self.debug {
+                        println!(
+                            "Player {} played successfully {:?} from pos {}",
+                            self.active_player, card, pos
+                        );
+                    }
                     for (pos, current_suite) in self.suites.iter().enumerate() {
                         if *current_suite == card.card.suite {
                             self.played[pos] += 1;
@@ -639,10 +645,12 @@ impl Game {
                         touched |= 1 << pos;
                     }
                 }
-                println!(
-                    "Player {} clue played {} about {} {:?} cards",
-                    self.active_player, player_index, affected_cards, clue
-                );
+                if self.debug {
+                    println!(
+                        "Player {} clue played {} about {} {:?} cards",
+                        self.active_player, player_index, affected_cards, clue
+                    );
+                }
                 strategies[player_index].clued(clue, touched, previously_clued, &self);
                 self.clues -= 1;
             }

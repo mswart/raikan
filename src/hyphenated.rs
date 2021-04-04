@@ -5,18 +5,18 @@ use crate::game::{self, CardPlayState};
 pub struct HyphenatedPlayer {
     chop: i8,
     play_queue: VecDeque<u8>,
-}
-
-impl Default for HyphenatedPlayer {
-    fn default() -> Self {
-        Self {
-            chop: 4,
-            play_queue: VecDeque::with_capacity(5),
-        }
-    }
+    debug: bool,
 }
 
 impl HyphenatedPlayer {
+    pub fn new(debug: bool) -> Self {
+        Self {
+            chop: 0,
+            play_queue: VecDeque::with_capacity(5),
+            debug: debug,
+        }
+    }
+
     fn chop(&self, player: usize, game: &game::Game) -> i8 {
         let mut chop: i8 = game.num_hand_cards(player) as i8 - 1;
         while chop >= 0 && game.card_cluded(chop as u8, player) {
@@ -122,10 +122,12 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         }
         let potential_safe = (1 << old_chop) & touched > 0;
         // self.chop = self.chop(0, game) as i8;
-        println!(
-            "Got clued with {:?}; touched {:b}; previously clued {:b}; chop {}=>{} (potential safe {})",
-            clue, touched, previously_clued, old_chop, self.chop, potential_safe
-        );
+        if self.debug {
+            println!(
+                "Got clued with {:?}; touched {:b}; previously clued {:b}; chop {}=>{} (potential safe {})",
+                clue, touched, previously_clued, old_chop, self.chop, potential_safe
+            );
+        }
         if let game::Clue::Rank(rank) = clue {
             if rank == 1 {
                 for pos in 0..4 {
