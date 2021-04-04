@@ -80,6 +80,22 @@ impl std::fmt::Debug for Suite {
     }
 }
 
+#[cfg(test)]
+mod suite_tests {
+    use super::*;
+
+    #[test]
+    fn card_counts() {
+        for suite in [Suite::Blue(), Suite::Green()].iter() {
+            assert_eq!(suite.card_count(1), 3);
+            assert_eq!(suite.card_count(2), 2);
+            assert_eq!(suite.card_count(3), 2);
+            assert_eq!(suite.card_count(4), 2);
+            assert_eq!(suite.card_count(5), 1);
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Card {
     pub suite: Suite,
@@ -280,7 +296,7 @@ impl std::fmt::Debug for Card {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum GameState {
     Early(),
     Mid(),
@@ -324,7 +340,7 @@ pub enum Clue {
     Rank(u8),
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Move {
     Discard(u8),
     Play(u8),
