@@ -25,11 +25,13 @@ fn main() {
 
 fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
     let mut lost_games = 0;
-    let mut finished_games = 0;
     let mut lost_scores: usize = 0;
+    let mut finished_games = 0;
     let mut finished_scores: usize = 0;
+    let mut won_games = 0;
+    let mut won_scores: usize = 0;
 
-    for i in 0..1_000 {
+    for i in 0..100_000 {
         let mut game = game::Game::new(players, false);
         game.run(players);
         println!(
@@ -45,6 +47,10 @@ fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
                 finished_games += 1;
                 finished_scores += game.score as usize;
             }
+            game::GameState::Won() => {
+                won_games += 1;
+                won_scores += game.score as usize;
+            }
             _ => unimplemented!("Should not happen as final game score"),
         }
     }
@@ -58,11 +64,16 @@ fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
     println!(
         "Finished {} games with ~{} scores",
         finished_games,
-        finished_scores as f64 / finished_games as f64
+        (finished_scores + won_scores) as f64 / (finished_games + won_games) as f64
+    );
+    println!(
+        "Won {} games with ~{} scores",
+        won_games,
+        won_scores as f64 / won_games as f64
     );
     println!(
         "Overall {} games with ~{} score",
         lost_games + finished_games,
-        finished_scores as f64 / (lost_games + finished_games) as f64
+        (finished_scores + won_scores) as f64 / (lost_games + finished_games + won_games) as f64
     );
 }
