@@ -3,7 +3,6 @@ use std::collections::VecDeque;
 use crate::game::{self, CardPlayState};
 
 pub struct HyphenatedPlayer {
-    chop: i8,
     play_queue: VecDeque<u8>,
     debug: bool,
 }
@@ -11,7 +10,6 @@ pub struct HyphenatedPlayer {
 impl HyphenatedPlayer {
     pub fn new(debug: bool) -> Self {
         Self {
-            chop: 0,
             play_queue: VecDeque::with_capacity(5),
             debug: debug,
         }
@@ -26,17 +24,15 @@ impl HyphenatedPlayer {
     }
 
     fn discard(&mut self, game: &game::Game) -> game::Move {
-        let chop = self.chop(0, game);
-        assert!(
-            self.chop == chop,
-            "cached chop = {}; actual chop = {}",
-            self.chop,
-            chop
-        );
-        if chop >= 0 {
-            while self.chop > 0 && game.card_cluded((self.chop - 1) as u8, 0) {
-                self.chop -= 1;
+        for trash_rank in 1..=game.min_played_rank() {
+            for pos in 0..game.num_hand_cards(0) {
+                if game.card_must_rank(0, pos, trash_rank) {
+                    return game::Move::Discard(pos);
+                }
             }
+        }
+        let chop = self.chop(0, game);
+        if chop >= 0 {
             return game::Move::Discard(chop as u8);
         }
         // all positions occupied, search for the best worst scenario to drop:
@@ -44,20 +40,10 @@ impl HyphenatedPlayer {
         for rank in [5, 4, 3, 2, 1].iter() {
             for pos in 0..game.num_hand_cards(0) {
                 if game.card_must_rank(0, pos, *rank) {
-                    if self.chop < pos as i8 {
-                        self.chop += 1;
-                    } else {
-                        // chop might move up to 0 if we have clued cards to the right:
-                        self.chop = pos as i8;
-                        while self.chop > 0 && game.card_cluded((self.chop - 1) as u8, 0) {
-                            self.chop -= 1;
-                        }
-                    }
                     return game::Move::Discard(pos);
                 }
             }
         }
-        self.chop = 0;
         // nothing clear found; drop newest card
         game::Move::Discard(0)
     }
@@ -105,27 +91,32 @@ impl HyphenatedPlayer {
         }
         None
     }
+
+    fn playable_safe(&self, game: &game::Game) -> Option<game::Move> {
+        let min_play_rank = game.min_played_rank();
+        for pos in 0..game.num_hand_cards(0) {
+            if game.card_must_rank(0, pos, min_play_rank + 1) {
+                return Some(game::Move::Play(pos));
+            }
+        }
+        None
+    }
 }
 
 impl game::PlayerStrategy for HyphenatedPlayer {
-    fn init(&mut self, game: &game::Game) {
-        self.chop = self.chop(0, game) as i8;
-    }
+    fn init(&mut self, game: &game::Game) {}
 
     fn clued(&mut self, clue: game::Clue, touched: u8, previously_clued: u8, game: &game::Game) {
-        let old_chop = self.chop;
-        self.chop = 4;
-        while self.chop >= 0 && (1 << self.chop) & touched > 0
-            || (1 << self.chop) & previously_clued > 0
-        {
-            self.chop -= 1;
+        let mut old_chop = 4;
+        while old_chop >= 0 && (1 << old_chop) & previously_clued > 0 {
+            old_chop -= 1;
         }
         let potential_safe = (1 << old_chop) & touched > 0;
         // self.chop = self.chop(0, game) as i8;
         if self.debug {
             println!(
-                "Got clued with {:?}; touched {:b}; previously clued {:b}; chop {}=>{} (potential safe {})",
-                clue, touched, previously_clued, old_chop, self.chop, potential_safe
+                "Got clued with {:?}; touched {:b}; previously clued {:b}; potential safe {}",
+                clue, touched, previously_clued, potential_safe
             );
         }
         if let game::Clue::Rank(rank) = clue {
@@ -145,18 +136,18 @@ impl game::PlayerStrategy for HyphenatedPlayer {
 
     fn act(&mut self, game: &game::Game) -> game::Move {
         if let Some(pos) = self.play_queue.pop_front() {
-            if pos as i8 > self.chop {
-                self.chop += 1;
-            }
             return game::Move::Play(pos);
         }
-        // look for critical cards on chop:
-        if let Some(play_move) = self.give_save_clue(game) {
+        if let Some(play_move) = self.playable_safe(game) {
             return play_move;
         }
+        // look for critical cards on chop:
+        if let Some(safe_clue) = self.give_save_clue(game) {
+            return safe_clue;
+        }
         // look for potential play clues
-        if let Some(play_move) = self.give_play_clue(game) {
-            return play_move;
+        if let Some(play_clue) = self.give_play_clue(game) {
+            return play_clue;
         }
         self.discard(game)
     }

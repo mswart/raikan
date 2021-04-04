@@ -512,6 +512,10 @@ impl Game {
         self.hands[(self.active_player + player) % self.hands.len()][pos as usize].card
     }
 
+    pub fn min_played_rank(&self) -> u8 {
+        *self.played.iter().min().unwrap()
+    }
+
     fn update_max_score(&mut self) {
         self.max_score = 0;
         for suite in self.suites.iter() {
