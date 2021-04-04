@@ -95,8 +95,8 @@ impl Card {
             return CardPlayState::Dead();
         }
         match self.rank as i8 - game.played_rank(&self.suite) as i8 {
-            diff if diff < 0 => CardPlayState::Trash(),
-            0 => CardPlayState::Playable(),
+            diff if diff <= 0 => CardPlayState::Trash(),
+            1 => CardPlayState::Playable(),
             _ => match self.suite.card_count(self.rank) - game.discarded.get(self).unwrap_or(&0) {
                 0 => CardPlayState::Dead(),
                 1 => CardPlayState::Critical(),
@@ -261,6 +261,7 @@ impl std::fmt::Debug for CardState {
     }
 }
 
+#[derive(Debug)]
 pub enum CardPlayState {
     Dead(),
     Playable(),
