@@ -279,11 +279,6 @@ impl std::fmt::Debug for Card {
     }
 }
 
-struct Player<'a> {
-    cards: VecDeque<CardState>,
-    strategy: &'a dyn PlayerStrategy,
-}
-
 #[derive(Debug)]
 pub enum GameState {
     Early(),
@@ -295,7 +290,9 @@ pub enum GameState {
     Invalid(),
 }
 
-pub struct Game<'a> {
+type Hand = VecDeque<CardState>;
+
+pub struct Game {
     pub suites: Vec<Suite>,
     pub score: u8,
     pub max_score: u8,
@@ -305,7 +302,7 @@ pub struct Game<'a> {
     pub num_strikes: u8,
     pub clues: u8,
     deck: VecDeque<Card>,
-    players: Vec<Player<'a>>,
+    hands: Vec<Hand>,
     active_player: usize,
     state: GameState,
 }
@@ -333,11 +330,13 @@ pub enum Move {
 }
 
 pub trait PlayerStrategy {
-    fn act(&self, game: &Game) -> Move;
+    fn init(&mut self, game: &Game);
+    fn clued(&mut self, clue: Clue, touched: u8, previously_clued: u8, game: &Game);
+    fn act(&mut self, game: &Game) -> Move;
 }
 
-impl<'a> Game<'a> {
-    pub fn new(players: Vec<&'a dyn PlayerStrategy>) -> Self {
+impl Game {
+    pub fn new(players: &mut Vec<&mut dyn PlayerStrategy>) -> Self {
         let suites = vec![
             Suite::Red(),
             Suite::Green(),
@@ -360,7 +359,7 @@ impl<'a> Game<'a> {
         }
         deck.shuffle(&mut rng);
 
-        let mut player_states = Vec::new();
+        let mut hands = Vec::new();
         let num_cards = match players.len() {
             2 => 5,
             3 => 5,
@@ -369,43 +368,40 @@ impl<'a> Game<'a> {
             6 => 3,
             _ => unimplemented!(),
         };
-        for strategy in players.iter() {
-            let mut player = Player {
-                cards: VecDeque::with_capacity(num_cards),
-                strategy: *strategy,
-            };
+        for _ in players.iter() {
+            let mut hand = Hand::with_capacity(num_cards);
             for _ in 0..num_cards {
-                player
-                    .cards
-                    .push_back(CardState::from_card(deck.pop().expect("Deck is full")));
+                hand.push_back(CardState::from_card(deck.pop().expect("Deck is full")));
             }
-            player_states.push(player);
+            hands.push(hand);
         }
 
-        Self {
+        let game = Self {
             score: 0,
             max_score: 5 * suites.len() as u8,
             turn: 0,
             deck: deck.into(),
             discarded: BTreeMap::new(),
             played: vec![0; suites.len()],
-            players: player_states,
+            hands,
             num_strikes: 0,
             suites,
             active_player: 0,
             clues: 8,
             state: GameState::Early(),
+        };
+        for strategy in players.iter_mut() {
+            strategy.init(&game);
         }
+        game
     }
 
     pub fn num_players(&self) -> u8 {
-        self.players.len() as u8
+        self.hands.len() as u8
     }
 
     pub fn num_hand_cards(&self, player: usize) -> u8 {
-        self.players[(self.active_player + player) % self.players.len()]
-            .cards
-            .len() as u8
+        self.hands[(self.active_player + player) % self.hands.len()].len() as u8
     }
 
     pub fn dump(&self) {
@@ -427,29 +423,28 @@ impl<'a> Game<'a> {
         println!("");
         println!("  discarded: {:?}", self.discarded);
 
-        // println!("  players:");
-        for player in self.players.iter() {
-            println!("  player {:?}", player.cards);
+        for hand in self.hands.iter() {
+            println!("  hand {:?}", hand);
         }
 
         println!("  deck: {:?}", self.deck);
     }
 
-    pub fn run(&mut self, debug: bool) -> u8 {
+    pub fn run(&mut self, strategies: &mut Vec<&mut dyn PlayerStrategy>, debug: bool) -> u8 {
         if debug {
             self.dump();
         }
         loop {
             match self.state {
                 GameState::Early() => {
-                    self.play();
+                    self.play(strategies);
                 }
                 GameState::Mid() => {
-                    self.play();
+                    self.play(strategies);
                 }
                 GameState::Final(0) => self.state = GameState::Finished(),
                 GameState::Final(remaining) => {
-                    self.play();
+                    self.play(strategies);
                     self.state = GameState::Final(remaining - 1)
                 }
                 _ => break,
@@ -484,25 +479,34 @@ impl<'a> Game<'a> {
 
     fn draw_card(&mut self) {
         if let Some(card) = self.deck.pop_front() {
-            self.players[self.active_player]
-                .cards
-                .push_front(CardState::from_card(card));
+            self.hands[self.active_player].push_front(CardState::from_card(card));
             if self.deck.len() == 0 {
-                self.state = GameState::Final(self.players.len() as u8);
+                self.state = GameState::Final(self.hands.len() as u8);
             }
         }
     }
 
     pub fn card_cluded(&self, pos: u8, player: usize) -> bool {
-        self.players[(self.active_player + player) % self.players.len()].cards[pos as usize]
+        self.hands[(self.active_player + player) % self.hands.len()][pos as usize]
             .clues
             .len()
             > 0
     }
 
+    fn cards_clued(&mut self, player: usize) -> u8 {
+        let index = (self.active_player + player) % self.hands.len();
+        let mut clued = 0;
+        for pos in 0..self.hands[index].len() {
+            if self.hands[index][pos].clues.len() > 0 {
+                clued |= 1 << pos;
+            }
+        }
+        clued
+    }
+
     pub fn player_card(&self, pos: u8, player: usize) -> Card {
         assert!(player > 0, "Own cards are unknown");
-        self.players[(self.active_player + player) % self.players.len()].cards[pos as usize].card
+        self.hands[(self.active_player + player) % self.hands.len()][pos as usize].card
     }
 
     fn update_max_score(&mut self) {
@@ -513,8 +517,7 @@ impl<'a> Game<'a> {
     }
 
     pub fn card_must_rank(&self, player: usize, pos: u8, rank: u8) -> bool {
-        self.players[(self.active_player + player) % self.players.len()].cards[pos as usize]
-            .potential_ranks
+        self.hands[(self.active_player + player) % self.hands.len()][pos as usize].potential_ranks
             == 1 << (rank - 1)
     }
 
@@ -533,18 +536,18 @@ impl<'a> Game<'a> {
         max
     }
 
-    fn play(&mut self) {
-        let action = self.players[self.active_player].strategy.act(&self);
+    fn play(&mut self, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
+        let action = strategies[self.active_player].act(&self);
         self.turn += 1;
         match action {
             Move::Discard(pos) => {
-                let card = self.players[self.active_player].cards.remove(pos as usize);
+                let card = self.hands[self.active_player].remove(pos as usize);
                 if card.is_none() {
                     println!(
                         "Invalid move: player {} tried to discard card {} (hand only has {} cards)",
                         self.active_player,
                         pos,
-                        self.players[self.active_player].cards.len()
+                        self.hands[self.active_player].len()
                     );
                     self.state = GameState::Invalid();
                     return;
@@ -564,13 +567,13 @@ impl<'a> Game<'a> {
                 self.draw_card();
             }
             Move::Play(pos) => {
-                let card = self.players[self.active_player].cards.remove(pos as usize);
+                let card = self.hands[self.active_player].remove(pos as usize);
                 if card.is_none() {
                     println!(
                         "Invalid move: player {} tried to play card {} (hand only has {} cards)",
                         self.active_player,
                         pos,
-                        self.players[self.active_player].cards.len()
+                        self.hands[self.active_player].len()
                     );
                     self.state = GameState::Invalid();
                     return;
@@ -608,7 +611,7 @@ impl<'a> Game<'a> {
                 self.draw_card();
             }
             Move::Clue(player, clue) => {
-                if player >= self.players.len() as u8 || player == 0 {
+                if player >= self.hands.len() as u8 || player == 0 {
                     println!(
                         "Invalid move: player {} tried to clue to invalid player number {}",
                         self.active_player, player,
@@ -624,26 +627,25 @@ impl<'a> Game<'a> {
                     self.state = GameState::Invalid();
                     return;
                 }
-                let len = self.players.len();
+                let player_index = (self.active_player + player as usize) % self.hands.len();
                 let mut affected_cards = 0;
-                for card_state in self.players[(self.active_player + player as usize) % len]
-                    .cards
-                    .iter_mut()
-                {
+                let previously_clued = self.cards_clued(player as usize);
+                let mut touched = 0;
+
+                for (pos, card_state) in self.hands[player_index].iter_mut().enumerate() {
                     if card_state.clue(clue.clone()) {
                         affected_cards += 1;
+                        touched |= 1 << pos;
                     }
                 }
                 println!(
                     "Player {} clue played {} about {} {:?} cards",
-                    self.active_player,
-                    (self.active_player + player as usize) % len,
-                    affected_cards,
-                    clue
+                    self.active_player, player_index, affected_cards, clue
                 );
+                strategies[player_index].clued(clue, touched, previously_clued, &self);
                 self.clues -= 1;
             }
         }
-        self.active_player = (self.active_player + 1) % self.players.len();
+        self.active_player = (self.active_player + 1) % self.hands.len();
     }
 }

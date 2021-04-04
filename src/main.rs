@@ -1,13 +1,15 @@
-mod dump_strategies;
+// mod dump_strategies;
 mod game;
 mod hyphenated;
 
 fn main() {
-    let players: Vec<&dyn game::PlayerStrategy> = vec![
-        &hyphenated::HyphenatedPlayer {},
-        &hyphenated::HyphenatedPlayer {},
-        &hyphenated::HyphenatedPlayer {},
-    ];
-    let mut game = game::Game::new(players);
-    game.run(true);
+    let mut alice = hyphenated::HyphenatedPlayer::default();
+    let mut bob = hyphenated::HyphenatedPlayer::default();
+    let mut carl = hyphenated::HyphenatedPlayer::default();
+    let mut players: Vec<&mut dyn game::PlayerStrategy> = Vec::new();
+    players.push(&mut alice);
+    players.push(&mut bob);
+    players.push(&mut carl);
+    let mut game = game::Game::new(&mut players);
+    game.run(&mut players, true);
 }
