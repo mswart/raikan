@@ -32,8 +32,8 @@ impl game::PlayerStrategy for InstructedPlayer {
     fn clued(
         &mut self,
         _clue: game::Clue,
-        _touched: u8,
-        _previously_clued: u8,
+        _touched: game::PositionSet,
+        _previously_clued: game::PositionSet,
         _game: &game::Game,
     ) {
     }

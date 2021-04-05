@@ -3,6 +3,7 @@ use std::env;
 // mod dump_strategies;
 mod game;
 mod hyphenated;
+mod position_set;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -31,7 +32,7 @@ fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
     let mut won_games = 0;
     let mut won_scores: usize = 0;
 
-    for i in 0..100_000 {
+    for _ in 0..100_000 {
         let mut game = game::Game::new(players, false);
         game.run(players);
         println!(

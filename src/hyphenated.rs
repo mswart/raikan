@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::game::{self, CardPlayState};
+use crate::game::{self, CardPlayState, PositionSet};
 
 pub struct HyphenatedPlayer {
     play_queue: VecDeque<u8>,
@@ -11,7 +11,7 @@ impl HyphenatedPlayer {
     pub fn new(debug: bool) -> Self {
         Self {
             play_queue: VecDeque::with_capacity(5),
-            debug: debug,
+            debug,
         }
     }
 
@@ -85,8 +85,11 @@ impl HyphenatedPlayer {
             }
             let card = game.player_card(chop, player);
             if let CardPlayState::Critical() = card.play_state(&game) {
-                // return game::Move::Clue(player as u8, game::Clue::Color(card.suite.clue_color()));
-                return Some(game::Move::Clue(player as u8, game::Clue::Rank(card.rank)));
+                return Some(game::Move::Clue(
+                    player as u8,
+                    game::Clue::Color(card.suite.clue_color()),
+                ));
+                // return Some(game::Move::Clue(player as u8, game::Clue::Rank(card.rank)));
             }
         }
         None
@@ -104,25 +107,28 @@ impl HyphenatedPlayer {
 }
 
 impl game::PlayerStrategy for HyphenatedPlayer {
-    fn init(&mut self, game: &game::Game) {}
+    fn init(&mut self, _game: &game::Game) {}
 
-    fn clued(&mut self, clue: game::Clue, touched: u8, previously_clued: u8, game: &game::Game) {
-        let mut old_chop = 4;
-        while old_chop >= 0 && (1 << old_chop) & previously_clued > 0 {
-            old_chop -= 1;
-        }
-        let potential_safe = (1 << old_chop) & touched > 0;
+    fn clued(
+        &mut self,
+        clue: game::Clue,
+        touched: PositionSet,
+        previously_clued: PositionSet,
+        _game: &game::Game,
+    ) {
+        let old_chop = (!previously_clued).last().unwrap_or(0);
+        let potential_safe = !previously_clued.is_full() && touched.contains(old_chop);
         // self.chop = self.chop(0, game) as i8;
         if self.debug {
             println!(
-                "Got clued with {:?}; touched {:b}; previously clued {:b}; potential safe {}",
+                "Got clued with {:?}; touched {:?}; previously clued {:?}; potential safe {}",
                 clue, touched, previously_clued, potential_safe
             );
         }
         if let game::Clue::Rank(rank) = clue {
             if rank == 1 {
                 for pos in 0..4 {
-                    if (1 << pos) & touched > 0 && !self.play_queue.contains(&pos) {
+                    if touched.contains(pos) && !self.play_queue.contains(&pos) {
                         self.play_queue.push_back(pos);
                     }
                 }
@@ -130,7 +136,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
             }
         }
         if !potential_safe {
-            self.play_queue.push_back(touched.trailing_zeros() as u8);
+            self.play_queue.push_back(touched.first().expect("asdf"));
         }
     }
 

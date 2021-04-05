@@ -1,8 +1,15 @@
 use std::collections::VecDeque;
 use std::collections::{BTreeMap, BTreeSet};
 
+// mod position_set;
+
+// use crate::game::{self, CardPlayState};
+
+// use crate::position_set;
+pub use crate::position_set::PositionSet;
+
 use colored::*;
-use rand::seq::SliceRandom;
+use rand::prelude::*;
 use rand::thread_rng;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -349,7 +356,13 @@ pub enum Move {
 
 pub trait PlayerStrategy {
     fn init(&mut self, game: &Game);
-    fn clued(&mut self, clue: Clue, touched: u8, previously_clued: u8, game: &Game);
+    fn clued(
+        &mut self,
+        clue: Clue,
+        touched: PositionSet,
+        previously_clued: PositionSet,
+        game: &Game,
+    );
     fn act(&mut self, game: &Game) -> Move;
 }
 
@@ -512,12 +525,12 @@ impl Game {
             > 0
     }
 
-    fn cards_clued(&mut self, player: usize) -> u8 {
+    fn cards_clued(&mut self, player: usize) -> PositionSet {
         let index = (self.active_player + player) % self.hands.len();
-        let mut clued = 0;
+        let mut clued = PositionSet::new(self.hands[index].len() as u8);
         for pos in 0..self.hands[index].len() {
             if self.hands[index][pos].clues.len() > 0 {
-                clued |= 1 << pos;
+                clued.add(pos as u8);
             }
         }
         clued
@@ -657,12 +670,12 @@ impl Game {
                 let player_index = (self.active_player + player as usize) % self.hands.len();
                 let mut affected_cards = 0;
                 let previously_clued = self.cards_clued(player as usize);
-                let mut touched = 0;
+                let mut touched = PositionSet::new(self.hands[player_index].len() as u8);
 
                 for (pos, card_state) in self.hands[player_index].iter_mut().enumerate() {
                     if card_state.clue(clue.clone()) {
                         affected_cards += 1;
-                        touched |= 1 << pos;
+                        touched.add(pos as u8);
                     }
                 }
                 if self.debug {
