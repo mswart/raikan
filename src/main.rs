@@ -1,6 +1,7 @@
 use std::env;
 
 // mod dump_strategies;
+mod card_quantum;
 mod game;
 mod hyphenated;
 mod position_set;
@@ -12,10 +13,12 @@ fn main() {
     let mut alice = hyphenated::HyphenatedPlayer::new(!stats);
     let mut bob = hyphenated::HyphenatedPlayer::new(!stats);
     let mut carl = hyphenated::HyphenatedPlayer::new(!stats);
+    let mut daniel = hyphenated::HyphenatedPlayer::new(!stats);
     let mut players: Vec<&mut dyn game::PlayerStrategy> = Vec::new();
     players.push(&mut alice);
     players.push(&mut bob);
     players.push(&mut carl);
+    players.push(&mut daniel);
     if stats {
         run_stats(&mut players);
     } else {
@@ -35,10 +38,10 @@ fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
     for _ in 0..100_000 {
         let mut game = game::Game::new(players, false);
         game.run(players);
-        println!(
-            "Game gained {}/{} due to {:?}",
-            game.score, game.max_score, game.state
-        );
+        // println!(
+        //     "Game gained {}/{} due to {:?}",
+        //     game.score, game.max_score, game.state
+        // );
         match game.state {
             game::GameState::Lost() => {
                 lost_games += 1;

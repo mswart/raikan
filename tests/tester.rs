@@ -29,8 +29,23 @@ impl InstructedPlayer {
 
 impl game::PlayerStrategy for InstructedPlayer {
     fn init(&mut self, _game: &game::Game) {}
+    fn drawn(&mut self, _player: usize, _card: game::Card) {}
+    fn own_drawn(&mut self) {}
+    fn played(
+        &mut self,
+        _player: usize,
+        _pos: usize,
+        _card: game::Card,
+        _successful: bool,
+        _blind: bool,
+    ) {
+    }
+
+    fn discarded(&mut self, _player: usize, _pos: usize, _card: game::Card) {}
     fn clued(
         &mut self,
+        _who: usize,
+        _whom: usize,
         _clue: game::Clue,
         _touched: game::PositionSet,
         _previously_clued: game::PositionSet,

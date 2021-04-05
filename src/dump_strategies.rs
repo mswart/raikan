@@ -7,17 +7,33 @@ pub struct DiscardPlayer;
 
 impl game::PlayerStrategy for DiscardPlayer {
     fn init(&mut self, _game: &game::Game) {}
+    fn act(&mut self, game: &game::Game) -> game::Move {
+        game::Move::Discard(game.num_hand_cards(0) - 1)
+    }
+
+    fn drawn(&mut self, _player: usize, _card: game::Card) {}
+    fn own_drawn(&mut self) {}
+
+    fn played(
+        &mut self,
+        _player: usize,
+        _pos: usize,
+        _card: game::Card,
+        _successful: bool,
+        _blind: bool,
+    ) {
+    }
+
+    fn discarded(&mut self, _player: usize, _pos: usize, _card: game::Card) {}
     fn clued(
         &mut self,
+        _who: usize,
+        _whom: usize,
         _clue: game::Clue,
         _touched: game::PositionSet,
         _previously_clued: game::PositionSet,
         _game: &game::Game,
     ) {
-    }
-
-    fn act(&mut self, game: &game::Game) -> game::Move {
-        game::Move::Discard(game.num_hand_cards(0) - 1)
     }
 }
 
@@ -26,8 +42,23 @@ pub struct PlayPlayer;
 impl game::PlayerStrategy for PlayPlayer {
     fn init(&mut self, _game: &game::Game) {}
 
+    fn drawn(&mut self, _player: usize, _card: game::Card) {}
+    fn own_drawn(&mut self) {}
+    fn played(
+        &mut self,
+        _player: usize,
+        _pos: usize,
+        _card: game::Card,
+        _successful: bool,
+        _blind: bool,
+    ) {
+    }
+
+    fn discarded(&mut self, _player: usize, _pos: usize, _card: game::Card) {}
     fn clued(
         &mut self,
+        _who: usize,
+        _whom: usize,
         _clue: game::Clue,
         _touched: game::PositionSet,
         _previously_clued: game::PositionSet,
@@ -44,8 +75,24 @@ pub struct RandCluePlayer;
 
 impl game::PlayerStrategy for RandCluePlayer {
     fn init(&mut self, _game: &game::Game) {}
+    fn drawn(&mut self, _player: usize, _card: game::Card) {}
+    fn own_drawn(&mut self) {}
+
+    fn played(
+        &mut self,
+        _player: usize,
+        _pos: usize,
+        _card: game::Card,
+        _successful: bool,
+        _blind: bool,
+    ) {
+    }
+
+    fn discarded(&mut self, _player: usize, _pos: usize, _card: game::Card) {}
     fn clued(
         &mut self,
+        _who: usize,
+        _whom: usize,
         _clue: game::Clue,
         _touched: game::PositionSet,
         _previously_clued: game::PositionSet,

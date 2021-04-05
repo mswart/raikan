@@ -22,7 +22,7 @@ pub enum Suite {
 }
 
 impl Suite {
-    fn color(&self) -> Color {
+    pub fn color(&self) -> Color {
         match self {
             Self::Red() => Color::Red,
             Self::Green() => Color::Green,
@@ -32,7 +32,7 @@ impl Suite {
         }
     }
 
-    fn char(&self) -> char {
+    pub fn char(&self) -> char {
         match self {
             Self::Red() => 'r',
             Self::Green() => 'g',
@@ -42,7 +42,7 @@ impl Suite {
         }
     }
 
-    fn card_count(&self, rank: u8) -> u8 {
+    pub fn card_count(&self, rank: u8) -> u8 {
         match rank {
             1 => 3,
             5 => 1,
@@ -341,6 +341,18 @@ pub enum ClueColor {
     Purple(),
 }
 
+impl ClueColor {
+    pub fn suite(&self) -> Suite {
+        match self {
+            ClueColor::Red() => Suite::Red(),
+            ClueColor::Yellow() => Suite::Yellow(),
+            ClueColor::Blue() => Suite::Blue(),
+            ClueColor::Green() => Suite::Green(),
+            ClueColor::Purple() => Suite::Purple(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Clue {
     Color(ClueColor),
@@ -356,14 +368,23 @@ pub enum Move {
 
 pub trait PlayerStrategy {
     fn init(&mut self, game: &Game);
+    fn act(&mut self, game: &Game) -> Move;
+
+    fn drawn(&mut self, player: usize, card: Card);
+    fn own_drawn(&mut self);
+
+    fn played(&mut self, player: usize, pos: usize, card: Card, successful: bool, blind: bool);
+
+    fn discarded(&mut self, player: usize, pos: usize, card: Card);
     fn clued(
         &mut self,
+        who: usize,
+        whom: usize,
         clue: Clue,
         touched: PositionSet,
         previously_clued: PositionSet,
         game: &Game,
     );
-    fn act(&mut self, game: &Game) -> Move;
 }
 
 impl Game {
@@ -399,15 +420,12 @@ impl Game {
             6 => 3,
             _ => unimplemented!(),
         };
+
         for _ in players.iter() {
-            let mut hand = Hand::with_capacity(num_cards);
-            for _ in 0..num_cards {
-                hand.push_back(CardState::from_card(deck.pop().expect("Deck is full")));
-            }
-            hands.push(hand);
+            hands.push(Hand::with_capacity(num_cards));
         }
 
-        let game = Self {
+        let mut game = Self {
             score: 0,
             max_score: 5 * suites.len() as u8,
             turn: 0,
@@ -425,6 +443,13 @@ impl Game {
         for strategy in players.iter_mut() {
             strategy.init(&game);
         }
+
+        for player in 0..players.len() {
+            for _ in 0..num_cards {
+                game.draw_card(player, players);
+            }
+        }
+
         game
     }
 
@@ -509,11 +534,22 @@ impl Game {
         }
     }
 
-    fn draw_card(&mut self) {
+    fn relative_player_index(&self, player: usize, receiver: usize) -> usize {
+        (self.hands.len() + player - receiver) % self.hands.len()
+    }
+
+    fn draw_card(&mut self, player: usize, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
         if let Some(card) = self.deck.pop_front() {
-            self.hands[self.active_player].push_front(CardState::from_card(card));
+            self.hands[player].push_front(CardState::from_card(card));
             if self.deck.len() == 0 {
                 self.state = GameState::Final(self.hands.len() as u8);
+            }
+            for (notify_player, strategy) in strategies.iter_mut().enumerate() {
+                if notify_player == player {
+                    strategy.own_drawn();
+                } else {
+                    strategy.drawn(self.relative_player_index(player, notify_player), card);
+                }
             }
         }
     }
@@ -602,7 +638,14 @@ impl Game {
                 if self.clues < 8 {
                     self.clues += 1;
                 }
-                self.draw_card();
+                for (notify_player, strategy) in strategies.iter_mut().enumerate() {
+                    strategy.discarded(
+                        self.relative_player_index(self.active_player, notify_player),
+                        pos as usize,
+                        card.card,
+                    );
+                }
+                self.draw_card(self.active_player, strategies);
             }
             Move::Play(pos) => {
                 let card = self.hands[self.active_player].remove(pos as usize);
@@ -617,16 +660,16 @@ impl Game {
                     return;
                 }
                 let card = card.unwrap();
-                if self.played_rank(&card.card.suite) + 1 == card.card.rank {
+                let success = if self.played_rank(&card.card.suite) + 1 == card.card.rank {
                     if self.debug {
                         println!(
                             "Player {} played successfully {:?} from pos {}",
                             self.active_player, card, pos
                         );
                     }
-                    for (pos, current_suite) in self.suites.iter().enumerate() {
+                    for (suite_pos, current_suite) in self.suites.iter().enumerate() {
                         if *current_suite == card.card.suite {
-                            self.played[pos] += 1;
+                            self.played[suite_pos] += 1;
                         }
                     }
                     self.score += 1;
@@ -636,19 +679,32 @@ impl Game {
                     if self.score as usize == self.suites.len() * 5 {
                         self.state = GameState::Won();
                     }
+                    true
                 } else {
-                    println!(
-                        "Player {} failed to played {:?} from pos {}",
-                        self.active_player, card, pos
-                    );
+                    if self.debug {
+                        println!(
+                            "Player {} failed to played {:?} from pos {}",
+                            self.active_player, card, pos
+                        );
+                    }
                     self.discard(card.card);
                     self.num_strikes += 1;
                     if self.num_strikes == 3 {
                         self.state = GameState::Lost();
                         println!("Game lost due to three strikes");
                     }
+                    false
+                };
+                for (notify_player, strategy) in strategies.iter_mut().enumerate() {
+                    strategy.played(
+                        self.relative_player_index(self.active_player, notify_player),
+                        pos as usize,
+                        card.card,
+                        success,
+                        card.clues.len() == 0,
+                    );
                 }
-                self.draw_card();
+                self.draw_card(self.active_player, strategies);
             }
             Move::Clue(player, clue) => {
                 if player >= self.hands.len() as u8 || player == 0 {
@@ -684,7 +740,16 @@ impl Game {
                         self.active_player, player_index, affected_cards, clue
                     );
                 }
-                strategies[player_index].clued(clue, touched, previously_clued, &self);
+                for (notify_player, strategy) in strategies.iter_mut().enumerate() {
+                    strategy.clued(
+                        self.relative_player_index(self.active_player, notify_player),
+                        self.relative_player_index(player_index, notify_player),
+                        clue,
+                        touched,
+                        previously_clued,
+                        &self,
+                    );
+                }
                 self.clues -= 1;
             }
         }
