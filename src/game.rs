@@ -1,5 +1,5 @@
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
-use std::collections::{BTreeMap, BTreeSet};
 
 // mod position_set;
 
@@ -27,7 +27,7 @@ impl Suite {
             Self::Red() => Color::Red,
             Self::Green() => Color::Green,
             Self::Yellow() => Color::Yellow,
-            Self::Blue() => Color::BrightBlue,
+            Self::Blue() => Color::Cyan,
             Self::Purple() => Color::Magenta,
         }
     }
@@ -131,160 +131,28 @@ impl Card {
 
 pub struct CardState {
     card: Card,
-    clues: BTreeSet<Clue>,
-    excluded: BTreeSet<Clue>,
-    potential_ranks: u8,
-    potential_suites: u8,
+    clued: bool,
 }
 
 impl CardState {
     fn from_card(card: Card) -> Self {
-        Self {
-            card,
-            clues: BTreeSet::new(),
-            excluded: BTreeSet::new(),
-            potential_ranks: 0b11111,
-            potential_suites: 0b11111,
-        }
+        Self { card, clued: false }
     }
 
     fn clue(&mut self, clue: Clue) -> bool {
-        let affected = self.card.affected(clue);
-        match clue {
-            Clue::Rank(rank) => {
-                if affected {
-                    self.potential_ranks &= 1 << (rank - 1);
-                } else {
-                    self.potential_ranks ^= (self.potential_ranks) & (1 << rank - 1);
-                }
-            }
-            Clue::Color(color) => {
-                let suite_bit = match color {
-                    ClueColor::Red() => 1,
-                    ClueColor::Yellow() => 2,
-                    ClueColor::Green() => 4,
-                    ClueColor::Blue() => 8,
-                    ClueColor::Purple() => 16,
-                };
-                if affected {
-                    self.potential_suites = suite_bit
-                } else {
-                    self.potential_suites ^= (self.potential_suites) & suite_bit;
-                }
-            }
-        }
-        if affected {
-            self.clues.insert(clue.clone());
-            true
-        } else {
-            self.excluded.insert(clue.clone());
-            false
-        }
+        let clued = self.card.affected(clue);
+        self.clued |= clued;
+        clued
     }
 }
 
 impl std::fmt::Debug for CardState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:?} {}({}{}{}{}{} {}{}{}{}{})",
-            self.card,
-            if self.clues.len() > 0 { "*" } else { " " },
-            if self.potential_ranks & 1 > 0 {
-                "1".bold()
-            } else {
-                "1".strikethrough()
-            },
-            if self.potential_ranks & 2 > 0 {
-                "2".bold()
-            } else {
-                "2".strikethrough()
-            },
-            if self.potential_ranks & 4 > 0 {
-                "3".bold()
-            } else {
-                "3".strikethrough()
-            },
-            if self.potential_ranks & 8 > 0 {
-                "4".bold()
-            } else {
-                "4".strikethrough()
-            },
-            if self.potential_ranks & 16 > 0 {
-                "5".bold()
-            } else {
-                "5".strikethrough()
-            },
-            if self.potential_suites & 1 > 0 {
-                Suite::Red()
-                    .char()
-                    .to_string()
-                    .color(Suite::Red().color())
-                    .bold()
-            } else {
-                Suite::Red()
-                    .char()
-                    .to_string()
-                    .color(Suite::Red().color())
-                    .strikethrough()
-            },
-            if self.potential_suites & 2 > 0 {
-                Suite::Yellow()
-                    .char()
-                    .to_string()
-                    .color(Suite::Yellow().color())
-                    .bold()
-            } else {
-                Suite::Yellow()
-                    .char()
-                    .to_string()
-                    .color(Suite::Yellow().color())
-                    .strikethrough()
-            },
-            if self.potential_suites & 4 > 0 {
-                Suite::Green()
-                    .char()
-                    .to_string()
-                    .color(Suite::Green().color())
-                    .bold()
-            } else {
-                Suite::Green()
-                    .char()
-                    .to_string()
-                    .color(Suite::Green().color())
-                    .strikethrough()
-            },
-            if self.potential_suites & 8 > 0 {
-                Suite::Blue()
-                    .char()
-                    .to_string()
-                    .color(Suite::Blue().color())
-                    .bold()
-            } else {
-                Suite::Blue()
-                    .char()
-                    .to_string()
-                    .color(Suite::Blue().color())
-                    .strikethrough()
-            },
-            if self.potential_suites & 16 > 0 {
-                Suite::Purple()
-                    .char()
-                    .to_string()
-                    .color(Suite::Purple().color())
-                    .bold()
-            } else {
-                Suite::Purple()
-                    .char()
-                    .to_string()
-                    .color(Suite::Purple().color())
-                    .strikethrough()
-            },
-        )
+        write!(f, "{:?} {}", self.card, if self.clued { '*' } else { ' ' })
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum CardPlayState {
     Dead(),
     Playable(),
@@ -366,7 +234,7 @@ pub enum Move {
     Clue(u8, Clue),
 }
 
-pub trait PlayerStrategy {
+pub trait PlayerStrategy: std::fmt::Debug {
     fn init(&mut self, game: &Game);
     fn act(&mut self, game: &Game) -> Move;
 
@@ -461,7 +329,7 @@ impl Game {
         self.hands[(self.active_player + player) % self.hands.len()].len() as u8
     }
 
-    pub fn dump(&self) {
+    pub fn dump(&self, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
         println!("Game:");
         println!(
             "  suites={:?} turn={} score={}/{} strikes={} clues={} state={:?}",
@@ -480,8 +348,8 @@ impl Game {
         println!("");
         println!("  discarded: {:?}", self.discarded);
 
-        for hand in self.hands.iter() {
-            println!("  hand {:?}", hand);
+        for (pos, hand) in self.hands.iter().enumerate() {
+            println!("  hand {:?} {:?}", hand, strategies[pos]);
         }
 
         println!("  deck: {:?}", self.deck);
@@ -489,7 +357,7 @@ impl Game {
 
     pub fn run(&mut self, strategies: &mut Vec<&mut dyn PlayerStrategy>) -> u8 {
         if self.debug {
-            self.dump();
+            self.dump(strategies);
         }
         loop {
             match self.state {
@@ -507,7 +375,7 @@ impl Game {
                 _ => break,
             }
             if self.debug {
-                self.dump();
+                self.dump(strategies);
             }
         }
         self.score
@@ -554,43 +422,11 @@ impl Game {
         }
     }
 
-    pub fn card_cluded(&self, pos: u8, player: usize) -> bool {
-        self.hands[(self.active_player + player) % self.hands.len()][pos as usize]
-            .clues
-            .len()
-            > 0
-    }
-
-    fn cards_clued(&mut self, player: usize) -> PositionSet {
-        let index = (self.active_player + player) % self.hands.len();
-        let mut clued = PositionSet::new(self.hands[index].len() as u8);
-        for pos in 0..self.hands[index].len() {
-            if self.hands[index][pos].clues.len() > 0 {
-                clued.add(pos as u8);
-            }
-        }
-        clued
-    }
-
-    pub fn player_card(&self, pos: u8, player: usize) -> Card {
-        assert!(player > 0, "Own cards are unknown");
-        self.hands[(self.active_player + player) % self.hands.len()][pos as usize].card
-    }
-
-    pub fn min_played_rank(&self) -> u8 {
-        *self.played.iter().min().unwrap()
-    }
-
     fn update_max_score(&mut self) {
         self.max_score = 0;
         for suite in self.suites.iter() {
             self.max_score += self.max_rank_for_suite(*suite);
         }
-    }
-
-    pub fn card_must_rank(&self, player: usize, pos: u8, rank: u8) -> bool {
-        self.hands[(self.active_player + player) % self.hands.len()][pos as usize].potential_ranks
-            == 1 << (rank - 1)
     }
 
     pub fn max_rank_for_suite(&self, suite: Suite) -> u8 {
@@ -701,7 +537,7 @@ impl Game {
                         pos as usize,
                         card.card,
                         success,
-                        card.clues.len() == 0,
+                        !card.clued,
                     );
                 }
                 self.draw_card(self.active_player, strategies);
@@ -725,10 +561,13 @@ impl Game {
                 }
                 let player_index = (self.active_player + player as usize) % self.hands.len();
                 let mut affected_cards = 0;
-                let previously_clued = self.cards_clued(player as usize);
+                let mut previously_clued = PositionSet::new(self.hands[player_index].len() as u8);
                 let mut touched = PositionSet::new(self.hands[player_index].len() as u8);
 
                 for (pos, card_state) in self.hands[player_index].iter_mut().enumerate() {
+                    if card_state.clued {
+                        previously_clued.add(pos as u8);
+                    }
                     if card_state.clue(clue.clone()) {
                         affected_cards += 1;
                         touched.add(pos as u8);

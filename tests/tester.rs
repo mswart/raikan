@@ -8,6 +8,7 @@ pub struct InstructedPlayer {
 }
 
 impl InstructedPlayer {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             actions: VecDeque::new(),
@@ -24,6 +25,16 @@ impl InstructedPlayer {
 
     pub fn add(&mut self, action: game::Move) {
         self.actions.push_back(action);
+    }
+}
+
+impl std::fmt::Debug for InstructedPlayer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Instructed({:?}, default={:?}",
+            self.actions, self.default,
+        )
     }
 }
 

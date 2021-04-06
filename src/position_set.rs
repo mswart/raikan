@@ -121,6 +121,7 @@ impl PositionSet {
     /// a.add(3);
     /// assert!(!a.is_empty());
     /// ```
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.bits == 0
     }
@@ -154,15 +155,9 @@ pub struct PositionSetIterator {
     remaining: u8,
 }
 
-// Implement `Iterator` for `Fibonacci`.
-// The `Iterator` trait only requires a method to be defined for the `next` element.
 impl Iterator for PositionSetIterator {
     type Item = u8;
 
-    // Here, we define the sequence using `.curr` and `.next`.
-    // The return type is `Option<T>`:
-    //     * When the `Iterator` is finished, `None` is returned.
-    //     * Otherwise, the next value is wrapped in `Some` and returned.
     fn next(&mut self) -> Option<u8> {
         if self.remaining == 0 {
             return None;

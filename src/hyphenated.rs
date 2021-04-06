@@ -1,10 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::card_quantum::{CardQuantum, Variant};
-use crate::game::{self, CardPlayState, PositionSet};
+use crate::game::{self, CardPlayState};
 
 struct OwnHand {
     quantum: CardQuantum,
+    play: bool,
+    trash: bool,
+    clued: bool,
 }
 
 impl std::fmt::Debug for OwnHand {
@@ -24,55 +27,72 @@ impl std::fmt::Debug for ForeignHand {
     }
 }
 
+impl std::fmt::Debug for HyphenatedPlayer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for card in self.hand.iter() {
+            std::fmt::Display::fmt(&card.quantum, f)?;
+            f.write_str(", ")?;
+        }
+        Ok(())
+    }
+}
+
 pub struct HyphenatedPlayer {
-    play_queue: VecDeque<u8>,
     debug: bool,
     hand: VecDeque<OwnHand>,
     hands: Vec<VecDeque<ForeignHand>>,
     clued_cards: BTreeSet<game::Card>,
     variant: Variant,
     tracked_cards: BTreeMap<game::Card, u8>,
+    turn: u8,
 }
 
 impl HyphenatedPlayer {
     pub fn new(debug: bool) -> Self {
         Self {
-            play_queue: VecDeque::with_capacity(5),
             debug,
             clued_cards: BTreeSet::new(),
             hand: VecDeque::new(),
             hands: Vec::new(),
             variant: Variant {},
             tracked_cards: BTreeMap::new(),
+            turn: 0,
         }
     }
 
-    fn chop(&self, player: usize, game: &game::Game) -> i8 {
-        let mut chop: i8 = game.num_hand_cards(player) as i8 - 1;
-        while chop >= 0 && game.card_cluded(chop as u8, player) {
-            chop -= 1
-        }
-        chop
-    }
-
-    fn discard(&mut self, game: &game::Game) -> game::Move {
-        for trash_rank in 1..=game.min_played_rank() {
-            for pos in 0..game.num_hand_cards(0) {
-                if game.card_must_rank(0, pos, trash_rank) {
-                    return game::Move::Discard(pos);
-                }
+    fn chop(&self) -> i8 {
+        for (pos, hand) in self.hand.iter().enumerate().rev() {
+            // println!("asdf {}", pos);
+            if !hand.clued {
+                return pos as i8;
             }
         }
-        let chop = self.chop(0, game);
+        return -1;
+        // let mut chop: i8 = game.num_hand_cards(player) as i8 - 1;
+        // while chop >= 0 && game.card_cluded(chop as u8, player) {
+        //     chop -= 1
+        // }
+        // chop
+    }
+
+    fn discard(&mut self) -> game::Move {
+        // look for trash
+        for pos in 0..self.hand.len() {
+            if self.hand[pos].trash {
+                return game::Move::Discard(pos as u8);
+            }
+        }
+        let chop = self.chop();
+
         if chop >= 0 {
             return game::Move::Discard(chop as u8);
         }
         // all positions occupied, search for the best worst scenario to drop:
         // lock for highest possible card (least damage):
         for rank in [5, 4, 3, 2, 1].iter() {
-            for pos in 0..game.num_hand_cards(0) {
-                if game.card_must_rank(0, pos, *rank) {
-                    return game::Move::Discard(pos);
+            for (pos, hand_card) in self.hand.iter().enumerate() {
+                if hand_card.quantum.is_rank(*rank) {
+                    return game::Move::Discard(pos as u8);
                 }
             }
         }
@@ -85,14 +105,12 @@ impl HyphenatedPlayer {
             return None;
         }
         for player in 1..game.num_players() as usize {
-            let cards = game.num_hand_cards(player);
-            for pos in 0..cards {
-                let card = game.player_card(pos, player);
-                let play_state = card.play_state(&game);
-                if game.card_cluded(pos as u8, player) {
+            for (pos, hand) in self.hands[player - 1].iter().enumerate() {
+                let play_state = hand.card.play_state(&game);
+                if hand.clued {
                     continue;
                 }
-                if self.clued_cards.contains(&card) {
+                if self.clued_cards.contains(&hand.card) {
                     continue;
                 };
                 if let CardPlayState::Playable() = play_state {
@@ -100,21 +118,24 @@ impl HyphenatedPlayer {
                     let mut valid_rank = true;
                     let mut valid_suite = true;
                     for other_pos in 0..pos {
-                        let other_card = game.player_card(other_pos, player);
-                        if other_card.suite == card.suite {
+                        let other_card = self.hands[player - 1][other_pos].card;
+                        if other_card.suite == hand.card.suite {
                             valid_suite = false;
                         }
-                        if other_card.rank == card.rank {
+                        if other_card.rank == hand.card.rank {
                             valid_rank = false;
                         }
                     }
                     if valid_rank {
-                        return Some(game::Move::Clue(player as u8, game::Clue::Rank(card.rank)));
+                        return Some(game::Move::Clue(
+                            player as u8,
+                            game::Clue::Rank(hand.card.rank),
+                        ));
                     }
                     if valid_suite {
                         return Some(game::Move::Clue(
                             player as u8,
-                            game::Clue::Color(card.suite.clue_color()),
+                            game::Clue::Color(hand.card.suite.clue_color()),
                         ));
                     }
                 }
@@ -127,18 +148,15 @@ impl HyphenatedPlayer {
         if game.clues == 0 {
             return None;
         }
-        for player in 1..game.num_players() as usize {
-            let mut chop = game.num_hand_cards(player) - 1;
-            while game.card_cluded(chop, player) {
+        'player: for player in 1..game.num_players() as usize {
+            let mut chop = self.hands[player - 1].len() - 1;
+            while self.hands[player - 1][chop].clued {
                 if chop == 0 {
-                    break;
+                    continue 'player;
                 }
                 chop -= 1
             }
-            if game.card_cluded(chop, player) {
-                break;
-            }
-            let card = game.player_card(chop, player);
+            let card = self.hands[player - 1][chop].card;
             if let CardPlayState::Critical() = card.play_state(&game) {
                 return Some(game::Move::Clue(
                     player as u8,
@@ -150,11 +168,38 @@ impl HyphenatedPlayer {
         None
     }
 
-    fn playable_safe(&self, game: &game::Game) -> Option<game::Move> {
-        let min_play_rank = game.min_played_rank();
+    fn play(&mut self, game: &game::Game) -> Option<game::Move> {
         for pos in 0..game.num_hand_cards(0) {
-            if game.card_must_rank(0, pos, min_play_rank + 1) {
+            if self.hand[pos as usize].play {
                 return Some(game::Move::Play(pos));
+            }
+            if self.hand[pos as usize].clued {
+                let mut previous_play_state = None;
+                for card in self.hand[pos as usize].quantum.iter() {
+                    let play_state = card.play_state(game);
+                    if let Some(last_play_state) = previous_play_state {
+                        if last_play_state != play_state {
+                            previous_play_state = None;
+                            break;
+                        }
+                    } else {
+                        previous_play_state = Some(play_state);
+                    }
+                }
+                if let Some(play_state) = previous_play_state {
+                    if self.debug {
+                        println!(
+                            "Pos {} only {:?} possible (quantum {})",
+                            pos, play_state, self.hand[pos as usize].quantum,
+                        );
+                    }
+                    match play_state {
+                        game::CardPlayState::Playable() => return Some(game::Move::Play(pos)),
+                        game::CardPlayState::Trash() => self.hand[pos as usize].trash = true,
+                        game::CardPlayState::Dead() => self.hand[pos as usize].trash = true,
+                        _ => {}
+                    }
+                }
             }
         }
         None
@@ -167,8 +212,8 @@ impl HyphenatedPlayer {
             .and_modify(|e| *e += 1)
             .or_insert(1);
         if *count == card.suite.card_count(card.rank) {
+            // all instances of card are tracked (elsewhere!), card cannot be in our hand
             for hand in self.hand.iter_mut() {
-                // a card is lost -> updated maximal possible score based on remaining cards
                 hand.quantum.remove_card(&card);
             }
         }
@@ -184,6 +229,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
             self.hands.push(VecDeque::new());
         }
         self.clued_cards.clear();
+        self.turn = 0;
     }
 
     fn drawn(&mut self, player: usize, card: game::Card) {
@@ -197,6 +243,9 @@ impl game::PlayerStrategy for HyphenatedPlayer {
     fn own_drawn(&mut self) {
         let mut hand = OwnHand {
             quantum: CardQuantum::new(self.variant),
+            play: false,
+            trash: false,
+            clued: false,
         };
         for (card, count) in self.tracked_cards.iter() {
             if *count == card.suite.card_count(card.rank) {
@@ -215,20 +264,25 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         &mut self,
         player: usize,
         pos: usize,
-        _card: game::Card,
+        card: game::Card,
         _successful: bool,
         _blind: bool,
     ) {
+        self.turn += 1;
         if player == 0 {
             self.hand.remove(pos);
+            self.track_card(card);
         } else {
             self.hands[player - 1].remove(pos);
         }
+        self.turn += 1;
     }
 
-    fn discarded(&mut self, player: usize, pos: usize, _card: game::Card) {
+    fn discarded(&mut self, player: usize, pos: usize, card: game::Card) {
+        self.turn += 1;
         if player == 0 {
             self.hand.remove(pos);
+            self.track_card(card);
         } else {
             self.hands[player - 1].remove(pos);
         }
@@ -243,14 +297,14 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         previously_clued: game::PositionSet,
         _game: &game::Game,
     ) {
+        self.turn += 1;
         if whom != 0 {
             // somebody else was clued -> remember which cards are clued
             for pos in (touched - previously_clued).iter() {
-                let a = self.hands[whom - 1].get(pos as usize).expect(&format!(
-                    "static player count: {} / {:?}",
-                    pos,
-                    self.hands[whom - 1]
-                ));
+                let a = self.hands[whom - 1]
+                    .get_mut(pos as usize)
+                    .expect("own and game state out of sync");
+                a.clued = true;
                 self.clued_cards.insert(a.card);
             }
             return;
@@ -267,7 +321,6 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         }
         let old_chop = (!previously_clued).last().unwrap_or(0);
         let mut potential_safe = !previously_clued.is_full() && touched.contains(old_chop);
-        // self.chop = self.chop(0, game) as i8;
         if self.debug {
             println!(
                 "Got clued with {:?}; touched {:?}; previously clued {:?}; potential safe {}: hand {:?}",
@@ -278,33 +331,22 @@ impl game::PlayerStrategy for HyphenatedPlayer {
             potential_safe = false;
             if rank == 1 {
                 for pos in touched.iter() {
-                    if !self.play_queue.contains(&pos) {
-                        self.play_queue.push_back(pos);
-                    }
+                    self.hand[pos as usize].play = true;
+                    self.hand[pos as usize].clued = true;
                 }
                 return;
             }
         }
         if !potential_safe {
-            self.play_queue.push_back(touched.first().expect("asdf"));
+            self.hand[touched.first().expect("asdf") as usize].play = true;
+        }
+        for pos in touched.iter() {
+            self.hand[pos as usize].clued = true;
         }
     }
 
     fn act(&mut self, game: &game::Game) -> game::Move {
-        while let Some(pos) = self.play_queue.pop_front() {
-            // check whether card is clearly trash by now
-            let mut skip = false;
-            let min_played_rank = game.min_played_rank();
-            for rank in 1..=min_played_rank {
-                if game.card_must_rank(0, pos, rank) {
-                    skip = true;
-                }
-            }
-            if !skip {
-                return game::Move::Play(pos);
-            }
-        }
-        if let Some(play_move) = self.playable_safe(game) {
+        if let Some(play_move) = self.play(game) {
             return play_move;
         }
         // look for critical cards on chop:
@@ -315,6 +357,6 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         if let Some(play_clue) = self.give_play_clue(game) {
             return play_clue;
         }
-        self.discard(game)
+        self.discard()
     }
 }

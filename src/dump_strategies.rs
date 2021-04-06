@@ -5,6 +5,12 @@ use rand::{seq::SliceRandom, Rng};
 
 pub struct DiscardPlayer;
 
+impl std::fmt::Debug for DiscardPlayer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Discard")
+    }
+}
+
 impl game::PlayerStrategy for DiscardPlayer {
     fn init(&mut self, _game: &game::Game) {}
     fn act(&mut self, game: &game::Game) -> game::Move {
@@ -39,6 +45,12 @@ impl game::PlayerStrategy for DiscardPlayer {
 
 pub struct PlayPlayer;
 
+impl std::fmt::Debug for PlayPlayer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("play")
+    }
+}
+
 impl game::PlayerStrategy for PlayPlayer {
     fn init(&mut self, _game: &game::Game) {}
 
@@ -72,6 +84,12 @@ impl game::PlayerStrategy for PlayPlayer {
 }
 
 pub struct RandCluePlayer;
+
+impl std::fmt::Debug for RandCluePlayer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("rand_clue")
+    }
+}
 
 impl game::PlayerStrategy for RandCluePlayer {
     fn init(&mut self, _game: &game::Game) {}
