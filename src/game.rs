@@ -527,7 +527,9 @@ impl Game {
                     self.num_strikes += 1;
                     if self.num_strikes == 3 {
                         self.state = GameState::Lost();
-                        println!("Game lost due to three strikes");
+                        if self.debug {
+                            println!("Game lost due to three strikes");
+                        }
                     }
                     false
                 };

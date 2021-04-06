@@ -30,14 +30,22 @@ fn main() {
 fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
     let mut lost_games = 0;
     let mut lost_scores: usize = 0;
+    let mut lost_max_scores: usize = 0;
     let mut finished_games = 0;
     let mut finished_scores: usize = 0;
+    let mut finished_max_scores: usize = 0;
     let mut won_games = 0;
-    let mut won_scores: usize = 0;
 
-    for _ in 0..100_000 {
+    let total = 100_000;
+
+    print!("0/{} games simulated", total);
+
+    for i in 0..total {
         let mut game = game::Game::new(players, false);
         game.run(players);
+        if i % 1_000 == 0 {
+            print!("\r{}/{} games simulated", i, total);
+        }
         // println!(
         //     "Game gained {}/{} due to {:?}",
         //     game.score, game.max_score, game.state
@@ -46,38 +54,41 @@ fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
             game::GameState::Lost() => {
                 lost_games += 1;
                 lost_scores += game.score as usize;
+                lost_max_scores += game.max_score as usize;
             }
             game::GameState::Finished() => {
                 finished_games += 1;
                 finished_scores += game.score as usize;
+                finished_max_scores += game.max_score as usize;
             }
             game::GameState::Won() => {
                 won_games += 1;
-                won_scores += game.score as usize;
+                finished_scores += game.score as usize;
+                finished_max_scores += game.max_score as usize;
             }
             _ => unimplemented!("Should not happen as final game score"),
         }
     }
+    println!("\r{}/{} games simulated", total, total);
 
     println!(
-        "Lost {} games with ~{} scores",
+        "Lost {:.2}% ({}) games with ~{:.2}/{:.2} scores",
+        (lost_games * 100) as f64 / total as f64,
         lost_games,
-        lost_scores as f64 / lost_games as f64
+        lost_scores as f64 / lost_games as f64,
+        lost_max_scores as f64 / lost_games as f64,
     );
 
     println!(
-        "Finished {} games with ~{} scores",
+        "Finished {} games with ~{:.2}/{:.2} scores",
         finished_games,
-        (finished_scores + won_scores) as f64 / (finished_games + won_games) as f64
+        finished_scores as f64 / (finished_games + won_games) as f64,
+        finished_max_scores as f64 / (finished_games + won_games) as f64
     );
+    println!("Won {} games", won_games);
     println!(
-        "Won {} games with ~{} scores",
-        won_games,
-        won_scores as f64 / won_games as f64
-    );
-    println!(
-        "Overall {} games with ~{} score",
-        lost_games + finished_games,
-        (finished_scores + won_scores) as f64 / (lost_games + finished_games + won_games) as f64
+        "Overall {} games with ~{:.2} score",
+        lost_games + finished_games + won_games,
+        finished_scores as f64 / (lost_games + finished_games + won_games) as f64
     );
 }
