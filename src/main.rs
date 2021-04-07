@@ -46,11 +46,8 @@ fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
 
     print!("0/{} games simulated", total);
 
-    let mut seed_rng = rand::thread_rng();
-
     for i in 0..total {
-        let seed: u64 = seed_rng.gen();
-        let mut game = game::Game::new(players, false, seed);
+        let mut game = game::Game::new(players, false, i);
         game.run(players);
         if i % 1_000 == 0 {
             print!("\r{}/{} games simulated", i, total);

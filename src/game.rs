@@ -10,7 +10,6 @@ pub use crate::position_set::PositionSet;
 
 use colored::*;
 use rand::prelude::*;
-use rand::thread_rng;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Suite {
