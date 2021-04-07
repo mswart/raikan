@@ -1,6 +1,7 @@
 use std::env;
 
 use hanabi::*;
+use rand::prelude::*;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -18,8 +19,17 @@ fn main() {
     if stats {
         run_stats(&mut players);
     } else {
-        let mut game = game::Game::new(&mut players, true);
+        let seed;
+        println!("args: {:?}", args);
+        if args.len() > 1 {
+            seed = args[1].parse().expect("Invalid seed format");
+        } else {
+            let mut seed_rng = rand::thread_rng();
+            seed = seed_rng.gen();
+        }
+        let mut game = game::Game::new(&mut players, true, seed);
         game.run(&mut players);
+        println!("Used seed {}", seed);
     }
 }
 
@@ -36,8 +46,11 @@ fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
 
     print!("0/{} games simulated", total);
 
+    let mut seed_rng = rand::thread_rng();
+
     for i in 0..total {
-        let mut game = game::Game::new(players, false);
+        let seed: u64 = seed_rng.gen();
+        let mut game = game::Game::new(players, false, seed);
         game.run(players);
         if i % 1_000 == 0 {
             print!("\r{}/{} games simulated", i, total);

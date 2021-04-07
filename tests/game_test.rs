@@ -11,7 +11,7 @@ fn initial_game() {
     players.push(&mut tester1);
     players.push(&mut tester2);
 
-    let game = hanabi::game::Game::new(&mut players, false);
+    let game = hanabi::game::Game::new(&mut players, false, 234);
     assert_eq!(game.state, hanabi::game::GameState::Early());
     assert_eq!(game.score, 0);
     assert_eq!(game.max_score, 25);
@@ -26,7 +26,7 @@ fn discard_game() {
     players.push(&mut tester1);
     players.push(&mut tester2);
 
-    let mut game = hanabi::game::Game::new(&mut players, false);
+    let mut game = hanabi::game::Game::new(&mut players, false, 234);
     assert_eq!(game.run(&mut players), 0);
     assert_ne!(game.max_score, 25); // most cards should have been discarded
     assert_eq!(game.state, hanabi::game::GameState::Finished());
@@ -41,7 +41,7 @@ fn striked_game() {
     players.push(&mut tester1);
     players.push(&mut tester2);
 
-    let mut game = hanabi::game::Game::new(&mut players, false);
+    let mut game = hanabi::game::Game::new(&mut players, false, 1238);
     game.run(&mut players);
     assert_ne!(game.score, 25); // most cards should have been discarded
     assert_eq!(game.state, hanabi::game::GameState::Lost());
@@ -62,7 +62,7 @@ fn too_many_clues() {
     players.push(&mut tester1);
     players.push(&mut tester2);
 
-    let mut game = hanabi::game::Game::new(&mut players, false);
+    let mut game = hanabi::game::Game::new(&mut players, false, 32);
     assert_eq!(game.run(&mut players), 0);
     assert_eq!(game.score, 0);
     assert_eq!(game.max_score, 25);
@@ -79,7 +79,7 @@ fn unknown_clued_player() {
     players.push(&mut tester1);
     players.push(&mut tester2);
 
-    let mut game = hanabi::game::Game::new(&mut players, false);
+    let mut game = hanabi::game::Game::new(&mut players, false, 42);
     assert_eq!(game.run(&mut players), 0);
     assert_eq!(game.score, 0);
     assert_eq!(game.max_score, 25);
@@ -96,7 +96,7 @@ fn clued_self() {
     players.push(&mut tester1);
     players.push(&mut tester2);
 
-    let mut game = hanabi::game::Game::new(&mut players, false);
+    let mut game = hanabi::game::Game::new(&mut players, false, 23409);
     assert_eq!(game.run(&mut players), 0);
     assert_eq!(game.score, 0);
     assert_eq!(game.max_score, 25);

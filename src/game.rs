@@ -256,7 +256,7 @@ pub trait PlayerStrategy: std::fmt::Debug {
 }
 
 impl Game {
-    pub fn new(players: &mut Vec<&mut dyn PlayerStrategy>, debug: bool) -> Self {
+    pub fn new(players: &mut Vec<&mut dyn PlayerStrategy>, debug: bool, seed: u64) -> Self {
         let suites = vec![
             Suite::Red(),
             Suite::Green(),
@@ -265,7 +265,7 @@ impl Game {
             Suite::Purple(),
         ];
 
-        let mut rng = thread_rng();
+        let mut rng = rand_pcg::Pcg64::seed_from_u64(seed);
         let mut deck = Vec::with_capacity(10 * suites.len());
         for suite in suites.iter() {
             for rank in 1..=5 {
