@@ -120,7 +120,7 @@ impl HyphenatedPlayer {
                 if hand.clued && !hand.delayed {
                     continue;
                 }
-                if self.clued_cards.contains(&hand.card) {
+                if self.clued_cards.contains(&hand.card) && !hand.delayed {
                     continue;
                 };
                 for own_hand in self.hand.iter() {
@@ -130,7 +130,6 @@ impl HyphenatedPlayer {
                     }
                 }
                 if let CardPlayState::Playable() = hand.card.play_state(&game) {
-                    // check color clue:
                     let mut valid_rank = true;
                     let mut valid_suite = true;
                     for other_pos in 0..pos {
@@ -160,7 +159,7 @@ impl HyphenatedPlayer {
                             valid_rank = false;
                         }
                     }
-                    if valid_rank {
+                    if valid_rank && !(valid_suite && hand.card.rank == 5) {
                         return Some(game::Move::Clue(
                             player as u8,
                             game::Clue::Rank(hand.card.rank),
@@ -337,8 +336,8 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         self.turn += 1;
         if whom != 0 {
             // somebody else was clued -> remember which cards are clued
-            let mut first = true;
             let chop = self.foreign_chop(whom);
+            let mut first = chop == -1 || !touched.contains(chop as u8);
             for pos in (touched - previously_clued).iter() {
                 let a = self.hands[whom - 1]
                     .get_mut(pos as usize)
@@ -372,11 +371,10 @@ impl game::PlayerStrategy for HyphenatedPlayer {
             .unwrap_or(self.hand.len() as u8 - 1);
         let mut potential_safe = !previously_clued.is_full() && touched.contains(old_chop);
         // check whether it is actually a safe clue?
-        if potential_safe && touched.len() == 1 && clue != game::Clue::Rank(5) {
-            let safe = self.hand[old_chop as usize]
-                .quantum
-                .iter()
-                .any(|card| card.play_state(game) == game::CardPlayState::Critical());
+        if potential_safe && clue != game::Clue::Rank(5) {
+            let safe = self.hand[old_chop as usize].quantum.iter().any(|card| {
+                card.rank != 5 && card.play_state(game) == game::CardPlayState::Critical()
+            });
             if !safe {
                 potential_safe = false;
             }
