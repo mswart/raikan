@@ -105,6 +105,12 @@ impl CardQuantum {
         self.cards[index] &= rank_bit;
     }
 
+    pub fn contains(&self, card: &game::Card) -> bool {
+        let index = self.variant.suite_index(&card.suite);
+        let rank_bit = !(1 << (card.rank - 1));
+        self.cards[index] & rank_bit > 0
+    }
+
     pub fn is_rank(&self, rank: u8) -> bool {
         let bit_test = !(1 << (rank - 1));
         for suite_index in 0..self.variant.suites().len() {
