@@ -121,7 +121,6 @@ impl PositionSet {
     /// a.add(3);
     /// assert!(!a.is_empty());
     /// ```
-    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.bits == 0
     }

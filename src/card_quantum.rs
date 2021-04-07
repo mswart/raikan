@@ -68,7 +68,6 @@ impl CardQuantum {
 
     /// Unset all possible cards. Use this function if you want to manually
     /// define the set of possible cards with `.add_card`
-    #[allow(dead_code)]
     pub fn clear(&mut self) {
         for i in 0..self.variant.len() {
             self.cards[i] = 0;
@@ -94,7 +93,6 @@ impl CardQuantum {
         }
     }
 
-    #[allow(dead_code)]
     pub fn add_card(&mut self, card: &game::Card) {
         let index = self.variant.suite_index(&card.suite);
         let rank_bit = 1 << (card.rank - 1);

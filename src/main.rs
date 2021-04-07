@@ -1,10 +1,6 @@
 use std::env;
 
-// mod dump_strategies;
-mod card_quantum;
-mod game;
-mod hyphenated;
-mod position_set;
+use hanabi::*;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
