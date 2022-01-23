@@ -30,6 +30,7 @@ fn main() {
         let mut game = game::Game::new(&mut players, true, seed);
         game.run(&mut players);
         println!("Used seed {}", seed);
+        game.print_replay();
     }
 }
 

@@ -10,6 +10,7 @@ pub use crate::position_set::PositionSet;
 
 use colored::*;
 use rand::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Suite {
@@ -131,11 +132,16 @@ impl Card {
 pub struct CardState {
     card: Card,
     clued: bool,
+    index: u8,
 }
 
 impl CardState {
-    fn from_card(card: Card) -> Self {
-        Self { card, clued: false }
+    fn from_card(card: Card, index: u8) -> Self {
+        Self {
+            card,
+            clued: false,
+            index,
+        }
     }
 
     fn clue(&mut self, clue: Clue) -> bool {
@@ -181,6 +187,34 @@ pub enum GameState {
     Invalid(),
 }
 
+#[derive(Serialize, Deserialize)]
+struct HanabiLiveCard {
+    #[serde(rename = "suitIndex")]
+    suite_index: u8,
+    rank: u8,
+}
+
+#[derive(Serialize, Deserialize)]
+struct HanabiLiveAction {
+    #[serde(rename = "type")]
+    action: u8,
+    target: u8,
+    value: Option<u8>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct HanabiLiveOptions {
+    variant: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct HanabiLiveGame {
+    players: Vec<String>,
+    deck: Vec<HanabiLiveCard>,
+    actions: Vec<HanabiLiveAction>,
+    options: HanabiLiveOptions,
+}
+
 type Hand = VecDeque<CardState>;
 
 pub struct Game {
@@ -198,6 +232,7 @@ pub struct Game {
     active_player: usize,
     pub state: GameState,
     debug: bool,
+    replay: HanabiLiveGame,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -293,6 +328,16 @@ impl Game {
             hands.push(Hand::with_capacity(num_cards));
         }
 
+        let mut player_names = vec![
+            "Alice".to_string(),
+            "Bob".to_string(),
+            "Cathy".to_string(),
+            "Donold".to_string(),
+            "Emily".to_string(),
+            "F".to_string(),
+        ];
+        player_names.truncate(players.len());
+
         let mut game = Self {
             score: 0,
             score_integral: 0,
@@ -308,6 +353,14 @@ impl Game {
             clues: 8,
             state: GameState::Early(),
             debug,
+            replay: HanabiLiveGame {
+                actions: Vec::new(),
+                deck: Vec::new(),
+                options: HanabiLiveOptions {
+                    variant: "No Variant".to_string(),
+                },
+                players: player_names,
+            },
         };
         for strategy in players.iter_mut() {
             strategy.init(&game);
@@ -410,7 +463,7 @@ impl Game {
 
     fn draw_card(&mut self, player: usize, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
         if let Some(card) = self.deck.pop_front() {
-            self.hands[player].push_front(CardState::from_card(card));
+            self.hands[player].push_front(CardState::from_card(card, self.replay.deck.len() as u8));
             if self.deck.len() == 0 {
                 self.state = GameState::Final(self.hands.len() as u8);
             }
@@ -421,6 +474,10 @@ impl Game {
                     strategy.drawn(self.relative_player_index(player, notify_player), card);
                 }
             }
+            self.replay.deck.push(HanabiLiveCard {
+                rank: card.rank,
+                suite_index: self.suites.iter().position(|&s| s == card.suite).unwrap() as u8,
+            })
         }
     }
 
@@ -483,6 +540,11 @@ impl Game {
                         card.card,
                     );
                 }
+                self.replay.actions.push(HanabiLiveAction {
+                    action: 1,
+                    target: card.index,
+                    value: None,
+                });
                 self.draw_card(self.active_player, strategies);
             }
             Move::Play(pos) => {
@@ -498,6 +560,11 @@ impl Game {
                     return;
                 }
                 let card = card.unwrap();
+                self.replay.actions.push(HanabiLiveAction {
+                    action: 0,
+                    target: card.index,
+                    value: None,
+                });
                 let success = if self.played_rank(&card.card.suite) + 1 == card.card.rank {
                     if self.debug {
                         println!(
@@ -577,6 +644,27 @@ impl Game {
                         touched.add(pos as u8);
                     }
                 }
+                match clue {
+                    Clue::Rank(rank) => {
+                        self.replay.actions.push(HanabiLiveAction {
+                            action: 3,
+                            target: player_index as u8,
+                            value: Some(rank),
+                        });
+                    }
+                    Clue::Color(color) => {
+                        self.replay.actions.push(HanabiLiveAction {
+                            action: 2,
+                            target: player_index as u8,
+                            value: Some(
+                                self.suites
+                                    .iter()
+                                    .position(|&s| s == color.suite())
+                                    .unwrap() as u8,
+                            ),
+                        });
+                    }
+                }
                 if self.debug {
                     println!(
                         "Player {} clue played {} about {} {:?} cards",
@@ -598,5 +686,10 @@ impl Game {
         }
         self.active_player = (self.active_player + 1) % self.hands.len();
         self.score_integral += self.score as u16;
+    }
+
+    pub fn print_replay(&self) {
+        let serialized = serde_json::to_string(&self.replay).unwrap();
+        println!("replay JSON: {}", serialized);
     }
 }
