@@ -13,7 +13,7 @@ use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Suite {
+pub enum Suit {
     Red(),
     Green(),
     Yellow(),
@@ -21,7 +21,7 @@ pub enum Suite {
     Purple(),
 }
 
-impl Suite {
+impl Suit {
     pub fn color(&self) -> Color {
         match self {
             Self::Red() => Color::Red,
@@ -75,52 +75,52 @@ impl Suite {
     }
 }
 
-impl std::fmt::Display for Suite {
+impl std::fmt::Display for Suit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.char().to_string().color(self.color()).fmt(f)
     }
 }
 
-impl std::fmt::Debug for Suite {
+impl std::fmt::Debug for Suit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self)
     }
 }
 
 #[cfg(test)]
-mod suite_tests {
+mod suit_tests {
     use super::*;
 
     #[test]
     fn card_counts() {
-        for suite in [Suite::Blue(), Suite::Green()].iter() {
-            assert_eq!(suite.card_count(1), 3);
-            assert_eq!(suite.card_count(2), 2);
-            assert_eq!(suite.card_count(3), 2);
-            assert_eq!(suite.card_count(4), 2);
-            assert_eq!(suite.card_count(5), 1);
+        for suit in [Suit::Blue(), Suit::Green()].iter() {
+            assert_eq!(suit.card_count(1), 3);
+            assert_eq!(suit.card_count(2), 2);
+            assert_eq!(suit.card_count(3), 2);
+            assert_eq!(suit.card_count(4), 2);
+            assert_eq!(suit.card_count(5), 1);
         }
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Card {
-    pub suite: Suite,
+    pub suit: Suit,
     pub rank: u8,
 }
 
 impl Card {
     fn affected(&self, clue: Clue) -> bool {
-        self.suite.affected(self.rank, clue)
+        self.suit.affected(self.rank, clue)
     }
     pub fn play_state(&self, game: &Game) -> CardPlayState {
-        if self.rank > game.max_rank_for_suite(self.suite) {
+        if self.rank > game.max_rank_for_suit(self.suit) {
             return CardPlayState::Dead();
         }
-        match self.rank as i8 - game.played_rank(&self.suite) as i8 {
+        match self.rank as i8 - game.played_rank(&self.suit) as i8 {
             diff if diff <= 0 => CardPlayState::Trash(),
             1 => CardPlayState::Playable(),
-            _ => match self.suite.card_count(self.rank) - game.discarded.get(self).unwrap_or(&0) {
+            _ => match self.suit.card_count(self.rank) - game.discarded.get(self).unwrap_or(&0) {
                 0 => CardPlayState::Dead(),
                 1 => CardPlayState::Critical(),
                 _ => CardPlayState::Normal(),
@@ -171,7 +171,7 @@ impl std::fmt::Debug for Card {
         write!(
             f,
             "{}",
-            format!("{}{}", self.suite.char(), self.rank).color(self.suite.color())
+            format!("{}{}", self.suit.char(), self.rank).color(self.suit.color())
         )
     }
 }
@@ -190,7 +190,7 @@ pub enum GameState {
 #[derive(Serialize, Deserialize)]
 struct HanabiLiveCard {
     #[serde(rename = "suitIndex")]
-    suite_index: u8,
+    suit_index: u8,
     rank: u8,
 }
 
@@ -218,7 +218,7 @@ struct HanabiLiveGame {
 type Hand = VecDeque<CardState>;
 
 pub struct Game {
-    pub suites: Vec<Suite>,
+    pub suits: Vec<Suit>,
     pub score: u8,
     pub max_score: u8,
     pub score_integral: u16,
@@ -245,13 +245,13 @@ pub enum ClueColor {
 }
 
 impl ClueColor {
-    pub fn suite(&self) -> Suite {
+    pub fn suit(&self) -> Suit {
         match self {
-            ClueColor::Red() => Suite::Red(),
-            ClueColor::Yellow() => Suite::Yellow(),
-            ClueColor::Blue() => Suite::Blue(),
-            ClueColor::Green() => Suite::Green(),
-            ClueColor::Purple() => Suite::Purple(),
+            ClueColor::Red() => Suit::Red(),
+            ClueColor::Yellow() => Suit::Yellow(),
+            ClueColor::Blue() => Suit::Blue(),
+            ClueColor::Green() => Suit::Green(),
+            ClueColor::Purple() => Suit::Purple(),
         }
     }
 }
@@ -292,21 +292,21 @@ pub trait PlayerStrategy: std::fmt::Debug {
 
 impl Game {
     pub fn new(players: &mut Vec<&mut dyn PlayerStrategy>, debug: bool, seed: u64) -> Self {
-        let suites = vec![
-            Suite::Red(),
-            Suite::Green(),
-            Suite::Yellow(),
-            Suite::Blue(),
-            Suite::Purple(),
+        let suits = vec![
+            Suit::Red(),
+            Suit::Green(),
+            Suit::Yellow(),
+            Suit::Blue(),
+            Suit::Purple(),
         ];
 
         let mut rng = rand_pcg::Pcg64::seed_from_u64(seed);
-        let mut deck = Vec::with_capacity(10 * suites.len());
-        for suite in suites.iter() {
+        let mut deck = Vec::with_capacity(10 * suits.len());
+        for suit in suits.iter() {
             for rank in 1..=5 {
-                for _count in 0..suite.card_count(rank) {
+                for _count in 0..suit.card_count(rank) {
                     deck.push(Card {
-                        suite: suite.clone(),
+                        suit: suit.clone(),
                         rank: rank,
                     });
                 }
@@ -341,14 +341,14 @@ impl Game {
         let mut game = Self {
             score: 0,
             score_integral: 0,
-            max_score: 5 * suites.len() as u8,
+            max_score: 5 * suits.len() as u8,
             turn: 0,
             deck: deck.into(),
             discarded: BTreeMap::new(),
-            played: vec![0; suites.len()],
+            played: vec![0; suits.len()],
             hands,
             num_strikes: 0,
-            suites,
+            suits,
             active_player: 0,
             clues: 8,
             state: GameState::Early(),
@@ -386,8 +386,8 @@ impl Game {
     pub fn dump(&self, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
         println!("Game:");
         println!(
-            "  suites={:?} turn={} score={}/{} (sum: {}) strikes={} clues={} state={:?}",
-            self.suites,
+            "  suits={:?} turn={} score={}/{} (sum: {}) strikes={} clues={} state={:?}",
+            self.suits,
             self.turn,
             self.score,
             self.max_score,
@@ -397,8 +397,8 @@ impl Game {
             self.state,
         );
         print!("  played:");
-        for (pos, suite) in self.suites.iter().enumerate() {
-            print!(" {}={}", suite, self.played[pos]);
+        for (pos, suit) in self.suits.iter().enumerate() {
+            print!(" {}={}", suit, self.played[pos]);
         }
         println!("");
         println!("  discarded: {:?}", self.discarded);
@@ -436,9 +436,9 @@ impl Game {
         self.score
     }
 
-    fn played_rank(&self, suite: &Suite) -> u8 {
-        for (pos, current_suite) in self.suites.iter().enumerate() {
-            if current_suite == suite {
+    fn played_rank(&self, suit: &Suit) -> u8 {
+        for (pos, current_suit) in self.suits.iter().enumerate() {
+            if current_suit == suit {
                 return self.played[pos];
             }
         }
@@ -451,7 +451,7 @@ impl Game {
             .entry(card)
             .and_modify(|e| *e += 1)
             .or_insert(1);
-        if count == card.suite.card_count(card.rank) {
+        if count == card.suit.card_count(card.rank) {
             // a card is lost -> updated maximal possible score based on remaining cards
             self.update_max_score();
         }
@@ -476,26 +476,26 @@ impl Game {
             }
             self.replay.deck.push(HanabiLiveCard {
                 rank: card.rank,
-                suite_index: self.suites.iter().position(|&s| s == card.suite).unwrap() as u8,
+                suit_index: self.suits.iter().position(|&s| s == card.suit).unwrap() as u8,
             })
         }
     }
 
     fn update_max_score(&mut self) {
         self.max_score = 0;
-        for suite in self.suites.iter() {
-            self.max_score += self.max_rank_for_suite(*suite);
+        for suit in self.suits.iter() {
+            self.max_score += self.max_rank_for_suit(*suit);
         }
     }
 
-    pub fn max_rank_for_suite(&self, suite: Suite) -> u8 {
+    pub fn max_rank_for_suit(&self, suit: Suit) -> u8 {
         let mut max = 0;
         while max < 5 {
             let card = Card {
-                suite,
+                suit,
                 rank: max + 1,
             };
-            if *self.discarded.get(&card).unwrap_or(&0) == suite.card_count(max + 1) {
+            if *self.discarded.get(&card).unwrap_or(&0) == suit.card_count(max + 1) {
                 return max;
             }
             max += 1;
@@ -565,23 +565,23 @@ impl Game {
                     target: card.index,
                     value: None,
                 });
-                let success = if self.played_rank(&card.card.suite) + 1 == card.card.rank {
+                let success = if self.played_rank(&card.card.suit) + 1 == card.card.rank {
                     if self.debug {
                         println!(
                             "Player {} played successfully {:?} from pos {}",
                             self.active_player, card, pos
                         );
                     }
-                    for (suite_pos, current_suite) in self.suites.iter().enumerate() {
-                        if *current_suite == card.card.suite {
-                            self.played[suite_pos] += 1;
+                    for (suit_pos, current_suit) in self.suits.iter().enumerate() {
+                        if *current_suit == card.card.suit {
+                            self.played[suit_pos] += 1;
                         }
                     }
                     self.score += 1;
                     if card.card.rank == 5 && self.clues < 8 {
                         self.clues += 1;
                     }
-                    if self.score as usize == self.suites.len() * 5 {
+                    if self.score as usize == self.suits.len() * 5 {
                         self.state = GameState::Won();
                     }
                     true
@@ -657,10 +657,7 @@ impl Game {
                             action: 2,
                             target: player_index as u8,
                             value: Some(
-                                self.suites
-                                    .iter()
-                                    .position(|&s| s == color.suite())
-                                    .unwrap() as u8,
+                                self.suits.iter().position(|&s| s == color.suit()).unwrap() as u8,
                             ),
                         });
                     }

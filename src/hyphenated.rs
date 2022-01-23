@@ -134,11 +134,11 @@ impl HyphenatedPlayer {
                 }
                 if let CardPlayState::Playable() = hand.card.play_state(&game) {
                     let mut valid_rank = true;
-                    let mut valid_suite = true;
+                    let mut valid_suit = true;
                     for other_pos in 0..pos {
                         let other_card = self.hands[player - 1][other_pos].card;
-                        if other_card.suite == hand.card.suite {
-                            valid_suite = false;
+                        if other_card.suit == hand.card.suit {
+                            valid_suit = false;
                         }
                         if other_card.rank == hand.card.rank {
                             valid_rank = false;
@@ -155,23 +155,23 @@ impl HyphenatedPlayer {
                         {
                             continue;
                         }
-                        if other_card.suite == hand.card.suite {
-                            valid_suite = false;
+                        if other_card.suit == hand.card.suit {
+                            valid_suit = false;
                         }
                         if other_card.rank == hand.card.rank {
                             valid_rank = false;
                         }
                     }
-                    if valid_rank && !(valid_suite && hand.card.rank == 5) {
+                    if valid_rank && !(valid_suit && hand.card.rank == 5) {
                         return Some(game::Move::Clue(
                             player as u8,
                             game::Clue::Rank(hand.card.rank),
                         ));
                     }
-                    if valid_suite {
+                    if valid_suit {
                         return Some(game::Move::Clue(
                             player as u8,
-                            game::Clue::Color(hand.card.suite.clue_color()),
+                            game::Clue::Color(hand.card.suit.clue_color()),
                         ));
                     }
                 }
@@ -199,7 +199,7 @@ impl HyphenatedPlayer {
                 }
                 return Some(game::Move::Clue(
                     player as u8,
-                    game::Clue::Color(card.suite.clue_color()),
+                    game::Clue::Color(card.suit.clue_color()),
                 ));
             }
         }
@@ -249,7 +249,7 @@ impl HyphenatedPlayer {
             .entry(card)
             .and_modify(|e| *e += 1)
             .or_insert(1);
-        if *count == card.suite.card_count(card.rank) {
+        if *count == card.suit.card_count(card.rank) {
             // all instances of card are tracked (elsewhere!), card cannot be in our hand
             for hand in self.hand.iter_mut() {
                 hand.quantum.remove_card(&card);
@@ -260,7 +260,7 @@ impl HyphenatedPlayer {
     /// Evaluate the best opening move (primarily which ones to clue first)
     /// As usual, we try to be efficient with the clues but allow progress (letting one
     /// player play all ones might produce a pace issue)
-    fn opening_score(&self, preivous_suites: PositionSet) -> Option<(u8, game::Move)> {
+    fn opening_score(&self, preivous_suits: PositionSet) -> Option<(u8, game::Move)> {
         let mut best_score = 0;
         let mut best_opening = game::Move::Discard(self.hand.len() as u8 - 1);
         // collect the overall visible number of ones:
@@ -270,36 +270,36 @@ impl HyphenatedPlayer {
                 if player_pos.card.rank != 1 {
                     continue;
                 }
-                let index = self.variant.suite_index(&player_pos.card.suite) as u8;
+                let index = self.variant.suit_index(&player_pos.card.suit) as u8;
                 visible_ones.add(index);
             }
         }
         // 1. check one clues on all players:
         'player: for (player, hand) in self.hands.iter().enumerate() {
-            let mut touched_suites = preivous_suites;
+            let mut touched_suits = preivous_suits;
             for player_pos in hand.iter() {
                 if player_pos.card.rank != 1 {
                     continue;
                 }
-                let index = self.variant.suite_index(&player_pos.card.suite) as u8;
-                if touched_suites.contains(index) {
+                let index = self.variant.suit_index(&player_pos.card.suit) as u8;
+                if touched_suits.contains(index) {
                     continue 'player;
                 }
-                touched_suites.add(index);
+                touched_suits.add(index);
             }
-            let mut score = (touched_suites.len() - preivous_suites.len()) * 10;
+            let mut score = (touched_suits.len() - preivous_suits.len()) * 10;
             if score == 0 {
                 continue;
             }
             // check whether the remaining ones are still practical:
 
-            if let Some((further_score, _opening)) = self.opening_score(touched_suites) {
+            if let Some((further_score, _opening)) = self.opening_score(touched_suits) {
                 score += further_score - 1;
             }
             if self.debug {
                 println!(
                     "[{:?}] player {} with ones: {}",
-                    preivous_suites, player, score
+                    preivous_suits, player, score
                 );
             }
 
@@ -310,17 +310,17 @@ impl HyphenatedPlayer {
         }
         // 2. check for color clues:
         for (player, hand) in self.hands.iter().enumerate() {
-            'clue_color: for (index, suite) in self.variant.suites().iter().enumerate() {
+            'clue_color: for (index, suit) in self.variant.suits().iter().enumerate() {
                 if !visible_ones.contains(index as u8) {
                     continue;
                 }
-                if preivous_suites.contains(index as u8) {
+                if preivous_suits.contains(index as u8) {
                     continue;
                 }
                 let mut score = 10;
                 let mut touched = PositionSet::new(6);
                 for player_pos in hand.iter() {
-                    if *suite != player_pos.card.suite {
+                    if *suit != player_pos.card.suit {
                         continue;
                     }
                     if touched.len() == 0 && player_pos.card.rank != 1 {
@@ -341,13 +341,13 @@ impl HyphenatedPlayer {
                 if self.debug {
                     println!(
                         "[{:?}] player {} with {}: {}",
-                        preivous_suites, player, suite, score
+                        preivous_suits, player, suit, score
                     );
                 }
                 if score >= best_score && best_score != 30 {
                     best_score = score;
                     best_opening =
-                        game::Move::Clue(player as u8 + 1, game::Clue::Color(suite.clue_color()));
+                        game::Move::Clue(player as u8 + 1, game::Clue::Color(suit.clue_color()));
                 }
             }
         }
@@ -405,7 +405,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
             clued: false,
         };
         for (card, count) in self.tracked_cards.iter() {
-            if *count == card.suite.card_count(card.rank) {
+            if *count == card.suit.card_count(card.rank) {
                 // a card is lost -> updated maximal possible score based on remaining cards
                 hand.quantum.remove_card(card);
             }
@@ -483,7 +483,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
                     .limit_by_rank(rank as usize, touched.contains(pos)),
                 game::Clue::Color(color) => self.hand[pos as usize]
                     .quantum
-                    .limit_by_suite(&color.suite(), touched.contains(pos)),
+                    .limit_by_suit(&color.suit(), touched.contains(pos)),
             }
         }
         let old_chop = (!previously_clued)

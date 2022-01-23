@@ -9,20 +9,20 @@ impl Variant {
         5
     }
 
-    pub fn suites(&self) -> [game::Suite; 5] {
+    pub fn suits(&self) -> [game::Suit; 5] {
         [
-            game::Suite::Red(),
-            game::Suite::Green(),
-            game::Suite::Yellow(),
-            game::Suite::Blue(),
-            game::Suite::Purple(),
+            game::Suit::Red(),
+            game::Suit::Green(),
+            game::Suit::Yellow(),
+            game::Suit::Blue(),
+            game::Suit::Purple(),
         ]
     }
 
-    pub fn suite_index(&self, suite: &game::Suite) -> usize {
-        let suites = self.suites();
-        for index in 0..suites.len() {
-            if suites[index] == *suite {
+    pub fn suit_index(&self, suit: &game::Suit) -> usize {
+        let suits = self.suits();
+        for index in 0..suits.len() {
+            if suits[index] == *suit {
                 return index;
             }
         }
@@ -38,13 +38,13 @@ pub struct CardQuantum {
 
 impl std::fmt::Display for CardQuantum {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (index, suite) in self.variant.suites().iter().enumerate() {
+        for (index, suit) in self.variant.suits().iter().enumerate() {
             for (bit, char) in ['1', '2', '3', '4', '5'].iter().enumerate() {
                 std::fmt::Display::fmt(
                     &if (1 << bit) & self.cards[index] > 0 {
-                        char.to_string().color(suite.color()).bold()
+                        char.to_string().color(suit.color()).bold()
                     } else {
-                        char.to_string().color(suite.color()).strikethrough()
+                        char.to_string().color(suit.color()).strikethrough()
                     },
                     f,
                 )?;
@@ -74,8 +74,8 @@ impl CardQuantum {
         }
     }
 
-    pub fn limit_by_suite(&mut self, suite: &game::Suite, effect: bool) {
-        let index = self.variant.suite_index(suite);
+    pub fn limit_by_suit(&mut self, suit: &game::Suit, effect: bool) {
+        let index = self.variant.suit_index(suit);
         for i in 0..self.variant.len() {
             if (i != index) == effect {
                 self.cards[i] = 0;
@@ -94,27 +94,27 @@ impl CardQuantum {
     }
 
     pub fn add_card(&mut self, card: &game::Card) {
-        let index = self.variant.suite_index(&card.suite);
+        let index = self.variant.suit_index(&card.suit);
         let rank_bit = 1 << (card.rank - 1);
         self.cards[index] |= rank_bit;
     }
 
     pub fn remove_card(&mut self, card: &game::Card) {
-        let index = self.variant.suite_index(&card.suite);
+        let index = self.variant.suit_index(&card.suit);
         let rank_bit = !(1 << (card.rank - 1));
         self.cards[index] &= rank_bit;
     }
 
     pub fn contains(&self, card: &game::Card) -> bool {
-        let index = self.variant.suite_index(&card.suite);
+        let index = self.variant.suit_index(&card.suit);
         let rank_bit = !(1 << (card.rank - 1));
         self.cards[index] & rank_bit > 0
     }
 
     pub fn is_rank(&self, rank: u8) -> bool {
         let bit_test = !(1 << (rank - 1));
-        for suite_index in 0..self.variant.suites().len() {
-            if self.cards[suite_index] & bit_test > 0 {
+        for suit_index in 0..self.variant.suits().len() {
+            if self.cards[suit_index] & bit_test > 0 {
                 return false;
             }
         }
@@ -128,7 +128,7 @@ impl<'a> CardQuantum {
             variant: &self.variant,
             cards: &self.cards,
             current_card: game::Card {
-                suite: self.variant.suites()[0],
+                suit: self.variant.suits()[0],
                 rank: 0,
             },
         }
@@ -144,23 +144,23 @@ impl<'a> Iterator for CardIterator<'a> {
     type Item = game::Card;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut current_index = self.variant.suite_index(&self.current_card.suite);
+        let mut current_index = self.variant.suit_index(&self.current_card.suit);
 
         let remaining_bits = self.cards[current_index] >> self.current_card.rank;
         if remaining_bits != 0 {
-            // card in same suite in quantum
+            // card in same suit in quantum
             self.current_card.rank += remaining_bits.trailing_zeros() as u8 + 1;
             return Some(self.current_card);
         }
-        let suites = self.variant.suites();
-        // switch to next suites
-        while current_index + 1 < suites.len() {
+        let suits = self.variant.suits();
+        // switch to next suits
+        while current_index + 1 < suits.len() {
             current_index += 1;
             if self.cards[current_index] == 0 {
                 continue;
             }
             self.current_card = game::Card {
-                suite: self.variant.suites()[current_index],
+                suit: self.variant.suits()[current_index],
                 rank: self.cards[current_index].trailing_zeros() as u8 + 1,
             };
             return Some(self.current_card);
