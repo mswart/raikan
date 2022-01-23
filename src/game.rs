@@ -187,6 +187,7 @@ pub struct Game {
     pub suites: Vec<Suite>,
     pub score: u8,
     pub max_score: u8,
+    pub score_integral: u16,
     pub turn: u8,
     pub discarded: BTreeMap<Card, u8>,
     pub played: Vec<u8>,
@@ -294,6 +295,7 @@ impl Game {
 
         let mut game = Self {
             score: 0,
+            score_integral: 0,
             max_score: 5 * suites.len() as u8,
             turn: 0,
             deck: deck.into(),
@@ -331,11 +333,12 @@ impl Game {
     pub fn dump(&self, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
         println!("Game:");
         println!(
-            "  suites={:?} turn={} score={}/{} strikes={} clues={} state={:?}",
+            "  suites={:?} turn={} score={}/{} (sum: {}) strikes={} clues={} state={:?}",
             self.suites,
             self.turn,
             self.score,
             self.max_score,
+            self.score_integral,
             self.num_strikes,
             self.clues,
             self.state,
@@ -594,5 +597,6 @@ impl Game {
             }
         }
         self.active_player = (self.active_player + 1) % self.hands.len();
+        self.score_integral += self.score as u16;
     }
 }

@@ -1,7 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use crate::card_quantum::{CardQuantum, Variant};
 use crate::game::{self, CardPlayState};
+use crate::{
+    card_quantum::{CardQuantum, Variant},
+    PositionSet,
+};
 
 struct OwnHand {
     quantum: CardQuantum,
@@ -253,6 +256,124 @@ impl HyphenatedPlayer {
             }
         }
     }
+
+    /// Evaluate the best opening move (primarily which ones to clue first)
+    /// As usual, we try to be efficient with the clues but allow progress (letting one
+    /// player play all ones might produce a pace issue)
+    fn opening_score(&self, preivous_suites: PositionSet) -> Option<(u8, game::Move)> {
+        let mut best_score = 0;
+        let mut best_opening = game::Move::Discard(self.hand.len() as u8 - 1);
+        // collect the overall visible number of ones:
+        let mut visible_ones = game::PositionSet::new(self.variant.len() as u8);
+        for hand in self.hands.iter() {
+            for player_pos in hand.iter() {
+                if player_pos.card.rank != 1 {
+                    continue;
+                }
+                let index = self.variant.suite_index(&player_pos.card.suite) as u8;
+                visible_ones.add(index);
+            }
+        }
+        // 1. check one clues on all players:
+        'player: for (player, hand) in self.hands.iter().enumerate() {
+            let mut touched_suites = preivous_suites;
+            for player_pos in hand.iter() {
+                if player_pos.card.rank != 1 {
+                    continue;
+                }
+                let index = self.variant.suite_index(&player_pos.card.suite) as u8;
+                if touched_suites.contains(index) {
+                    continue 'player;
+                }
+                touched_suites.add(index);
+            }
+            let mut score = (touched_suites.len() - preivous_suites.len()) * 10;
+            if score == 0 {
+                continue;
+            }
+            // check whether the remaining ones are still practical:
+
+            if let Some((further_score, _opening)) = self.opening_score(touched_suites) {
+                score += further_score - 1;
+            }
+            if self.debug {
+                println!(
+                    "[{:?}] player {} with ones: {}",
+                    preivous_suites, player, score
+                );
+            }
+
+            if score > best_score {
+                best_score = score;
+                best_opening = game::Move::Clue(player as u8 + 1, game::Clue::Rank(1));
+            }
+        }
+        // 2. check for color clues:
+        for (player, hand) in self.hands.iter().enumerate() {
+            'clue_color: for (index, suite) in self.variant.suites().iter().enumerate() {
+                if !visible_ones.contains(index as u8) {
+                    continue;
+                }
+                if preivous_suites.contains(index as u8) {
+                    continue;
+                }
+                let mut score = 10;
+                let mut touched = PositionSet::new(6);
+                for player_pos in hand.iter() {
+                    if *suite != player_pos.card.suite {
+                        continue;
+                    }
+                    if touched.len() == 0 && player_pos.card.rank != 1 {
+                        continue 'clue_color;
+                    }
+                    if touched.contains(player_pos.card.rank) {
+                        continue 'clue_color;
+                    };
+                    touched.add(player_pos.card.rank);
+                }
+                if touched.len() == 0 {
+                    continue;
+                }
+                score += touched.len() - 1;
+                if touched.contains(5) {
+                    score += 5;
+                }
+                if self.debug {
+                    println!(
+                        "[{:?}] player {} with {}: {}",
+                        preivous_suites, player, suite, score
+                    );
+                }
+                if score >= best_score && best_score != 30 {
+                    best_score = score;
+                    best_opening =
+                        game::Move::Clue(player as u8 + 1, game::Clue::Color(suite.clue_color()));
+                }
+            }
+        }
+        if best_score > 0 {
+            Some((best_score, best_opening))
+        } else {
+            None
+        }
+    }
+
+    // /// Evaluate the best opening move (primarily which ones to clue first)
+    // /// As usual, we try to be efficient with the clues but allow progress (letting one
+    // /// player play all ones might produce a pace issue)
+    // fn opening(&self, game:) -> game::Move {
+    //     if let Some((_score, opening)) =
+    //         self.opening_score(PositionSet::new(self.variant.len() as u8))
+    //     {
+    //         opening
+    //     } else {
+    //         // look for critical cards on chop:
+    //         if let Some(safe_clue) = self.give_save_clue(game) {
+    //             return safe_clue;
+    //         }
+    //         game::Move::Discard(self.hand.len() as u8 - 1)
+    //     }
+    // }
 }
 
 impl game::PlayerStrategy for HyphenatedPlayer {
@@ -311,7 +432,6 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         } else {
             self.hands[player - 1].remove(pos);
         }
-        self.turn += 1;
     }
 
     fn discarded(&mut self, player: usize, pos: usize, card: game::Card) {
@@ -349,7 +469,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
                         own_hand.quantum.remove_card(&a.card);
                     }
                 }
-                if !first || pos as i8 == chop {
+                if (!first || pos as i8 == chop) && clue != game::Clue::Rank(1) {
                     a.delayed = true;
                 }
                 first = false;
@@ -372,10 +492,10 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         let mut potential_safe = !previously_clued.is_full() && touched.contains(old_chop);
         // check whether it is actually a safe clue?
         if potential_safe && clue != game::Clue::Rank(5) {
-            let safe = self.hand[old_chop as usize].quantum.iter().any(|card| {
+            let safe_worthy = self.hand[old_chop as usize].quantum.iter().any(|card| {
                 card.rank != 5 && card.play_state(game) == game::CardPlayState::Critical()
             });
-            if !safe {
+            if !safe_worthy {
                 potential_safe = false;
             }
         }
@@ -410,6 +530,13 @@ impl game::PlayerStrategy for HyphenatedPlayer {
     }
 
     fn act(&mut self, game: &game::Game) -> game::Move {
+        if self.turn == 0 {
+            if let Some((_score, opening)) =
+                self.opening_score(PositionSet::new(self.variant.len() as u8))
+            {
+                return opening;
+            }
+        }
         if let Some(play_move) = self.play(game) {
             return play_move;
         }

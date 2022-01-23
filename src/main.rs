@@ -39,6 +39,7 @@ fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
     let mut lost_max_scores: usize = 0;
     let mut finished_games = 0;
     let mut finished_scores: usize = 0;
+    let mut finished_score_intergrals: usize = 0;
     let mut finished_max_scores: usize = 0;
     let mut won_games = 0;
 
@@ -65,6 +66,7 @@ fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
             game::GameState::Finished() => {
                 finished_games += 1;
                 finished_scores += game.score as usize;
+                finished_score_intergrals += game.score_integral as usize;
                 finished_max_scores += game.max_score as usize;
             }
             game::GameState::Won() => {
@@ -86,10 +88,11 @@ fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
     );
 
     println!(
-        "Finished {} games with ~{:.2}/{:.2} scores",
+        "Finished {} games with ~{:.2}/{:.2} scores (~{:.2} integral)",
         finished_games,
         finished_scores as f64 / (finished_games + won_games) as f64,
-        finished_max_scores as f64 / (finished_games + won_games) as f64
+        finished_max_scores as f64 / (finished_games + won_games) as f64,
+        finished_score_intergrals as f64 / finished_games as f64,
     );
     println!("Won {} games", won_games);
     println!(

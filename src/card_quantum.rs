@@ -6,7 +6,7 @@ pub struct Variant {}
 
 impl Variant {
     pub fn len(&self) -> usize {
-        6
+        5
     }
 
     pub fn suites(&self) -> [game::Suite; 5] {
