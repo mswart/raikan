@@ -199,6 +199,7 @@ struct HanabiLiveAction {
     #[serde(rename = "type")]
     action: u8,
     target: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
     value: Option<u8>,
 }
 
@@ -294,8 +295,8 @@ impl Game {
     pub fn new(players: &mut Vec<&mut dyn PlayerStrategy>, debug: bool, seed: u64) -> Self {
         let suits = vec![
             Suit::Red(),
-            Suit::Green(),
             Suit::Yellow(),
+            Suit::Green(),
             Suit::Blue(),
             Suit::Purple(),
         ];
@@ -422,7 +423,14 @@ impl Game {
                 GameState::Mid() => {
                     self.play(strategies);
                 }
-                GameState::Final(0) => self.state = GameState::Finished(),
+                GameState::Final(0) => {
+                    self.replay.actions.push(HanabiLiveAction {
+                        action: 4,
+                        target: self.active_player as u8,
+                        value: Some(1), // normal end
+                    });
+                    self.state = GameState::Finished()
+                }
                 GameState::Final(remaining) => {
                     self.play(strategies);
                     self.state = GameState::Final(remaining - 1)
@@ -516,6 +524,11 @@ impl Game {
                         pos,
                         self.hands[self.active_player].len()
                     );
+                    self.replay.actions.push(HanabiLiveAction {
+                        action: 4,
+                        target: self.active_player as u8,
+                        value: Some(3), // time out
+                    });
                     self.state = GameState::Invalid();
                     return;
                 }
@@ -556,6 +569,11 @@ impl Game {
                         pos,
                         self.hands[self.active_player].len()
                     );
+                    self.replay.actions.push(HanabiLiveAction {
+                        action: 4,
+                        target: self.active_player as u8,
+                        value: Some(3), // time out
+                    });
                     self.state = GameState::Invalid();
                     return;
                 }
@@ -596,6 +614,11 @@ impl Game {
                     self.num_strikes += 1;
                     if self.num_strikes == 3 {
                         self.state = GameState::Lost();
+                        self.replay.actions.push(HanabiLiveAction {
+                            action: 4,
+                            target: self.active_player as u8,
+                            value: Some(2), // strikeout
+                        });
                         if self.debug {
                             println!("Game lost due to three strikes");
                         }
@@ -619,6 +642,11 @@ impl Game {
                         "Invalid move: player {} tried to clue to invalid player number {}",
                         self.active_player, player,
                     );
+                    self.replay.actions.push(HanabiLiveAction {
+                        action: 4,
+                        target: self.active_player as u8,
+                        value: Some(3), // time out
+                    });
                     self.state = GameState::Invalid();
                     return;
                 }
@@ -627,6 +655,11 @@ impl Game {
                         "Invalid move: player {} tried to clue but no clue tokens are left",
                         self.active_player,
                     );
+                    self.replay.actions.push(HanabiLiveAction {
+                        action: 4,
+                        target: self.active_player as u8,
+                        value: Some(3), // time out
+                    });
                     self.state = GameState::Invalid();
                     return;
                 }
