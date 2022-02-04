@@ -208,8 +208,8 @@ impl HyphenatedPlayer {
 
     fn play(&mut self, game: &game::Game) -> Option<game::Move> {
         for pos in 0..game.num_hand_cards(0) {
-            if self.hand[pos as usize].play {
-                return Some(game::Move::Play(pos));
+            if self.hand[pos as usize].trash {
+                continue;
             }
             if self.hand[pos as usize].clued {
                 let mut previous_play_state = None;
@@ -238,6 +238,12 @@ impl HyphenatedPlayer {
                         _ => {}
                     }
                 }
+            }
+            if self.hand[pos as usize].trash {
+                self.hand[pos as usize].play = false;
+            }
+            if self.hand[pos as usize].play {
+                return Some(game::Move::Play(pos));
             }
         }
         None
