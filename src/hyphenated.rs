@@ -452,7 +452,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
 
     fn clued(
         &mut self,
-        _who: usize,
+        who: usize,
         whom: usize,
         clue: game::Clue,
         touched: game::PositionSet,
@@ -469,10 +469,12 @@ impl game::PlayerStrategy for HyphenatedPlayer {
                     .get_mut(pos as usize)
                     .expect("own and game state out of sync");
                 a.clued = true;
-                self.clued_cards.insert(a.card);
-                for own_hand in self.hand.iter_mut() {
-                    if own_hand.clued {
-                        own_hand.quantum.remove_card(&a.card);
+                if who > 0 {
+                    self.clued_cards.insert(a.card);
+                    for own_hand in self.hand.iter_mut() {
+                        if own_hand.clued {
+                            own_hand.quantum.remove_card(&a.card);
+                        }
                     }
                 }
                 if (!first || pos as i8 == chop) && clue != game::Clue::Rank(1) {
