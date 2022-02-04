@@ -6,26 +6,26 @@ use crate::{
     PositionSet,
 };
 
-struct OwnHand {
+struct OwnSlot {
     quantum: CardQuantum,
     play: bool,
     trash: bool,
     clued: bool,
 }
 
-impl std::fmt::Debug for OwnHand {
+impl std::fmt::Debug for OwnSlot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(&self.quantum, f)
     }
 }
 
-struct ForeignHand {
+struct ForeignSlot {
     card: game::Card,
     clued: bool,
     delayed: bool,
 }
 
-impl std::fmt::Debug for ForeignHand {
+impl std::fmt::Debug for ForeignSlot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(&self.card, f)
     }
@@ -43,8 +43,8 @@ impl std::fmt::Debug for HyphenatedPlayer {
 
 pub struct HyphenatedPlayer {
     debug: bool,
-    hand: VecDeque<OwnHand>,
-    hands: Vec<VecDeque<ForeignHand>>,
+    hand: VecDeque<OwnSlot>,
+    hands: Vec<VecDeque<ForeignSlot>>,
     clued_cards: BTreeSet<game::Card>,
     variant: Variant,
     tracked_cards: BTreeMap<game::Card, u8>,
@@ -80,9 +80,9 @@ impl HyphenatedPlayer {
     }
 
     fn foreign_chop(&self, player: usize) -> i8 {
-        for (pos, hand) in self.hands[player - 1].iter().enumerate().rev() {
+        for (pos, slot) in self.hands[player - 1].iter().enumerate().rev() {
             // println!("asdf {}", pos);
-            if !hand.clued {
+            if !slot.clued {
                 return pos as i8;
             }
         }
@@ -104,8 +104,8 @@ impl HyphenatedPlayer {
         // all positions occupied, search for the best worst scenario to drop:
         // lock for highest possible card (least damage):
         for rank in [5, 4, 3, 2, 1].iter() {
-            for (pos, hand_card) in self.hand.iter().enumerate() {
-                if hand_card.quantum.is_rank(*rank) {
+            for (pos, slot) in self.hand.iter().enumerate() {
+                if slot.quantum.is_rank(*rank) {
                     return game::Move::Discard(pos as u8);
                 }
             }
@@ -119,28 +119,28 @@ impl HyphenatedPlayer {
             return None;
         }
         for player in 1..game.num_players() as usize {
-            'hand_pos: for (pos, hand) in self.hands[player - 1].iter().enumerate() {
-                if hand.clued && !hand.delayed {
+            'hand_pos: for (pos, slot) in self.hands[player - 1].iter().enumerate() {
+                if slot.clued && !slot.delayed {
                     continue;
                 }
-                if self.clued_cards.contains(&hand.card) && !hand.delayed {
+                if self.clued_cards.contains(&slot.card) && !slot.delayed {
                     continue;
                 };
-                for own_hand in self.hand.iter() {
-                    if own_hand.clued && own_hand.quantum.contains(&hand.card) {
+                for own_slot in self.hand.iter() {
+                    if own_slot.clued && own_slot.quantum.contains(&slot.card) {
                         // card could be on our hand clued - continue
                         continue 'hand_pos;
                     }
                 }
-                if let CardPlayState::Playable() = hand.card.play_state(&game) {
+                if let CardPlayState::Playable() = slot.card.play_state(&game) {
                     let mut valid_rank = true;
                     let mut valid_suit = true;
                     for other_pos in 0..pos {
                         let other_card = self.hands[player - 1][other_pos].card;
-                        if other_card.suit == hand.card.suit {
+                        if other_card.suit == slot.card.suit {
                             valid_suit = false;
                         }
-                        if other_card.rank == hand.card.rank {
+                        if other_card.rank == slot.card.rank {
                             valid_rank = false;
                         }
                     }
@@ -149,30 +149,30 @@ impl HyphenatedPlayer {
                             continue;
                         }
                         let other_card = self.hands[player - 1][other_pos].card;
-                        if other_pos != pos && other_card == hand.card {
+                        if other_pos != pos && other_card == slot.card {
                             // we would clue a card twice
                             continue 'hand_pos;
                         }
                         if !self.clued_cards.contains(&other_card) {
                             continue;
                         }
-                        if other_card.suit == hand.card.suit {
+                        if other_card.suit == slot.card.suit {
                             valid_suit = false;
                         }
-                        if other_card.rank == hand.card.rank {
+                        if other_card.rank == slot.card.rank {
                             valid_rank = false;
                         }
                     }
-                    if valid_rank && !(valid_suit && hand.card.rank == 5) {
+                    if valid_rank && !(valid_suit && slot.card.rank == 5) {
                         return Some(game::Move::Clue(
                             player as u8,
-                            game::Clue::Rank(hand.card.rank),
+                            game::Clue::Rank(slot.card.rank),
                         ));
                     }
                     if valid_suit {
                         return Some(game::Move::Clue(
                             player as u8,
-                            game::Clue::Color(hand.card.suit.clue_color()),
+                            game::Clue::Color(slot.card.suit.clue_color()),
                         ));
                     }
                 }
@@ -258,8 +258,8 @@ impl HyphenatedPlayer {
             .or_insert(1);
         if *count == card.suit.card_count(card.rank) {
             // all instances of card are tracked (elsewhere!), card cannot be in our hand
-            for hand in self.hand.iter_mut() {
-                hand.quantum.remove_card(&card);
+            for slot in self.hand.iter_mut() {
+                slot.quantum.remove_card(&card);
             }
         }
     }
@@ -273,22 +273,22 @@ impl HyphenatedPlayer {
         // collect the overall visible number of ones:
         let mut visible_ones = game::PositionSet::new(self.variant.len() as u8);
         for hand in self.hands.iter() {
-            for player_pos in hand.iter() {
-                if player_pos.card.rank != 1 {
+            for slot in hand.iter() {
+                if slot.card.rank != 1 {
                     continue;
                 }
-                let index = self.variant.suit_index(&player_pos.card.suit) as u8;
+                let index = self.variant.suit_index(&slot.card.suit) as u8;
                 visible_ones.add(index);
             }
         }
         // 1. check one clues on all players:
         'player: for (player, hand) in self.hands.iter().enumerate() {
             let mut touched_suits = preivous_suits;
-            for player_pos in hand.iter() {
-                if player_pos.card.rank != 1 {
+            for slot in hand.iter() {
+                if slot.card.rank != 1 {
                     continue;
                 }
-                let index = self.variant.suit_index(&player_pos.card.suit) as u8;
+                let index = self.variant.suit_index(&slot.card.suit) as u8;
                 if touched_suits.contains(index) {
                     continue 'player;
                 }
@@ -396,7 +396,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
     }
 
     fn drawn(&mut self, player: usize, card: game::Card) {
-        self.hands[player - 1].push_front(ForeignHand {
+        self.hands[player - 1].push_front(ForeignSlot {
             card: card,
             clued: false,
             delayed: false,
@@ -405,7 +405,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
     }
 
     fn own_drawn(&mut self) {
-        let mut hand = OwnHand {
+        let mut hand = OwnSlot {
             quantum: CardQuantum::new(self.variant),
             play: false,
             trash: false,
