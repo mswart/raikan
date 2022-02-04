@@ -149,10 +149,11 @@ impl HyphenatedPlayer {
                             continue;
                         }
                         let other_card = self.hands[player - 1][other_pos].card;
-                        if !self
-                            .clued_cards
-                            .contains(&self.hands[player - 1][other_pos].card)
-                        {
+                        if other_pos != pos && other_card == hand.card {
+                            // we would clue a card twice
+                            continue 'hand_pos;
+                        }
+                        if !self.clued_cards.contains(&other_card) {
                             continue;
                         }
                         if other_card.suit == hand.card.suit {
