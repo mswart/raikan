@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use crate::game::{self, CardPlayState};
+use crate::game::{self, Card, CardPlayState};
 use crate::{
     card_quantum::{CardQuantum, Variant},
     PositionSet,
@@ -478,7 +478,37 @@ impl game::PlayerStrategy for HyphenatedPlayer {
                         }
                     }
                 }
-                if (!first || pos as i8 == chop) && clue != game::Clue::Rank(1) {
+                if pos as i8 == chop {
+                    // check whether it can be a safe clue.
+                    match clue {
+                        game::Clue::Rank(5) => a.delayed = true,
+                        game::Clue::Rank(1) => a.delayed = false,
+                        game::Clue::Rank(rank) => {
+                            for &suit in game.suits.iter() {
+                                if (Card { suit, rank }.play_state(game)
+                                    == game::CardPlayState::Critical())
+                                {
+                                    a.delayed = true;
+                                    break;
+                                }
+                            }
+                        }
+                        game::Clue::Color(color) => {
+                            for rank in 2..4 {
+                                if (Card {
+                                    suit: color.suit(),
+                                    rank,
+                                }
+                                .play_state(game)
+                                    == game::CardPlayState::Critical())
+                                {
+                                    a.delayed = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } else if !first && clue != game::Clue::Rank(1) {
                     a.delayed = true;
                 }
                 first = false;
