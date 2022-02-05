@@ -714,6 +714,14 @@ impl Game {
                 self.clues -= 1;
             }
         }
+        if self.state == GameState::Lost() {
+            for card in self.deck.iter() {
+                self.replay.deck.push(HanabiLiveCard {
+                    rank: card.rank,
+                    suit_index: self.suits.iter().position(|&s| s == card.suit).unwrap() as u8,
+                })
+            }
+        }
         self.active_player = (self.active_player + 1) % self.hands.len();
         self.score_integral += self.score as u16;
     }
