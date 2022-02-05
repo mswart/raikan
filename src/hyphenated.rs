@@ -195,12 +195,49 @@ impl HyphenatedPlayer {
             }
             let card = self.hands[player - 1][chop].card;
             if let CardPlayState::Critical() = card.play_state(&game) {
-                if card.rank == 5 {
+                if card.rank == 5 || card.rank == 2 {
                     return Some(game::Move::Clue(player as u8, game::Clue::Rank(card.rank)));
                 }
+                let mut rank_score = 0;
+                let mut color_score = 0;
+                for (i, slot) in self.hands[player - 1].iter().enumerate() {
+                    if i == chop {
+                        continue;
+                    }
+                    let effect = match slot.card.play_state(game) {
+                        CardPlayState::Trash() => -5,
+                        CardPlayState::Dead() => -5,
+                        CardPlayState::Critical() => 30,
+                        CardPlayState::Normal() => {
+                            if self.clued_cards.contains(&slot.card) {
+                                -10
+                            } else {
+                                10
+                            }
+                        }
+                        CardPlayState::Playable() => {
+                            if self.clued_cards.contains(&slot.card) {
+                                -20
+                            } else {
+                                20
+                            }
+                        }
+                    };
+                    if slot.card.rank == card.rank {
+                        rank_score += effect;
+                    }
+                    if slot.card.suit == card.suit {
+                        color_score += effect;
+                    }
+                }
+
                 return Some(game::Move::Clue(
                     player as u8,
-                    game::Clue::Color(card.suit.clue_color()),
+                    if rank_score > color_score {
+                        game::Clue::Rank(card.rank)
+                    } else {
+                        game::Clue::Color(card.suit.clue_color())
+                    },
                 ));
             }
         }
@@ -544,17 +581,11 @@ impl game::PlayerStrategy for HyphenatedPlayer {
                 clue, touched, previously_clued, potential_safe, self.hand,
             );
         }
-        if let game::Clue::Rank(rank) = clue {
-            if rank != 5 {
-                potential_safe = false;
+        if clue == game::Clue::Rank(1) {
+            for pos in touched.iter() {
+                self.hand[pos as usize].play = true;
             }
-            if rank == 1 {
-                for pos in touched.iter() {
-                    self.hand[pos as usize].play = true;
-                    self.hand[pos as usize].clued = true;
-                }
-                return;
-            }
+            return;
         }
         if !potential_safe {
             self.hand[touched.first().expect("asdf") as usize].play = true;
