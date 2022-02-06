@@ -122,16 +122,20 @@ impl HyphenatedPlayer {
         for player in 1..game.num_players() as usize {
             let chop = self.foreign_chop(player);
             'hand_pos: for (pos, slot) in self.hands[player - 1].iter().enumerate().rev() {
-                if slot.clued && !slot.delayed {
-                    continue;
-                }
-                if self.clued_cards.contains(&slot.card) && !slot.delayed {
-                    continue;
-                };
-                for own_slot in self.hand.iter() {
-                    if own_slot.clued && own_slot.quantum.contains(&slot.card) {
-                        // card could be on our hand clued - continue
-                        continue 'hand_pos;
+                if slot.clued {
+                    if !slot.delayed {
+                        // has direct play clue
+                        continue;
+                    }
+                } else {
+                    if self.clued_cards.contains(&slot.card) {
+                        continue;
+                    };
+                    for own_slot in self.hand.iter() {
+                        if own_slot.clued && own_slot.quantum.contains(&slot.card) {
+                            // card could be on our hand clued - continue
+                            continue 'hand_pos;
+                        }
                     }
                 }
                 if let CardPlayState::Playable() = slot.card.play_state(&game) {
@@ -139,6 +143,9 @@ impl HyphenatedPlayer {
                     let mut valid_suit = true;
                     if slot.clued {
                         for (other_pos, other_slot) in self.hands[player - 1].iter().enumerate() {
+                            if other_pos == pos {
+                                continue;
+                            }
                             if other_slot.clued && other_pos > pos {
                                 // card is clue and right from us => will not steal focus
                                 continue;
@@ -300,31 +307,42 @@ impl HyphenatedPlayer {
                 continue;
             }
             if self.hand[pos as usize].clued {
-                let mut previous_play_state = None;
+                let mut all_trash = true;
+                let mut all_playable = true;
                 for card in self.hand[pos as usize].quantum.iter() {
-                    let play_state = card.play_state(game);
-                    if let Some(last_play_state) = previous_play_state {
-                        if last_play_state != play_state {
-                            previous_play_state = None;
+                    match card.play_state(game) {
+                        game::CardPlayState::Playable() => all_trash = false,
+                        game::CardPlayState::Critical() => {
+                            all_trash = false;
+                            all_playable = false;
                             break;
                         }
-                    } else {
-                        previous_play_state = Some(play_state);
+                        game::CardPlayState::Normal() => {
+                            all_trash = false;
+                            all_playable = false;
+                            break;
+                        }
+                        game::CardPlayState::Trash() => all_playable = false,
+                        game::CardPlayState::Dead() => all_playable = false,
                     }
                 }
-                if let Some(play_state) = previous_play_state {
+                if all_trash {
                     if self.debug {
                         println!(
-                            "Pos {} only {:?} possible (quantum {})",
-                            pos, play_state, self.hand[pos as usize].quantum,
+                            "Pos {} only trash (quantum {})",
+                            pos, self.hand[pos as usize].quantum,
                         );
                     }
-                    match play_state {
-                        game::CardPlayState::Playable() => return Some(game::Move::Play(pos)),
-                        game::CardPlayState::Trash() => self.hand[pos as usize].trash = true,
-                        game::CardPlayState::Dead() => self.hand[pos as usize].trash = true,
-                        _ => {}
+                    self.hand[pos as usize].trash = true;
+                }
+                if all_playable {
+                    if self.debug {
+                        println!(
+                            "Pos {} only playable (quantum {})",
+                            pos, self.hand[pos as usize].quantum,
+                        );
                     }
+                    self.hand[pos as usize].play = true;
                 }
             }
             if self.hand[pos as usize].trash {
@@ -560,55 +578,66 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         self.turn += 1;
         if whom != 0 {
             // somebody else was clued -> remember which cards are clued
+            let newly_clued = touched - previously_clued;
+            if newly_clued.is_empty() {
+                let focus = touched.first().expect("empty clues are not supported");
+                self.hands[whom - 1][focus as usize].delayed = false;
+                return;
+            }
             let chop = self.foreign_chop(whom);
-            let mut first = chop == -1 || !touched.contains(chop as u8);
+            let focus = if chop >= 0 && touched.contains(chop as u8) {
+                let chop_slot = &mut self.hands[whom - 1][chop as usize];
+                // check whether it can be a safe clue.
+                match clue {
+                    game::Clue::Rank(5) => chop_slot.delayed = true,
+                    game::Clue::Rank(1) => chop_slot.delayed = false,
+                    game::Clue::Rank(rank) => {
+                        for &suit in game.suits.iter() {
+                            if (Card { suit, rank }.play_state(game)
+                                == game::CardPlayState::Critical())
+                            {
+                                chop_slot.delayed = true;
+                                break;
+                            }
+                        }
+                    }
+                    game::Clue::Color(color) => {
+                        for rank in 2..4 {
+                            if (Card {
+                                suit: color.suit(),
+                                rank,
+                            }
+                            .play_state(game)
+                                == game::CardPlayState::Critical())
+                            {
+                                chop_slot.delayed = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                chop as u8
+            } else {
+                touched
+                    .first()
+                    .expect("We have check previously that touched must contain something")
+            };
             for pos in (touched - previously_clued).iter() {
-                let a = self.hands[whom - 1]
+                let slot = self.hands[whom - 1]
                     .get_mut(pos as usize)
                     .expect("own and game state out of sync");
-                a.clued = true;
-                self.clued_cards.insert(a.card);
+                self.clued_cards.insert(slot.card);
                 if who > 0 {
                     for own_hand in self.hand.iter_mut() {
                         if own_hand.clued {
-                            own_hand.quantum.remove_card(&a.card);
+                            own_hand.quantum.remove_card(&slot.card);
                         }
                     }
                 }
-                if pos as i8 == chop {
-                    // check whether it can be a safe clue.
-                    match clue {
-                        game::Clue::Rank(5) => a.delayed = true,
-                        game::Clue::Rank(1) => a.delayed = false,
-                        game::Clue::Rank(rank) => {
-                            for &suit in game.suits.iter() {
-                                if (Card { suit, rank }.play_state(game)
-                                    == game::CardPlayState::Critical())
-                                {
-                                    a.delayed = true;
-                                    break;
-                                }
-                            }
-                        }
-                        game::Clue::Color(color) => {
-                            for rank in 2..4 {
-                                if (Card {
-                                    suit: color.suit(),
-                                    rank,
-                                }
-                                .play_state(game)
-                                    == game::CardPlayState::Critical())
-                                {
-                                    a.delayed = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                } else if !first && clue != game::Clue::Rank(1) {
-                    a.delayed = true;
+                slot.clued = true;
+                if pos != focus && clue != game::Clue::Rank(1) {
+                    slot.delayed = true;
                 }
-                first = false;
             }
             return;
         }
