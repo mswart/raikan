@@ -234,6 +234,7 @@ pub struct Game {
     pub state: GameState,
     debug: bool,
     replay: HanabiLiveGame,
+    seed: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -362,6 +363,7 @@ impl Game {
                 },
                 players: player_names,
             },
+            seed,
         };
         for strategy in players.iter_mut() {
             strategy.init(&game);
@@ -433,7 +435,9 @@ impl Game {
                 }
                 GameState::Final(remaining) => {
                     self.play(strategies);
-                    self.state = GameState::Final(remaining - 1)
+                    if self.state == GameState::Final(remaining) {
+                        self.state = GameState::Final(remaining - 1)
+                    }
                 }
                 _ => break,
             }
@@ -519,11 +523,30 @@ impl Game {
                 let card = self.hands[self.active_player].remove(pos as usize);
                 if card.is_none() {
                     println!(
-                        "Invalid move: player {} tried to discard card {} (hand only has {} cards)",
+                        "Invalid move: player {} tried to discard card {} (hand only has {} cards), turn {}, seed {}",
                         self.active_player,
                         pos,
-                        self.hands[self.active_player].len()
+                        self.hands[self.active_player].len(),
+                        self.turn,
+                        self.seed,
                     );
+                    self.replay.actions.push(HanabiLiveAction {
+                        action: 4,
+                        target: self.active_player as u8,
+                        value: Some(3), // time out
+                    });
+                    self.state = GameState::Invalid();
+                    return;
+                }
+                if self.clues < 8 {
+                    self.clues += 1;
+                } else {
+                    if self.debug {
+                        println!(
+                            "With 8 clues you can't discard, but player {} did; turn {}, seed {}",
+                            self.active_player, self.turn, self.seed,
+                        );
+                    }
                     self.replay.actions.push(HanabiLiveAction {
                         action: 4,
                         target: self.active_player as u8,
@@ -542,9 +565,6 @@ impl Game {
                 self.discard(card.card);
                 if let GameState::Early() = self.state {
                     self.state = GameState::Mid();
-                }
-                if self.clues < 8 {
-                    self.clues += 1;
                 }
                 for (notify_player, strategy) in strategies.iter_mut().enumerate() {
                     strategy.discarded(

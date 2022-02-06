@@ -35,6 +35,9 @@ fn main() {
 }
 
 fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
+    let mut invalid_games: usize = 0;
+    let mut invalid_scores: usize = 0;
+    let mut invalid_max_scores: usize = 0;
     let mut lost_games = 0;
     let mut lost_scores: usize = 0;
     let mut lost_max_scores: usize = 0;
@@ -75,10 +78,23 @@ fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
                 finished_scores += game.score as usize;
                 finished_max_scores += game.max_score as usize;
             }
+            game::GameState::Invalid() => {
+                invalid_games += 1;
+                invalid_scores += game.score as usize;
+                invalid_max_scores += game.max_score as usize;
+            }
             _ => unimplemented!("Should not happen as final game score"),
         }
     }
     println!("\r{}/{} games simulated", total, total);
+
+    println!(
+        "Invalid {:.2}% ({}) games with ~{:.2}/{:.2} scores",
+        (invalid_games * 100) as f64 / total as f64,
+        invalid_games,
+        invalid_scores as f64 / invalid_games as f64,
+        invalid_max_scores as f64 / invalid_games as f64,
+    );
 
     println!(
         "Lost {:.2}% ({}) games with ~{:.2}/{:.2} scores",
@@ -95,10 +111,14 @@ fn run_stats(players: &mut Vec<&mut dyn game::PlayerStrategy>) {
         finished_max_scores as f64 / (finished_games + won_games) as f64,
         finished_score_intergrals as f64 / finished_games as f64,
     );
-    println!("Won {} games", won_games);
+    println!(
+        "Won {:.2}% {} games",
+        (won_games * 100) as f64 / total as f64,
+        won_games
+    );
     println!(
         "Overall {} games with ~{:.2} score",
-        lost_games + finished_games + won_games,
-        finished_scores as f64 / (lost_games + finished_games + won_games) as f64
+        invalid_games + lost_games + finished_games + won_games,
+        finished_scores as f64 / (invalid_games + lost_games + finished_games + won_games) as f64
     );
 }
