@@ -749,5 +749,37 @@ impl Game {
     pub fn print_replay(&self) {
         let serialized = serde_json::to_string(&self.replay).unwrap();
         println!("replay JSON: {}", serialized);
+        let mut encoded = String::with_capacity(
+            // 2 comma, num players, min+max+desk, min+max+actions, + variant
+            2 + 1 + 2 + self.replay.deck.len() + 2 + self.replay.actions.len() + 1,
+        );
+        let base62: Vec<char> = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            .chars()
+            .collect();
+        // add number of players
+        encoded.push_str(&self.num_players().to_string());
+        // encode deck
+        encoded.push('1'); // min rank
+        encoded.push('5'); // max rank
+        for card in self.replay.deck.iter() {
+            encoded.push(base62[(card.suit_index * 5 + (card.rank - 1)) as usize]);
+        }
+        encoded.push(',');
+        // encode actions
+        encoded.push('0'); // min type/action
+        encoded.push('5'); // max type/action
+        for action in self.replay.actions.iter() {
+            let v = if let Some(value) = action.value {
+                value + 1
+            } else {
+                0
+            };
+            encoded.push(base62[(v * 6 + action.action) as usize]);
+            encoded.push(base62[action.target as usize]);
+        }
+        encoded.push(',');
+        // add variant id
+        encoded.push('0');
+        println!("Replay url: https://hanab.live/replay-json/{}", encoded);
     }
 }
