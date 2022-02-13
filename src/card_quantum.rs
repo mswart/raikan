@@ -182,7 +182,6 @@ mod tests {
         assert_eq!(c.cards[2], 0b11111);
         assert_eq!(c.cards[3], 0b11111);
         assert_eq!(c.cards[4], 0b11111);
-        assert_eq!(c.cards[5], 0b11111);
     }
 
     #[test]
@@ -194,13 +193,11 @@ mod tests {
         assert_eq!(c.cards[2], 0b11111);
         assert_eq!(c.cards[3], 0b11111);
         assert_eq!(c.cards[4], 0b11111);
-        assert_eq!(c.cards[5], 0b11111);
         c.clear();
         assert_eq!(c.cards[0], 0);
         assert_eq!(c.cards[1], 0);
         assert_eq!(c.cards[2], 0);
         assert_eq!(c.cards[3], 0);
         assert_eq!(c.cards[4], 0);
-        assert_eq!(c.cards[5], 0);
     }
 }

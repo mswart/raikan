@@ -110,7 +110,7 @@ pub struct Card {
 }
 
 impl Card {
-    fn affected(&self, clue: Clue) -> bool {
+    pub fn affected(&self, clue: Clue) -> bool {
         self.suit.affected(self.rank, clue)
     }
     pub fn play_state(&self, game: &Game) -> CardPlayState {
@@ -376,6 +376,66 @@ impl Game {
         }
 
         game
+    }
+
+    pub fn empty(num_players: u8) -> Self {
+        let suits = vec![
+            Suit::Red(),
+            Suit::Yellow(),
+            Suit::Green(),
+            Suit::Blue(),
+            Suit::Purple(),
+        ];
+
+        let mut player_names = vec![
+            "Alice".to_string(),
+            "Bob".to_string(),
+            "Cathy".to_string(),
+            "Donold".to_string(),
+            "Emily".to_string(),
+            "F".to_string(),
+        ];
+        player_names.truncate(num_players as usize);
+
+        let mut hands = Vec::new();
+        let num_cards = match num_players {
+            2 => 5,
+            3 => 5,
+            4 => 4,
+            5 => 5,
+            6 => 3,
+            _ => unimplemented!(),
+        };
+
+        for _ in 0..num_players {
+            hands.push(Hand::with_capacity(num_cards));
+        }
+
+        Self {
+            score: 0,
+            score_integral: 0,
+            max_score: 5 * suits.len() as u8,
+            turn: 0,
+            deck: VecDeque::new(),
+            discarded: BTreeMap::new(),
+            played: vec![0; suits.len()],
+            hands,
+            num_strikes: 0,
+            suits,
+            active_player: 0,
+            clues: 8,
+            state: GameState::Early(),
+            debug: false,
+            replay: HanabiLiveGame {
+                actions: Vec::new(),
+                deck: Vec::new(),
+                options: HanabiLiveOptions {
+                    variant: "No Variant".to_string(),
+                },
+                players: player_names,
+            },
+            seed: 0,
+        }
     }
 
     pub fn num_players(&self) -> u8 {

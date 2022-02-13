@@ -39,6 +39,18 @@ impl PositionSet {
         }
     }
 
+    pub fn create(position_count: u8, initial: u8) -> Self {
+        assert!(
+            position_count <= 8,
+            "At most eight positions are supported ({} requested)",
+            position_count
+        );
+        Self {
+            max: position_count,
+            bits: initial & (1 << position_count) - 1,
+        }
+    }
+
     pub fn add(&mut self, position: u8) {
         assert!(
             position < self.max,

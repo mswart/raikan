@@ -18,7 +18,7 @@ fn initial_game() {
 }
 
 #[test]
-fn discard_game() {
+fn discard_on_8_clues() {
     let mut tester1 = tester::InstructedPlayer::with_default(hanabi::game::Move::Discard(0));
     let mut tester2 = tester::InstructedPlayer::with_default(hanabi::game::Move::Discard(0));
 
@@ -28,8 +28,8 @@ fn discard_game() {
 
     let mut game = hanabi::game::Game::new(&mut players, false, 234);
     assert_eq!(game.run(&mut players), 0);
-    assert_ne!(game.max_score, 25); // most cards should have been discarded
-    assert_eq!(game.state, hanabi::game::GameState::Finished());
+    assert_eq!(game.state, hanabi::game::GameState::Invalid());
+    assert_eq!(game.max_score, 25); // most cards should have been discarded
 }
 
 #[test]
