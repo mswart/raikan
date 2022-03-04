@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use crate::game::{self, Card, CardPlayState};
+use crate::game::{self, CardPlayState};
 use crate::{
     card_quantum::{CardQuantum, Variant},
     PositionSet,
@@ -50,11 +50,6 @@ pub struct LineScore {
 
 impl PartialOrd for LineScore {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match self.discard_risks.cmp(&other.discard_risks) {
-            std::cmp::Ordering::Greater => return Some(std::cmp::Ordering::Greater),
-            std::cmp::Ordering::Less => return Some(std::cmp::Ordering::Less),
-            std::cmp::Ordering::Equal => {}
-        }
         match self.score.cmp(&other.score) {
             std::cmp::Ordering::Greater => return Some(std::cmp::Ordering::Greater),
             std::cmp::Ordering::Less => return Some(std::cmp::Ordering::Less),
@@ -65,7 +60,9 @@ impl PartialOrd for LineScore {
             std::cmp::Ordering::Less => return Some(std::cmp::Ordering::Less),
             std::cmp::Ordering::Equal => {}
         }
-        match (self.clued - self.errors * 2).cmp(&(other.clued - self.errors * 2)) {
+        match (self.discard_risks as i32 + self.clued as i32 - self.errors as i32 * 10)
+            .cmp(&(other.discard_risks as i32 + other.clued as i32 - other.errors as i32 * 10))
+        {
             std::cmp::Ordering::Greater => return Some(std::cmp::Ordering::Greater),
             std::cmp::Ordering::Less => return Some(std::cmp::Ordering::Less),
             std::cmp::Ordering::Equal => {}
@@ -115,7 +112,7 @@ impl Line {
         let mut discard_risks = 0;
         let mut clued = 0;
         let mut play = 0;
-        let errors = extra_error;
+        let mut errors = extra_error;
         for hand in self.hands.iter().skip(1) {
             let mut queued_actions = 0;
             let mut chop = true;
@@ -132,10 +129,30 @@ impl Line {
                     }
                 } else if chop {
                     chop = false;
+                    if !self.clued_cards.contains(&slot.card) {
+                        match slot.card.play_state(&game) {
+                            CardPlayState::Critical() => discard_risk -= 3,
+                            CardPlayState::Playable() => discard_risk -= 2,
+                            _ => {}
+                        }
+                    }
+                }
+                if slot.play {
                     match slot.card.play_state(&game) {
-                        CardPlayState::Critical() => discard_risk -= 3,
-                        CardPlayState::Playable() => discard_risk -= 2,
-                        _ => {}
+                        CardPlayState::Playable() => {}
+                        CardPlayState::Critical() => errors += 3,
+                        CardPlayState::Normal() => errors += 2,
+                        CardPlayState::Dead() => errors += 1,
+                        CardPlayState::Trash() => errors += 1,
+                    }
+                }
+                if !slot.quantum.contains(&slot.card) {
+                    match slot.card.play_state(&game) {
+                        CardPlayState::Playable() => errors += 2,
+                        CardPlayState::Critical() => errors += 3,
+                        CardPlayState::Normal() => errors += 2,
+                        CardPlayState::Dead() => errors += 1,
+                        CardPlayState::Trash() => errors += 1,
                     }
                 }
             }
@@ -250,40 +267,28 @@ impl Line {
                 return;
             }
             let chop = self.foreign_chop(whom);
+            let mut potential_safe = false;
             let focus = if chop >= 0 && touched.contains(chop as u8) {
                 let chop_slot = &mut self.hands[whom][chop as usize];
                 // check whether it can be a safe clue.
-                let mut potential_safe = false;
-                match clue {
-                    game::Clue::Rank(5) => potential_safe = true,
-                    game::Clue::Rank(1) => chop_slot.play = true,
-                    game::Clue::Rank(rank) => {
-                        for &suit in game.suits.iter() {
-                            if (Card { suit, rank }.play_state(game)
-                                == game::CardPlayState::Critical())
-                            {
-                                potential_safe = true;
-                                break;
-                            }
-                        }
+                for potential_card in chop_slot.quantum.clone().iter() {
+                    if potential_card.rank == 5 && clue != game::Clue::Rank(5) {
+                        // 5 will only be safed via rank
+                        continue;
                     }
-                    game::Clue::Color(color) => {
-                        for rank in 2..4 {
-                            if (Card {
-                                suit: color.suit(),
-                                rank,
-                            }
-                            .play_state(game)
-                                == game::CardPlayState::Critical())
-                            {
-                                potential_safe = true;
-                                break;
-                            }
+                    match potential_card.play_state(game) {
+                        game::CardPlayState::Critical() => potential_safe = true,
+                        game::CardPlayState::Dead() => {
+                            chop_slot.quantum.remove_card(&potential_card);
                         }
+                        game::CardPlayState::Trash() => {
+                            chop_slot.quantum.remove_card(&potential_card);
+                        }
+                        game::CardPlayState::Normal() => {
+                            chop_slot.quantum.remove_card(&potential_card);
+                        }
+                        _ => {}
                     }
-                }
-                if !potential_safe {
-                    chop_slot.play = true;
                 }
                 chop as u8
             } else {
@@ -295,10 +300,15 @@ impl Line {
                 let slot = self.hands[whom]
                     .get_mut(pos as usize)
                     .expect("own and game state out of sync");
-                self.clued_cards.insert(slot.card);
                 slot.clued = true;
-                if pos == focus {
+                if pos == focus && !potential_safe {
                     slot.play = true;
+                    for potential_card in slot.quantum.clone().iter() {
+                        match potential_card.play_state(game) {
+                            game::CardPlayState::Playable() => {}
+                            _ => slot.quantum.remove_card(&potential_card),
+                        }
+                    }
                 }
                 if who > 0 {
                     let card = slot.card.clone();
@@ -308,6 +318,10 @@ impl Line {
                         }
                     }
                 }
+                for card in self.clued_cards.iter() {
+                    self.hands[whom][pos as usize].quantum.remove_card(card);
+                }
+                self.clued_cards.insert(self.hands[whom][pos as usize].card);
             }
             return;
         }
@@ -387,84 +401,19 @@ impl Line {
 
     pub fn clue(&mut self, whom: usize, clue: game::Clue, game: &game::Game) -> Option<LineScore> {
         let mut touched = PositionSet::new(self.hands[whom].len() as u8);
-        let mut new_touched = PositionSet::new(self.hands[whom].len() as u8);
-        let mut focus = self.hands[whom].len();
-        let chop = self.foreign_chop(whom);
-        let mut touched_chop = false;
-        for (pos, slot) in self.hands[whom].iter_mut().enumerate().rev() {
-            let affected = slot.card.affected(clue);
-            match clue {
-                game::Clue::Rank(rank) => slot.quantum.limit_by_rank(rank as usize, affected),
-                game::Clue::Color(color) => slot.quantum.limit_by_suit(&color.suit(), affected),
-            }
+        let mut previously_clued = PositionSet::new(self.hands[whom].len() as u8);
+        for (pos, slot) in self.hands[whom].iter().enumerate() {
             if slot.card.affected(clue) {
                 touched.add(pos as u8);
-                if pos as i8 == chop {
-                    touched_chop = true;
-                    focus = pos;
-                }
-                if !touched_chop {
-                    focus = pos;
-                }
-                if !slot.clued {
-                    new_touched.add(pos as u8);
-                    if self.clued_cards.contains(&slot.card) {
-                        return None;
-                    }
-                }
-                slot.clued = true;
+            }
+            if slot.clued {
+                previously_clued.add(pos as u8);
             }
         }
         if touched.is_empty() {
             return None;
         }
-        match self.hands[whom][focus].card.play_state(&game) {
-            CardPlayState::Critical() => {
-                if focus as i8 != chop {
-                    return None;
-                }
-                if self.hands[whom][focus].card.rank == 5 && clue != game::Clue::Rank(5) {
-                    return None;
-                }
-            }
-            CardPlayState::Playable() => {}
-            _ => return None,
-        }
-        if touched_chop {
-            let mut potential_safe = false;
-            match clue {
-                game::Clue::Rank(5) => potential_safe = true,
-                game::Clue::Rank(1) => {}
-                game::Clue::Rank(rank) => {
-                    for &suit in game.suits.iter() {
-                        if (Card { suit, rank }.play_state(game) == game::CardPlayState::Critical())
-                        {
-                            potential_safe = true;
-                            break;
-                        }
-                    }
-                }
-                game::Clue::Color(color) => {
-                    for rank in 2..4 {
-                        if (Card {
-                            suit: color.suit(),
-                            rank,
-                        }
-                        .play_state(game)
-                            == game::CardPlayState::Critical())
-                        {
-                            potential_safe = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            if !potential_safe {
-                self.hands[whom][focus].play = true
-            }
-        } else {
-            self.hands[whom][focus].play = true;
-        }
+        self.clued(0, whom, clue, touched, previously_clued, game);
         Some(self.score(0, game))
     }
 
@@ -555,6 +504,10 @@ impl HyphenatedPlayer {
             line: Line::new(0),
         }
     }
+
+    pub fn line(&self) -> Line {
+        self.line.clone()
+    }
 }
 
 impl game::PlayerStrategy for HyphenatedPlayer {
@@ -621,7 +574,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
                 let clue = game::Clue::Color(suit.clue_color());
                 if let Some(score) = self.line.clone().clue(player as usize, clue, game) {
                     if self.debug {
-                        println!("considered {:?} with {:?}", clue, score);
+                        println!("considered cluing {:?} to {player} with {:?}", clue, score);
                     }
                     if score > best_score {
                         best_move = game::Move::Clue(player, clue);
@@ -633,7 +586,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
                 let clue = game::Clue::Rank(rank);
                 if let Some(score) = self.line.clone().clue(player as usize, clue, game) {
                     if self.debug {
-                        println!("considered {:?} with {:?}", clue, score);
+                        println!("considered cluingg {:?} to {player} with {:?}", clue, score);
                     }
                     if score > best_score {
                         best_move = game::Move::Clue(player, clue);

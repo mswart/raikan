@@ -1,11 +1,8 @@
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 
-// mod position_set;
+use crate::game;
 
-// use crate::game::{self, CardPlayState};
-
-// use crate::position_set;
 pub use crate::position_set::PositionSet;
 
 use colored::*;
@@ -438,6 +435,110 @@ impl Game {
         }
     }
 
+    pub fn from_replay(
+        turn: u8,
+        deck: &str,
+        actions: &str,
+        options: &str,
+        players: &mut Vec<&mut dyn PlayerStrategy>,
+    ) -> Self {
+        assert_eq!(options, "0");
+        let base62_chars = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let mut deck_chars = deck.chars();
+        let num_players = deck_chars
+            .nth(0)
+            .expect("deck should be non-empty")
+            .to_digit(10)
+            .expect("player count must be a number") as u8;
+        assert_eq!(deck_chars.nth(0), Some('1'));
+        assert_eq!(deck_chars.nth(0), Some('5'));
+        let mut game = Self::empty(num_players);
+        for card_char in deck_chars {
+            let index = base62_chars
+                .find(card_char)
+                .expect("desk card must be a valid base62 character");
+            let rank = index % 5 + 1;
+            let suit_index = index / 5;
+            game.deck.push_back(Card {
+                rank: rank as u8,
+                suit: game.suits[suit_index],
+            });
+        }
+
+        for strategy in players.iter_mut() {
+            strategy.init(&game);
+        }
+
+        // 1. draw initial cards:
+        let num_cards = match num_players {
+            2 => 5,
+            3 => 5,
+            4 => 4,
+            5 => 5,
+            6 => 3,
+            _ => unimplemented!(),
+        };
+        for player in 0..players.len() {
+            for _ in 0..num_cards {
+                game.draw_card(player, players);
+            }
+        }
+
+        // 2 process actions:
+        let mut action_chars = actions.chars();
+        assert_eq!(action_chars.nth(0), Some('0'));
+        assert_eq!(action_chars.nth(0), Some('5'));
+        let mut current_turn = 0;
+        let mut active_player = 0;
+        while current_turn < turn {
+            let action_num = base62_chars
+                .find(action_chars.nth(0).expect("target value is missing"))
+                .expect("Actions must only be valid 62 characters");
+            let action = action_num % 6;
+            let mut value = action_num / 6;
+            if value > 0 {
+                value -= 1;
+            }
+            let target = base62_chars
+                .find(action_chars.nth(0).expect("target value is missing"))
+                .expect("Actions must only be valid 62 characters");
+            let mut target_pos = None;
+            for (pos, slot) in game.hands[active_player as usize].iter().enumerate() {
+                if slot.index as usize == target {
+                    target_pos = Some(pos as u8)
+                }
+            }
+            match action {
+                0 => game.execute(
+                    game::Move::Play(target_pos.expect("card not in players hand")),
+                    players,
+                ),
+                1 => game.execute(
+                    game::Move::Discard(target_pos.expect("card not in players hand")),
+                    players,
+                ),
+                2 => game.execute(
+                    game::Move::Clue(
+                        (num_players + target as u8 - active_player) % num_players,
+                        game::Clue::Color(game.suits[value].clue_color()),
+                    ),
+                    players,
+                ),
+                3 => game.execute(
+                    game::Move::Clue(
+                        (num_players + target as u8 - active_player) % num_players,
+                        game::Clue::Rank(value as u8),
+                    ),
+                    players,
+                ),
+                _ => panic!("Unknown action code (only 1..3 implemented)"),
+            }
+            active_player = (active_player + 1) % num_players;
+            current_turn += 1;
+        }
+        game
+    }
+
     pub fn num_players(&self) -> u8 {
         self.hands.len() as u8
     }
@@ -577,6 +678,10 @@ impl Game {
 
     fn play(&mut self, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
         let action = strategies[self.active_player].act(&self);
+        self.execute(action, strategies);
+    }
+
+    fn execute(&mut self, action: Move, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
         self.turn += 1;
         match action {
             Move::Discard(pos) => {

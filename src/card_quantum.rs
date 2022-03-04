@@ -107,7 +107,7 @@ impl CardQuantum {
 
     pub fn contains(&self, card: &game::Card) -> bool {
         let index = self.variant.suit_index(&card.suit);
-        let rank_bit = !(1 << (card.rank - 1));
+        let rank_bit = 1 << (card.rank - 1);
         self.cards[index] & rank_bit > 0
     }
 
