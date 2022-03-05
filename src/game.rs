@@ -799,6 +799,7 @@ impl Game {
                         if self.debug {
                             println!("Game lost due to three strikes");
                         }
+                        return;
                     }
                     false
                 };
