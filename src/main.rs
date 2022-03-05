@@ -87,8 +87,6 @@ fn run_stats() {
 
     let total = 100_000;
 
-    print!("0/{} games simulated", total);
-
     let thread_count = if let Ok(num) = thread::available_parallelism() {
         num.get()
     } else {
@@ -115,30 +113,31 @@ fn run_stats() {
                 }
                 let mut game = game::Game::new(&mut players, false, i as u64);
                 game.run(&mut players);
-                if i % 1_000 == 0 {
-                    print!("\r{}/{} games simulated", i, total);
-                }
                 match game.state {
                     game::GameState::Lost() => {
                         results.lost_games += 1;
                         results.lost_scores += game.score as usize;
                         results.lost_max_scores += game.max_score as usize;
+                        println!("{i}: Lost {}", game.turn);
                     }
                     game::GameState::Finished() => {
                         results.finished_games += 1;
                         results.finished_scores += game.score as usize;
                         results.finished_score_intergrals += game.score_integral as usize;
                         results.finished_max_scores += game.max_score as usize;
+                        println!("{i}: Finished {}/{}", game.score, game.max_score);
                     }
                     game::GameState::Won() => {
                         results.won_games += 1;
                         results.finished_scores += game.score as usize;
                         results.finished_max_scores += game.max_score as usize;
+                        println!("{i}: Won");
                     }
                     game::GameState::Invalid() => {
                         results.invalid_games += 1;
                         results.invalid_scores += game.score as usize;
                         results.invalid_max_scores += game.max_score as usize;
+                        println!("{i}: Invalid");
                     }
                     _ => unimplemented!("Should not happen as final game score"),
                 }
@@ -152,9 +151,9 @@ fn run_stats() {
         totals += result;
     }
 
-    println!("\r{}/{} games simulated", total, total);
+    eprintln!("\r{}/{} games simulated", total, total);
 
-    println!(
+    eprintln!(
         "Invalid {:.2}% ({}) games with ~{:.2}/{:.2} scores",
         (totals.invalid_games * 100) as f64 / total as f64,
         totals.invalid_games,
@@ -162,7 +161,7 @@ fn run_stats() {
         totals.invalid_max_scores as f64 / totals.invalid_games as f64,
     );
 
-    println!(
+    eprintln!(
         "Lost {:.2}% ({}) games with ~{:.2}/{:.2} scores",
         (totals.lost_games * 100) as f64 / total as f64,
         totals.lost_games,
@@ -170,19 +169,19 @@ fn run_stats() {
         totals.lost_max_scores as f64 / totals.lost_games as f64,
     );
 
-    println!(
+    eprintln!(
         "Finished {} games with ~{:.2}/{:.2} scores (~{:.2} integral)",
         totals.finished_games,
         totals.finished_scores as f64 / (totals.finished_games + totals.won_games) as f64,
         totals.finished_max_scores as f64 / (totals.finished_games + totals.won_games) as f64,
         totals.finished_score_intergrals as f64 / totals.finished_games as f64,
     );
-    println!(
+    eprintln!(
         "Won {:.2}% {} games",
         (totals.won_games * 100) as f64 / total as f64,
         totals.won_games
     );
-    println!(
+    eprintln!(
         "Overall {} games with ~{:.2} score",
         totals.invalid_games + totals.lost_games + totals.finished_games + totals.won_games,
         totals.finished_scores as f64

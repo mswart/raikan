@@ -16,6 +16,7 @@ impl InstructedPlayer {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_default(default: game::Move) -> Self {
         Self {
             actions: VecDeque::new(),
@@ -23,6 +24,7 @@ impl InstructedPlayer {
         }
     }
 
+    #[allow(dead_code)]
     pub fn add(&mut self, action: game::Move) {
         self.actions.push_back(action);
     }
