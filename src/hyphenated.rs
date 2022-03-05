@@ -46,6 +46,7 @@ pub struct LineScore {
     clued: u8,
     play: u8,
     errors: u8,
+    bonus: u8,
 }
 
 impl PartialOrd for LineScore {
@@ -60,9 +61,12 @@ impl PartialOrd for LineScore {
             std::cmp::Ordering::Less => return Some(std::cmp::Ordering::Less),
             std::cmp::Ordering::Equal => {}
         }
-        match (self.discard_risks as i32 + self.clued as i32 - self.errors as i32 * 10)
-            .cmp(&(other.discard_risks as i32 + other.clued as i32 - other.errors as i32 * 10))
-        {
+        match (self.discard_risks as i32 + self.clued as i32 + self.bonus as i32
+            - self.errors as i32 * 10)
+            .cmp(
+                &(other.discard_risks as i32 + other.clued as i32 + other.bonus as i32
+                    - other.errors as i32 * 10),
+            ) {
             std::cmp::Ordering::Greater => return Some(std::cmp::Ordering::Greater),
             std::cmp::Ordering::Less => return Some(std::cmp::Ordering::Less),
             std::cmp::Ordering::Equal => {}
@@ -80,6 +84,7 @@ impl LineScore {
             play: 0,
             discard_risks: 0,
             errors: 0,
+            bonus: 0,
         }
     }
 }
@@ -113,6 +118,7 @@ impl Line {
         let mut clued = 0;
         let mut play = 0;
         let mut errors = extra_error;
+        let mut bonus = 0;
         for hand in self.hands.iter().skip(1) {
             let mut queued_actions = 0;
             let mut chop = true;
@@ -125,7 +131,19 @@ impl Line {
                         queued_actions += 1;
                     }
                     if slot.trash {
-                        queued_actions += 1;
+                        match slot.card.play_state(&game) {
+                            CardPlayState::Trash() => queued_actions += 1,
+                            CardPlayState::Dead() => queued_actions += 1,
+                            CardPlayState::Critical() => errors += 3,
+                            CardPlayState::Playable() => errors += 2,
+                            CardPlayState::Normal() => errors += 1,
+                        };
+                    } else {
+                        match slot.card.play_state(&game) {
+                            CardPlayState::Trash() => errors += 2,
+                            CardPlayState::Dead() => errors += 2,
+                            _ => {}
+                        };
                     }
                 } else if chop {
                     chop = false;
@@ -155,6 +173,9 @@ impl Line {
                         CardPlayState::Trash() => errors += 1,
                     }
                 }
+                if slot.quantum.size() == 1 {
+                    bonus += 1;
+                }
             }
             if discard_risk != 0 && queued_actions < 1 {
                 discard_risks += discard_risk;
@@ -167,6 +188,7 @@ impl Line {
             play,
             discard_risks,
             errors,
+            bonus,
         }
     }
 
@@ -261,6 +283,16 @@ impl Line {
         if whom != 0 {
             // somebody else was clued -> remember which cards are clued
             let newly_clued = touched - previously_clued;
+            for pos in 0..self.hands[whom].len() {
+                match clue {
+                    game::Clue::Rank(rank) => self.hands[whom][pos as usize]
+                        .quantum
+                        .limit_by_rank(rank as usize, touched.contains(pos as u8)),
+                    game::Clue::Color(color) => self.hands[whom][pos as usize]
+                        .quantum
+                        .limit_by_suit(&color.suit(), touched.contains(pos as u8)),
+                }
+            }
             if newly_clued.is_empty() {
                 let focus = touched.first().expect("empty clues are not supported");
                 self.hands[whom][focus as usize].play = true;

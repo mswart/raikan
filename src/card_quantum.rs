@@ -120,6 +120,14 @@ impl CardQuantum {
         }
         true
     }
+
+    pub fn size(&self) -> u8 {
+        let mut set = 0;
+        for suit_index in 0..self.variant.suits().len() {
+            set += self.cards[suit_index].count_ones()
+        }
+        set as u8
+    }
 }
 
 impl<'a> CardQuantum {
@@ -199,5 +207,37 @@ mod tests {
         assert_eq!(c.cards[2], 0);
         assert_eq!(c.cards[3], 0);
         assert_eq!(c.cards[4], 0);
+    }
+
+    #[test]
+    fn contains() {
+        let variant = Variant {};
+        let mut c = CardQuantum::new(variant);
+        let card1 = game::Card {
+            rank: 1,
+            suit: variant.suits()[0],
+        };
+        assert!(c.contains(&card1));
+        c.clear();
+        assert!(!c.contains(&card1));
+        c.add_card(&game::Card {
+            rank: 1,
+            suit: variant.suits()[0],
+        });
+        assert!(c.contains(&card1));
+    }
+
+    #[test]
+    fn size() {
+        let variant = Variant {};
+        let mut c = CardQuantum::new(variant);
+        assert_eq!(c.size(), 25);
+        c.clear();
+        assert_eq!(c.size(), 0);
+        c.add_card(&game::Card {
+            rank: 1,
+            suit: variant.suits()[0],
+        });
+        assert_eq!(c.size(), 1);
     }
 }
