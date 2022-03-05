@@ -695,12 +695,7 @@ impl Game {
                         self.turn,
                         self.seed,
                     );
-                    self.replay.actions.push(HanabiLiveAction {
-                        action: 4,
-                        target: self.active_player as u8,
-                        value: Some(3), // time out
-                    });
-                    self.state = GameState::Invalid();
+                    self.invalidate_game();
                     return;
                 }
                 if self.clues < 8 {
@@ -712,12 +707,7 @@ impl Game {
                             self.active_player, self.turn, self.seed,
                         );
                     }
-                    self.replay.actions.push(HanabiLiveAction {
-                        action: 4,
-                        target: self.active_player as u8,
-                        value: Some(3), // time out
-                    });
-                    self.state = GameState::Invalid();
+                    self.invalidate_game();
                     return;
                 }
                 let card = card.unwrap();
@@ -754,12 +744,7 @@ impl Game {
                         pos,
                         self.hands[self.active_player].len()
                     );
-                    self.replay.actions.push(HanabiLiveAction {
-                        action: 4,
-                        target: self.active_player as u8,
-                        value: Some(3), // time out
-                    });
-                    self.state = GameState::Invalid();
+                    self.invalidate_game();
                     return;
                 }
                 let card = card.unwrap();
@@ -799,6 +784,13 @@ impl Game {
                     self.num_strikes += 1;
                     if self.num_strikes == 3 {
                         self.state = GameState::Lost();
+                        for card in self.deck.iter() {
+                            self.replay.deck.push(HanabiLiveCard {
+                                rank: card.rank,
+                                suit_index: self.suits.iter().position(|&s| s == card.suit).unwrap()
+                                    as u8,
+                            })
+                        }
                         self.replay.actions.push(HanabiLiveAction {
                             action: 4,
                             target: self.active_player as u8,
@@ -827,12 +819,7 @@ impl Game {
                         "Invalid move: player {} tried to clue to invalid player number {}",
                         self.active_player, player,
                     );
-                    self.replay.actions.push(HanabiLiveAction {
-                        action: 4,
-                        target: self.active_player as u8,
-                        value: Some(3), // time out
-                    });
-                    self.state = GameState::Invalid();
+                    self.invalidate_game();
                     return;
                 }
                 if self.clues == 0 {
@@ -840,12 +827,7 @@ impl Game {
                         "Invalid move: player {} tried to clue but no clue tokens are left",
                         self.active_player,
                     );
-                    self.replay.actions.push(HanabiLiveAction {
-                        action: 4,
-                        target: self.active_player as u8,
-                        value: Some(3), // time out
-                    });
-                    self.state = GameState::Invalid();
+                    self.invalidate_game();
                     return;
                 }
                 let player_index = (self.active_player + player as usize) % self.hands.len();
@@ -899,16 +881,23 @@ impl Game {
                 self.clues -= 1;
             }
         }
-        if self.state == GameState::Lost() {
-            for card in self.deck.iter() {
-                self.replay.deck.push(HanabiLiveCard {
-                    rank: card.rank,
-                    suit_index: self.suits.iter().position(|&s| s == card.suit).unwrap() as u8,
-                })
-            }
-        }
         self.active_player = (self.active_player + 1) % self.hands.len();
         self.score_integral += self.score as u16;
+    }
+
+    fn invalidate_game(&mut self) {
+        self.replay.actions.push(HanabiLiveAction {
+            action: 4,
+            target: self.active_player as u8,
+            value: Some(3), // time out
+        });
+        self.state = GameState::Invalid();
+        for card in self.deck.iter() {
+            self.replay.deck.push(HanabiLiveCard {
+                rank: card.rank,
+                suit_index: self.suits.iter().position(|&s| s == card.suit).unwrap() as u8,
+            })
+        }
     }
 
     pub fn print_replay(&self) {
