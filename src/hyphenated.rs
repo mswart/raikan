@@ -8,7 +8,23 @@ use crate::{
 
 impl std::fmt::Debug for HyphenatedPlayer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(&self.line, f)?;
+        f.write_str("[")?;
+        for (pos, slot) in self.line.hands[0].iter().enumerate() {
+            if pos > 0 {
+                f.write_str(", ")?;
+            }
+            std::fmt::Display::fmt(&slot.quantum, f)?;
+            if slot.clued {
+                f.write_str("'")?;
+            }
+            if slot.trash {
+                f.write_str("kt")?;
+            }
+            if slot.play {
+                f.write_str("!")?;
+            }
+        }
+        f.write_str("]")?;
         Ok(())
     }
 }
@@ -61,10 +77,10 @@ impl PartialOrd for LineScore {
             std::cmp::Ordering::Less => return Some(std::cmp::Ordering::Less),
             std::cmp::Ordering::Equal => {}
         }
-        match (self.discard_risks as i32 + self.clued as i32 + self.bonus as i32
+        match (self.discard_risks as i32 + self.clued as i32 * 2 + self.bonus as i32
             - self.errors as i32 * 10)
             .cmp(
-                &(other.discard_risks as i32 + other.clued as i32 + other.bonus as i32
+                &(other.discard_risks as i32 + other.clued as i32 * 2 + other.bonus as i32
                     - other.errors as i32 * 10),
             ) {
             std::cmp::Ordering::Greater => return Some(std::cmp::Ordering::Greater),
@@ -228,13 +244,16 @@ impl Line {
         player: usize,
         pos: usize,
         card: game::Card,
-        _successful: bool,
+        successful: bool,
         _blind: bool,
     ) {
         self.turn += 1;
         self.hands[player].remove(pos);
         if player == 0 {
             self.track_card(card);
+        }
+        if !successful {
+            self.clued_cards.remove(&card);
         }
     }
 

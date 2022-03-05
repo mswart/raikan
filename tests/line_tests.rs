@@ -252,3 +252,23 @@ fn maximize_knowledge_transfer1() {
     println!("clue blue:\n line: {clue_blue_line:?}\n => {clue_blue:?}");
     assert!(clue_2 > clue_blue);
 }
+
+#[test]
+fn clue_multiple_ones() {
+    // seed 7690
+    let (line, game) = replay_game(
+        1,
+        "415xubpclkdpbfpfiisghlmxdsruwgnfoawrncaqutkahjvmkqyev",
+        "05oc0aakubadagpaocabvcaqoaarbeajbmbaiabibn7dodblao7cbhibbyDda4vab5aciabxb7a80dvdaADd7ab00bava6b2apvdbw0daHbt1ab9aCazocaG7cidqb",
+        "0",
+    );
+
+    println!("start line: {:?}\n===", line);
+    let mut line_clue_1 = line.clone();
+    let clue_1 = line_clue_1.clue(3, game::Clue::Rank(1), &game);
+    println!("clue 1s:\n line: {line_clue_1:?}\n => {clue_1:?}");
+    let mut clue_blue_line = line.clone();
+    let clue_blue = clue_blue_line.clue(3, game::Clue::Color(ClueColor::Blue()), &game);
+    println!("clue blue:\n line: {clue_blue_line:?}\n => {clue_blue:?}");
+    assert!(clue_1 > clue_blue);
+}
