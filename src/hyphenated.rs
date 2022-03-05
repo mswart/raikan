@@ -39,12 +39,13 @@ pub struct Slot {
 }
 
 impl Slot {
-    fn update_slot_attributes(&mut self, game: &game::Game) {
+    fn update_slot_attributes(&mut self, play_states: &PlayStates) {
         let mut all_trash = true;
         let mut all_playable = true;
         for card in self.quantum.iter() {
-            match card.play_state(game) {
+            match play_states[&card] {
                 game::CardPlayState::Playable() => all_trash = false,
+                game::CardPlayState::CriticalPlayable() => all_trash = false,
                 game::CardPlayState::Critical() => {
                     all_trash = false;
                     all_playable = false;
@@ -89,7 +90,6 @@ impl std::fmt::Debug for Slot {
 pub struct LineScore {
     discard_risks: i8,
     score: u8,
-    max_score: u8,
     clued: u8,
     play: u8,
     errors: u8,
@@ -99,11 +99,6 @@ pub struct LineScore {
 impl PartialOrd for LineScore {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match self.score.cmp(&other.score) {
-            std::cmp::Ordering::Greater => return Some(std::cmp::Ordering::Greater),
-            std::cmp::Ordering::Less => return Some(std::cmp::Ordering::Less),
-            std::cmp::Ordering::Equal => {}
-        }
-        match self.max_score.cmp(&other.max_score) {
             std::cmp::Ordering::Greater => return Some(std::cmp::Ordering::Greater),
             std::cmp::Ordering::Less => return Some(std::cmp::Ordering::Less),
             std::cmp::Ordering::Equal => {}
@@ -132,7 +127,6 @@ impl LineScore {
     pub fn zero() -> Self {
         Self {
             score: 0,
-            max_score: 0,
             clued: 0,
             play: 0,
             discard_risks: 0,
@@ -143,12 +137,151 @@ impl LineScore {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
+struct PlayStates {
+    variant: Variant,
+    states: [CardPlayState; 25],
+    first_one_discard: [bool; 5],
+}
+
+impl PlayStates {
+    fn new() -> Self {
+        let v = Variant {};
+        let mut states = [CardPlayState::Normal(); 25];
+        for suit in v.suits().iter() {
+            states[v.suit_index(suit) * 5] = CardPlayState::Playable();
+            states[v.suit_index(suit) * 5 + 5 - 1] = CardPlayState::Critical();
+        }
+        Self {
+            variant: v,
+            states,
+            first_one_discard: [false; 5],
+        }
+    }
+
+    fn played(&mut self, card: &game::Card) {
+        let offset = self.variant.suit_index(&card.suit) * 5;
+        self.states[offset + card.rank as usize - 1] = CardPlayState::Trash();
+        if card.rank == 5 {
+            return;
+        }
+        match self.states[offset + card.rank as usize] {
+            CardPlayState::Normal() => {
+                self.states[offset + card.rank as usize] = CardPlayState::Playable()
+            }
+            CardPlayState::Critical() => {
+                self.states[offset + card.rank as usize] = CardPlayState::CriticalPlayable()
+            }
+            _ => {}
+        }
+    }
+
+    fn discarded(&mut self, card: &game::Card) {
+        let offset = self.variant.suit_index(&card.suit) * 5;
+        if card.rank == 1 && !self.first_one_discard[self.variant.suit_index(&card.suit)] {
+            self.first_one_discard[self.variant.suit_index(&card.suit)] = true;
+            return;
+        }
+        match self.states[offset + card.rank as usize - 1] {
+            CardPlayState::Normal() => {
+                self.states[offset + card.rank as usize - 1] = CardPlayState::Critical()
+            }
+            CardPlayState::Playable() => {
+                self.states[offset + card.rank as usize - 1] = CardPlayState::CriticalPlayable()
+            }
+            CardPlayState::Critical() => {
+                for higher_rank in card.rank..=5 {
+                    self.states[offset + higher_rank as usize - 1] = CardPlayState::Dead();
+                }
+            }
+            CardPlayState::CriticalPlayable() => {
+                for higher_rank in card.rank..=5 {
+                    self.states[offset + higher_rank as usize - 1] = CardPlayState::Dead();
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl core::ops::Index<&game::Card> for PlayStates {
+    type Output = CardPlayState;
+
+    fn index(&self, card: &game::Card) -> &Self::Output {
+        &self.states[self.variant.suit_index(&card.suit) * 5 + card.rank as usize - 1]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initial_state() {
+        let suit = game::Suit::Red();
+        let p = PlayStates::new();
+        assert_eq!(p[&game::Card { rank: 1, suit }], CardPlayState::Playable());
+        assert_eq!(p[&game::Card { rank: 2, suit }], CardPlayState::Normal());
+        assert_eq!(p[&game::Card { rank: 3, suit }], CardPlayState::Normal());
+        assert_eq!(p[&game::Card { rank: 4, suit }], CardPlayState::Normal());
+        assert_eq!(p[&game::Card { rank: 5, suit }], CardPlayState::Critical());
+    }
+
+    #[test]
+    fn play_card() {
+        let suit = game::Suit::Red();
+        let mut p = PlayStates::new();
+        assert_eq!(p[&game::Card { rank: 2, suit }], CardPlayState::Normal());
+        p.played(&game::Card { rank: 1, suit });
+        assert_eq!(p[&game::Card { rank: 1, suit }], CardPlayState::Trash());
+        assert_eq!(p[&game::Card { rank: 2, suit }], CardPlayState::Playable());
+        p.played(&game::Card { rank: 2, suit });
+        assert_eq!(p[&game::Card { rank: 3, suit }], CardPlayState::Playable());
+        p.played(&game::Card { rank: 3, suit });
+        assert_eq!(p[&game::Card { rank: 4, suit }], CardPlayState::Playable());
+        p.played(&game::Card { rank: 4, suit });
+        assert_eq!(
+            p[&game::Card { rank: 5, suit }],
+            CardPlayState::CriticalPlayable()
+        );
+    }
+
+    #[test]
+    fn discard_card() {
+        let suit = game::Suit::Blue();
+        let mut p = PlayStates::new();
+        p.discarded(&game::Card { rank: 3, suit });
+        assert_eq!(p[&game::Card { rank: 3, suit }], CardPlayState::Critical());
+        p.discarded(&game::Card { rank: 3, suit });
+        assert_eq!(p[&game::Card { rank: 3, suit }], CardPlayState::Dead());
+        assert_eq!(p[&game::Card { rank: 4, suit }], CardPlayState::Dead());
+        assert_eq!(p[&game::Card { rank: 5, suit }], CardPlayState::Dead());
+    }
+
+    #[test]
+    fn play_critical() {
+        let suit = game::Suit::Yellow();
+        let mut p = PlayStates::new();
+        p.discarded(&game::Card { rank: 2, suit });
+        assert_eq!(p[&game::Card { rank: 2, suit }], CardPlayState::Critical());
+        p.played(&game::Card { rank: 1, suit });
+        assert_eq!(
+            p[&game::Card { rank: 2, suit }],
+            CardPlayState::CriticalPlayable()
+        );
+        p.played(&game::Card { rank: 2, suit });
+        assert_eq!(p[&game::Card { rank: 2, suit }], CardPlayState::Trash());
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Line {
     pub hands: Vec<VecDeque<Slot>>,
     clued_cards: BTreeSet<game::Card>,
     tracked_cards: BTreeMap<game::Card, u8>,
     turn: u8,
     variant: Variant,
+    play_states: PlayStates,
+    score: u8,
 }
 
 impl Line {
@@ -163,10 +296,12 @@ impl Line {
             tracked_cards: BTreeMap::new(),
             turn: 0,
             variant: Variant {},
+            play_states: PlayStates::new(),
+            score: 0,
         }
     }
 
-    fn score(&self, extra_error: u8, game: &game::Game) -> LineScore {
+    fn score(&self, extra_error: u8) -> LineScore {
         let mut discard_risks = 0;
         let mut clued = 0;
         let mut play = 0;
@@ -184,15 +319,16 @@ impl Line {
                         queued_actions += 1;
                     }
                     if slot.trash {
-                        match slot.card.play_state(&game) {
+                        match self.play_states[&slot.card] {
                             CardPlayState::Trash() => queued_actions += 1,
                             CardPlayState::Dead() => queued_actions += 1,
                             CardPlayState::Critical() => errors += 3,
+                            CardPlayState::CriticalPlayable() => errors += 3,
                             CardPlayState::Playable() => errors += 2,
                             CardPlayState::Normal() => errors += 1,
                         };
                     } else {
-                        match slot.card.play_state(&game) {
+                        match self.play_states[&slot.card] {
                             CardPlayState::Trash() => errors += 2,
                             CardPlayState::Dead() => errors += 2,
                             _ => {}
@@ -201,16 +337,18 @@ impl Line {
                 } else if chop {
                     chop = false;
                     if !self.clued_cards.contains(&slot.card) {
-                        match slot.card.play_state(&game) {
+                        match self.play_states[&slot.card] {
                             CardPlayState::Critical() => discard_risk -= 3,
+                            CardPlayState::CriticalPlayable() => discard_risk -= 3,
                             CardPlayState::Playable() => discard_risk -= 2,
                             _ => {}
                         }
                     }
                 }
                 if slot.play {
-                    match slot.card.play_state(&game) {
+                    match self.play_states[&slot.card] {
                         CardPlayState::Playable() => {}
+                        CardPlayState::CriticalPlayable() => {}
                         CardPlayState::Critical() => errors += 3,
                         CardPlayState::Normal() => errors += 2,
                         CardPlayState::Dead() => errors += 1,
@@ -218,9 +356,10 @@ impl Line {
                     }
                 }
                 if !slot.trash && !slot.quantum.contains(&slot.card) {
-                    match slot.card.play_state(&game) {
+                    match self.play_states[&slot.card] {
                         CardPlayState::Playable() => errors += 2,
                         CardPlayState::Critical() => errors += 3,
+                        CardPlayState::CriticalPlayable() => errors += 3,
                         CardPlayState::Normal() => errors += 2,
                         CardPlayState::Dead() => errors += 1,
                         CardPlayState::Trash() => errors += 1,
@@ -235,8 +374,7 @@ impl Line {
             }
         }
         LineScore {
-            score: game.score,
-            max_score: game.max_score,
+            score: self.score,
             clued,
             play,
             discard_risks,
@@ -295,13 +433,18 @@ impl Line {
                 }
             }
         }
-        if !successful {
+        if successful {
+            self.score += 1;
+            self.play_states.played(&card);
+        } else {
             self.clued_cards.remove(&card);
+            self.play_states.discarded(&card);
         }
     }
 
     fn discarded(&mut self, player: usize, pos: usize, card: game::Card) {
         self.turn += 1;
+        self.play_states.discarded(&card);
         self.hands[player].remove(pos);
         if player == 0 {
             self.track_card(card);
@@ -338,7 +481,6 @@ impl Line {
         clue: game::Clue,
         touched: game::PositionSet,
         previously_clued: game::PositionSet,
-        game: &game::Game,
     ) -> u8 {
         self.turn += 1;
         let mut error = 0;
@@ -380,7 +522,7 @@ impl Line {
                     // 5 will only be safed via rank
                     continue;
                 }
-                match potential_card.play_state(game) {
+                match self.play_states[&potential_card] {
                     game::CardPlayState::Critical() => potential_safe = true,
                     game::CardPlayState::Dead() => {
                         chop_slot.quantum.remove_card(&potential_card);
@@ -414,8 +556,9 @@ impl Line {
                 if !potential_safe {
                     slot.play = true;
                     for potential_card in slot.quantum.clone().iter() {
-                        match potential_card.play_state(game) {
+                        match self.play_states[&potential_card] {
                             game::CardPlayState::Playable() => {}
+                            game::CardPlayState::CriticalPlayable() => {}
                             _ => slot.quantum.remove_card(&potential_card),
                         }
                     }
@@ -431,7 +574,7 @@ impl Line {
                     );
                 }
             }
-            slot.update_slot_attributes(&game);
+            slot.update_slot_attributes(&self.play_states);
             if pos == focus && slot.trash {
                 error += 5;
             }
@@ -450,7 +593,7 @@ impl Line {
         error
     }
 
-    pub fn clue(&mut self, whom: usize, clue: game::Clue, game: &game::Game) -> Option<LineScore> {
+    pub fn clue(&mut self, whom: usize, clue: game::Clue) -> Option<LineScore> {
         let mut touched = PositionSet::new(self.hands[whom].len() as u8);
         let mut previously_clued = PositionSet::new(self.hands[whom].len() as u8);
         for (pos, slot) in self.hands[whom].iter().enumerate() {
@@ -464,8 +607,8 @@ impl Line {
         if touched.is_empty() {
             return None;
         }
-        let error = self.clued(0, whom, clue, touched, previously_clued, game);
-        Some(self.score(error, game))
+        let error = self.clued(0, whom, clue, touched, previously_clued);
+        Some(self.score(error))
     }
 
     fn discard(&mut self) -> game::Move {
@@ -496,13 +639,13 @@ impl Line {
         game::Move::Discard(0)
     }
 
-    fn play(&mut self, game: &game::Game) -> Option<game::Move> {
+    fn play(&mut self) -> Option<game::Move> {
         for (pos, slot) in self.hands[0].iter_mut().enumerate() {
             if slot.trash {
                 continue;
             }
             if slot.clued {
-                slot.update_slot_attributes(&game);
+                slot.update_slot_attributes(&self.play_states);
             }
             if slot.trash {
                 slot.play = false;
@@ -576,22 +719,21 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         clue: game::Clue,
         touched: game::PositionSet,
         previously_clued: game::PositionSet,
-        game: &game::Game,
+        _game: &game::Game,
     ) {
-        self.line
-            .clued(who, whom, clue, touched, previously_clued, game);
+        self.line.clued(who, whom, clue, touched, previously_clued);
         self.turn += 1;
     }
 
     fn act(&mut self, game: &game::Game) -> game::Move {
-        if let Some(play_move) = self.line.play(game) {
+        if let Some(play_move) = self.line.play() {
             return play_move;
         }
         if game.clues == 0 {
             return self.line.discard();
         }
         // compare clues:
-        let mut best_score = self.line.score(0, game); // LineScore::zero();
+        let mut best_score = self.line.score(0); // LineScore::zero();
         let mut best_move = self.line.discard();
         if self.debug {
             println!("discarding score: {:?}", best_score);
@@ -599,7 +741,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         for player in 1..game.num_players() {
             for suit in self.variant.suits().iter() {
                 let clue = game::Clue::Color(suit.clue_color());
-                if let Some(score) = self.line.clone().clue(player as usize, clue, game) {
+                if let Some(score) = self.line.clone().clue(player as usize, clue) {
                     if self.debug {
                         println!("considered cluing {:?} to {player} with {:?}", clue, score);
                     }
@@ -611,7 +753,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
             }
             for rank in 1..=5 {
                 let clue = game::Clue::Rank(rank);
-                if let Some(score) = self.line.clone().clue(player as usize, clue, game) {
+                if let Some(score) = self.line.clone().clue(player as usize, clue) {
                     if self.debug {
                         println!("considered cluingg {:?} to {player} with {:?}", clue, score);
                     }

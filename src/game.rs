@@ -158,6 +158,7 @@ impl std::fmt::Debug for CardState {
 pub enum CardPlayState {
     Dead(),
     Playable(),
+    CriticalPlayable(),
     Critical(),
     Normal(),
     Trash(),
