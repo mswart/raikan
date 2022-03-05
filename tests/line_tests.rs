@@ -88,7 +88,20 @@ fn replay_game(
         2 => h3.line(),
         _ => h4.line(),
     };
+    println!("start line: {:?}\n===", line);
     (line, game)
+}
+
+fn clue(
+    line: &hyphenated::Line,
+    game: &Game,
+    player: usize,
+    clue: game::Clue,
+) -> hyphenated::LineScore {
+    let mut clue_line = line.clone();
+    let clued = clue_line.clue(player, clue, game);
+    println!("clue {clue:?}:\n line: {clue_line:?}\n => {clued:?}");
+    clued.expect("clue should succeed")
 }
 
 #[test]
@@ -254,7 +267,7 @@ fn maximize_knowledge_transfer1() {
 }
 
 #[test]
-fn clue_multiple_ones() {
+fn clue_multiple_ones1() {
     // seed 7690
     let (line, game) = replay_game(
         1,
@@ -271,4 +284,37 @@ fn clue_multiple_ones() {
     let clue_blue = clue_blue_line.clue(3, game::Clue::Color(ClueColor::Blue()), &game);
     println!("clue blue:\n line: {clue_blue_line:?}\n => {clue_blue:?}");
     assert!(clue_1 > clue_blue);
+}
+
+#[test]
+fn clue_multiple_ones2() {
+    // seed 278
+    let (line, game) = replay_game(
+        1,
+        "415isapgyqxplkqmbsktuwhivnexfncwdgvrajfpahfurdlmcboku",
+        "05uc0cakiaacidaianvc6aalDcar6aajbmav6casbo6bahbuibbaa1iabpa3af1aoca6beazbtDdDdbwaxudbgvbb5bba4b21cocb7aIa0udb9aCaLbdbEbqqd",
+        "0",
+    );
+
+    assert!(
+        clue(&line, &game, 3, game::Clue::Rank(1))
+            > clue(&line, &game, 1, game::Clue::Color(ClueColor::Blue()))
+    );
+}
+
+#[test]
+/// With r 1..4 played; clue red instead of 5 to [r1, p2, g4, r5]
+fn clue_with_trash() {
+    // seed 278
+    let (line, game) = replay_game(
+        36,
+        "415isapgyqxplkqmbsktuwhivnexfncwdgvrajfpahfurdlmcboku",
+        "05uc0cakiaacidaianvc6aalDcar6aajbmav6casbo6bahbuibbaa1iabpa3af1aoca6beazbtDdDdbwaxudbgvbb5bba4b21cocb7aIa0udb9aCaLbdbEbqqd",
+        "0",
+    );
+
+    assert!(
+        clue(&line, &game, 3, game::Clue::Color(ClueColor::Red()))
+            > clue(&line, &game, 3, game::Clue::Rank(5))
+    );
 }

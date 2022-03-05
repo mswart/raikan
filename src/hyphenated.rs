@@ -38,6 +38,37 @@ struct Slot {
     quantum: CardQuantum,
 }
 
+impl Slot {
+    fn update_slot_attributes(&mut self, game: &game::Game) {
+        let mut all_trash = true;
+        let mut all_playable = true;
+        for card in self.quantum.iter() {
+            match card.play_state(game) {
+                game::CardPlayState::Playable() => all_trash = false,
+                game::CardPlayState::Critical() => {
+                    all_trash = false;
+                    all_playable = false;
+                    break;
+                }
+                game::CardPlayState::Normal() => {
+                    all_trash = false;
+                    all_playable = false;
+                    break;
+                }
+                game::CardPlayState::Trash() => all_playable = false,
+                game::CardPlayState::Dead() => all_playable = false,
+            }
+        }
+        if all_playable {
+            self.play = true;
+        }
+        if all_trash {
+            self.trash = true;
+            self.play = false;
+        }
+    }
+}
+
 impl std::fmt::Debug for Slot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(&self.card, f)?;
@@ -77,10 +108,16 @@ impl PartialOrd for LineScore {
             std::cmp::Ordering::Less => return Some(std::cmp::Ordering::Less),
             std::cmp::Ordering::Equal => {}
         }
-        match (self.discard_risks as i32 + self.clued as i32 * 2 + self.bonus as i32
+        match (self.discard_risks as i32
+            + self.play as i32
+            + self.clued as i32 * 2
+            + self.bonus as i32
             - self.errors as i32 * 10)
             .cmp(
-                &(other.discard_risks as i32 + other.clued as i32 * 2 + other.bonus as i32
+                &(other.discard_risks as i32
+                    + other.play as i32
+                    + other.clued as i32 * 2
+                    + other.bonus as i32
                     - other.errors as i32 * 10),
             ) {
             std::cmp::Ordering::Greater => return Some(std::cmp::Ordering::Greater),
@@ -180,7 +217,7 @@ impl Line {
                         CardPlayState::Trash() => errors += 1,
                     }
                 }
-                if !slot.quantum.contains(&slot.card) {
+                if !slot.trash && !slot.quantum.contains(&slot.card) {
                     match slot.card.play_state(&game) {
                         CardPlayState::Playable() => errors += 2,
                         CardPlayState::Critical() => errors += 3,
@@ -248,9 +285,15 @@ impl Line {
         _blind: bool,
     ) {
         self.turn += 1;
-        self.hands[player].remove(pos);
+        let removed = self.hands[player].remove(pos).expect("Game ensures this");
         if player == 0 {
             self.track_card(card);
+            if removed.clued && successful {
+                self.clued_cards.insert(card);
+                for slot in self.hands[0].iter_mut() {
+                    slot.quantum.remove_card(&card);
+                }
+            }
         }
         if !successful {
             self.clued_cards.remove(&card);
@@ -347,11 +390,14 @@ impl Line {
                     .first()
                     .expect("We have check previously that touched must contain something")
             };
-            for pos in (touched - previously_clued).iter() {
+            for pos in (touched - previously_clued).iter_first(focus) {
                 let slot = self.hands[whom]
                     .get_mut(pos as usize)
                     .expect("own and game state out of sync");
                 slot.clued = true;
+                for card in self.clued_cards.iter() {
+                    slot.quantum.remove_card(card);
+                }
                 if pos == focus && !potential_safe {
                     slot.play = true;
                     for potential_card in slot.quantum.clone().iter() {
@@ -360,7 +406,18 @@ impl Line {
                             _ => slot.quantum.remove_card(&potential_card),
                         }
                     }
+                    if slot.quantum.size() == 1 {
+                        // for self mode
+                        self.clued_cards.insert(
+                            slot.quantum
+                                .clone()
+                                .iter()
+                                .nth(0)
+                                .expect("We checked the size"),
+                        );
+                    }
                 }
+                slot.update_slot_attributes(&game);
                 if who > 0 {
                     let card = slot.card.clone();
                     for own_hand in self.hands[0].iter_mut() {
@@ -368,9 +425,6 @@ impl Line {
                             own_hand.quantum.remove_card(&card);
                         }
                     }
-                }
-                for card in self.clued_cards.iter() {
-                    self.hands[whom][pos as usize].quantum.remove_card(card);
                 }
                 self.clued_cards.insert(self.hands[whom][pos as usize].card);
             }
@@ -502,31 +556,7 @@ impl Line {
                 continue;
             }
             if slot.clued {
-                let mut all_trash = true;
-                let mut all_playable = true;
-                for card in slot.quantum.iter() {
-                    match card.play_state(game) {
-                        game::CardPlayState::Playable() => all_trash = false,
-                        game::CardPlayState::Critical() => {
-                            all_trash = false;
-                            all_playable = false;
-                            break;
-                        }
-                        game::CardPlayState::Normal() => {
-                            all_trash = false;
-                            all_playable = false;
-                            break;
-                        }
-                        game::CardPlayState::Trash() => all_playable = false,
-                        game::CardPlayState::Dead() => all_playable = false,
-                    }
-                }
-                if all_trash {
-                    slot.trash = true;
-                }
-                if all_playable {
-                    slot.play = true;
-                }
+                slot.update_slot_attributes(&game);
             }
             if slot.trash {
                 slot.play = false;

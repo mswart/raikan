@@ -157,6 +157,15 @@ impl PositionSet {
         PositionSetIterator {
             offset: 0,
             remaining: self.bits,
+            first: None,
+        }
+    }
+
+    pub fn iter_first(&self, first: u8) -> PositionSetIterator {
+        PositionSetIterator {
+            offset: 0,
+            remaining: self.bits,
+            first: Some(first),
         }
     }
 }
@@ -164,12 +173,18 @@ impl PositionSet {
 pub struct PositionSetIterator {
     offset: u8,
     remaining: u8,
+    first: Option<u8>,
 }
 
 impl Iterator for PositionSetIterator {
     type Item = u8;
 
     fn next(&mut self) -> Option<u8> {
+        if let Some(first) = self.first {
+            self.remaining &= !(1 << first);
+            self.first = None;
+            return Some(first);
+        }
         if self.remaining == 0 {
             return None;
         }
