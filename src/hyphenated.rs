@@ -30,12 +30,12 @@ impl std::fmt::Debug for HyphenatedPlayer {
 }
 
 #[derive(PartialEq, Eq, Clone)]
-struct Slot {
-    card: game::Card,
-    clued: bool,
-    play: bool,
-    trash: bool,
-    quantum: CardQuantum,
+pub struct Slot {
+    pub card: game::Card,
+    pub clued: bool,
+    pub play: bool,
+    pub trash: bool,
+    pub quantum: CardQuantum,
 }
 
 impl Slot {
@@ -144,7 +144,7 @@ impl LineScore {
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Line {
-    hands: Vec<VecDeque<Slot>>,
+    pub hands: Vec<VecDeque<Slot>>,
     clued_cards: BTreeSet<game::Card>,
     tracked_cards: BTreeMap<game::Card, u8>,
     turn: u8,
@@ -344,13 +344,23 @@ impl Line {
         let mut error = 0;
         let newly_clued = touched - previously_clued;
         for pos in 0..self.hands[whom].len() {
+            let slot = &mut self.hands[whom][pos];
+            let old_size = slot.quantum.size();
             match clue {
-                game::Clue::Rank(rank) => self.hands[whom][pos as usize]
+                game::Clue::Rank(rank) => slot
                     .quantum
                     .limit_by_rank(rank as usize, touched.contains(pos as u8)),
-                game::Clue::Color(color) => self.hands[whom][pos as usize]
+                game::Clue::Color(color) => slot
                     .quantum
                     .limit_by_suit(&color.suit(), touched.contains(pos as u8)),
+            }
+            if old_size != 1 && slot.quantum.size() == 1 {
+                let card = slot.quantum.iter().nth(0).expect("we checked the size");
+                for other_pos in 0..self.hands[whom].len() {
+                    if other_pos != pos {
+                        self.hands[whom][other_pos].quantum.remove_card(&card);
+                    }
+                }
             }
         }
         if newly_clued.is_empty() {
@@ -400,12 +410,14 @@ impl Line {
             for card in self.clued_cards.iter() {
                 slot.quantum.remove_card(card);
             }
-            if pos == focus && !potential_safe {
-                slot.play = true;
-                for potential_card in slot.quantum.clone().iter() {
-                    match potential_card.play_state(game) {
-                        game::CardPlayState::Playable() => {}
-                        _ => slot.quantum.remove_card(&potential_card),
+            if pos == focus {
+                if !potential_safe {
+                    slot.play = true;
+                    for potential_card in slot.quantum.clone().iter() {
+                        match potential_card.play_state(game) {
+                            game::CardPlayState::Playable() => {}
+                            _ => slot.quantum.remove_card(&potential_card),
+                        }
                     }
                 }
                 if slot.quantum.size() == 1 {

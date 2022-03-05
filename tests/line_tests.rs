@@ -318,3 +318,56 @@ fn clue_with_trash() {
             > clue(&line, &game, 3, game::Clue::Rank(5))
     );
 }
+
+#[test]
+/// with [b3, b1, b4, b5[5]]
+/// clue blue with full hand, identifies b4 on chop, b5 from previously + two chop cards
+fn clue_with_trash_based_on_previous_clues() {
+    // seed 278
+    let (line, _game) = replay_game(
+        37,
+        "415humvpfntxydvaucswfikulpqnschpwgkxrirbafdljambkoegq",
+        "05pbafpdanvcaealam6baqbiucDcbgatvbDbaxubbobaavuabpacoabk7ca47aay1ca6bsa70bbbaz1abra1ahoaica8b9aADbbdaFajubbBaKbwbu1d7dqc",
+        "0",
+    );
+    let own_hand = &line.hands[0];
+    assert!(
+        own_hand[0].trash,
+        "Slot 0 should be trash (quantum: {})",
+        own_hand[0].quantum
+    );
+    assert!(
+        own_hand[1].trash,
+        "Slot 1 should be trash (quantum: {})",
+        own_hand[1].quantum
+    );
+    assert!(
+        own_hand[2].play,
+        "Slot 2 (previously chop), should be playable b4 (quantum: {})",
+        own_hand[2].quantum
+    );
+}
+
+#[test]
+/// with [p1, b2, g2, b5'] and all 2 except g2 played
+/// clueing 2 marks b2 as trash
+fn clue_with_trash_in_safe_clue() {
+    // seed 14124
+    let (line, _game) = replay_game(
+        44,
+        "415tmcfndirjgqahxplurubyfomvhegsbdlkwqpfxauiwsvkcknap",
+        "05icoaal6cadDaaqDcvc0dajaoodbebsamicucatbnvcbfayobbbagak1aarbvai0aa26ca7bpacvab16aaBbhubbuaaa61dDba5b3udaxb8ica4bFDba07abzqa",
+        "0",
+    );
+    let own_hand = &line.hands[0];
+    assert!(
+        own_hand[1].trash,
+        "Slot 0 should be trash (quantum: {})",
+        own_hand[1].quantum
+    );
+    assert!(
+        !own_hand[2].trash,
+        "Slot 2 (previously chop), should be playable b4 (quantum: {})",
+        own_hand[2].quantum
+    );
+}
