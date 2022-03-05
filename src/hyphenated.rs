@@ -310,7 +310,6 @@ impl Line {
 
     fn foreign_chop(&self, player: usize) -> i8 {
         for (pos, slot) in self.hands[player].iter().enumerate().rev() {
-            // println!("asdf {}", pos);
             if !slot.clued {
                 return pos as i8;
             }
@@ -342,121 +341,30 @@ impl Line {
         game: &game::Game,
     ) {
         self.turn += 1;
-        if whom != 0 {
-            // somebody else was clued -> remember which cards are clued
-            let newly_clued = touched - previously_clued;
-            for pos in 0..self.hands[whom].len() {
-                match clue {
-                    game::Clue::Rank(rank) => self.hands[whom][pos as usize]
-                        .quantum
-                        .limit_by_rank(rank as usize, touched.contains(pos as u8)),
-                    game::Clue::Color(color) => self.hands[whom][pos as usize]
-                        .quantum
-                        .limit_by_suit(&color.suit(), touched.contains(pos as u8)),
-                }
-            }
-            if newly_clued.is_empty() {
-                let focus = touched.first().expect("empty clues are not supported");
-                self.hands[whom][focus as usize].play = true;
-                return;
-            }
-            let chop = self.foreign_chop(whom);
-            let mut potential_safe = false;
-            let focus = if chop >= 0 && touched.contains(chop as u8) {
-                let chop_slot = &mut self.hands[whom][chop as usize];
-                // check whether it can be a safe clue.
-                for potential_card in chop_slot.quantum.clone().iter() {
-                    if potential_card.rank == 5 && clue != game::Clue::Rank(5) {
-                        // 5 will only be safed via rank
-                        continue;
-                    }
-                    match potential_card.play_state(game) {
-                        game::CardPlayState::Critical() => potential_safe = true,
-                        game::CardPlayState::Dead() => {
-                            chop_slot.quantum.remove_card(&potential_card);
-                        }
-                        game::CardPlayState::Trash() => {
-                            chop_slot.quantum.remove_card(&potential_card);
-                        }
-                        game::CardPlayState::Normal() => {
-                            chop_slot.quantum.remove_card(&potential_card);
-                        }
-                        _ => {}
-                    }
-                }
-                chop as u8
-            } else {
-                touched
-                    .first()
-                    .expect("We have check previously that touched must contain something")
-            };
-            for pos in (touched - previously_clued).iter_first(focus) {
-                let slot = self.hands[whom]
-                    .get_mut(pos as usize)
-                    .expect("own and game state out of sync");
-                slot.clued = true;
-                for card in self.clued_cards.iter() {
-                    slot.quantum.remove_card(card);
-                }
-                if pos == focus && !potential_safe {
-                    slot.play = true;
-                    for potential_card in slot.quantum.clone().iter() {
-                        match potential_card.play_state(game) {
-                            game::CardPlayState::Playable() => {}
-                            _ => slot.quantum.remove_card(&potential_card),
-                        }
-                    }
-                    if slot.quantum.size() == 1 {
-                        // for self mode
-                        self.clued_cards.insert(
-                            slot.quantum
-                                .clone()
-                                .iter()
-                                .nth(0)
-                                .expect("We checked the size"),
-                        );
-                    }
-                }
-                slot.update_slot_attributes(&game);
-                if who > 0 {
-                    let card = slot.card.clone();
-                    for own_hand in self.hands[0].iter_mut() {
-                        if own_hand.clued {
-                            own_hand.quantum.remove_card(&card);
-                        }
-                    }
-                }
-                self.clued_cards.insert(self.hands[whom][pos as usize].card);
-            }
-            return;
-        }
-        for pos in 0..touched.max() {
-            match clue {
-                game::Clue::Rank(rank) => self.hands[0][pos as usize]
-                    .quantum
-                    .limit_by_rank(rank as usize, touched.contains(pos)),
-                game::Clue::Color(color) => self.hands[0][pos as usize]
-                    .quantum
-                    .limit_by_suit(&color.suit(), touched.contains(pos)),
-            }
-            if touched.contains(pos) {
-                self.hands[0][pos as usize].clued = true;
-            }
-        }
-
         let newly_clued = touched - previously_clued;
-        let old_chop = (!previously_clued)
-            .last()
-            .unwrap_or(self.hands[0].len() as u8 - 1);
+        for pos in 0..self.hands[whom].len() {
+            match clue {
+                game::Clue::Rank(rank) => self.hands[whom][pos as usize]
+                    .quantum
+                    .limit_by_rank(rank as usize, touched.contains(pos as u8)),
+                game::Clue::Color(color) => self.hands[whom][pos as usize]
+                    .quantum
+                    .limit_by_suit(&color.suit(), touched.contains(pos as u8)),
+            }
+        }
         if newly_clued.is_empty() {
             let focus = touched.first().expect("empty clues are not implemented");
-            self.hands[0][focus as usize].play = true;
-        } else if newly_clued.contains(old_chop) {
-            let focus = old_chop;
-            // check potential safe
-            let mut potential_safe = false;
-            // check whether it is actually a safe clue?
-            for potential_card in self.hands[0][old_chop as usize].quantum.clone().iter() {
+            self.hands[whom][focus as usize].play = true;
+            return;
+        }
+
+        let old_chop = self.foreign_chop(whom);
+
+        let mut potential_safe = false;
+        let focus = if old_chop >= 0 && touched.contains(old_chop as u8) {
+            let chop_slot = &mut self.hands[whom][old_chop as usize];
+            // check whether it can be a safe clue.
+            for potential_card in chop_slot.quantum.clone().iter() {
                 if potential_card.rank == 5 && clue != game::Clue::Rank(5) {
                     // 5 will only be safed via rank
                     continue;
@@ -464,42 +372,63 @@ impl Line {
                 match potential_card.play_state(game) {
                     game::CardPlayState::Critical() => potential_safe = true,
                     game::CardPlayState::Dead() => {
-                        self.hands[0][old_chop as usize]
-                            .quantum
-                            .remove_card(&potential_card);
+                        chop_slot.quantum.remove_card(&potential_card);
                     }
                     game::CardPlayState::Trash() => {
-                        self.hands[0][old_chop as usize]
-                            .quantum
-                            .remove_card(&potential_card);
+                        chop_slot.quantum.remove_card(&potential_card);
                     }
                     game::CardPlayState::Normal() => {
-                        self.hands[0][old_chop as usize]
-                            .quantum
-                            .remove_card(&potential_card);
+                        chop_slot.quantum.remove_card(&potential_card);
                     }
                     _ => {}
                 }
             }
-            if !potential_safe {
-                self.hands[0][focus as usize].play = true;
-            }
+            old_chop as u8
         } else {
-            let focus = newly_clued
+            touched
                 .first()
-                .expect("We checked previously that it is not empty");
-            self.hands[0][focus as usize].play = true;
+                .expect("We have check previously that touched must contain something")
         };
 
-        if clue == game::Clue::Rank(1) {
-            for pos in touched.iter() {
-                self.hands[0][pos as usize].play = true;
-            }
-            return;
-        }
-        for pos in touched.iter() {
+        // somebody else was clued -> remember which cards are clued
+        for pos in (touched - previously_clued).iter_first(focus) {
+            let slot = self.hands[whom]
+                .get_mut(pos as usize)
+                .expect("own and game state out of sync");
+            slot.clued = true;
             for card in self.clued_cards.iter() {
-                self.hands[0][pos as usize].quantum.remove_card(card);
+                slot.quantum.remove_card(card);
+            }
+            if pos == focus && !potential_safe {
+                slot.play = true;
+                for potential_card in slot.quantum.clone().iter() {
+                    match potential_card.play_state(game) {
+                        game::CardPlayState::Playable() => {}
+                        _ => slot.quantum.remove_card(&potential_card),
+                    }
+                }
+                if slot.quantum.size() == 1 {
+                    // for self mode
+                    self.clued_cards.insert(
+                        slot.quantum
+                            .clone()
+                            .iter()
+                            .nth(0)
+                            .expect("We checked the size"),
+                    );
+                }
+            }
+            slot.update_slot_attributes(&game);
+            if who > 0 && whom != 0 {
+                let card = slot.card.clone();
+                for own_hand in self.hands[0].iter_mut() {
+                    if own_hand.clued {
+                        own_hand.quantum.remove_card(&card);
+                    }
+                }
+            }
+            if whom != 0 {
+                self.clued_cards.insert(self.hands[whom][pos as usize].card);
             }
         }
     }
