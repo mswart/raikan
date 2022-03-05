@@ -339,8 +339,9 @@ impl Line {
         touched: game::PositionSet,
         previously_clued: game::PositionSet,
         game: &game::Game,
-    ) {
+    ) -> u8 {
         self.turn += 1;
+        let mut error = 0;
         let newly_clued = touched - previously_clued;
         for pos in 0..self.hands[whom].len() {
             match clue {
@@ -355,7 +356,7 @@ impl Line {
         if newly_clued.is_empty() {
             let focus = touched.first().expect("empty clues are not implemented");
             self.hands[whom][focus as usize].play = true;
-            return;
+            return 0;
         }
 
         let old_chop = self.foreign_chop(whom);
@@ -419,6 +420,9 @@ impl Line {
                 }
             }
             slot.update_slot_attributes(&game);
+            if pos == focus && slot.trash {
+                error += 5;
+            }
             if who > 0 && whom != 0 {
                 let card = slot.card.clone();
                 for own_hand in self.hands[0].iter_mut() {
@@ -431,6 +435,7 @@ impl Line {
                 self.clued_cards.insert(self.hands[whom][pos as usize].card);
             }
         }
+        error
     }
 
     pub fn clue(&mut self, whom: usize, clue: game::Clue, game: &game::Game) -> Option<LineScore> {
@@ -447,8 +452,8 @@ impl Line {
         if touched.is_empty() {
             return None;
         }
-        self.clued(0, whom, clue, touched, previously_clued, game);
-        Some(self.score(0, game))
+        let error = self.clued(0, whom, clue, touched, previously_clued, game);
+        Some(self.score(error, game))
     }
 
     fn discard(&mut self) -> game::Move {
