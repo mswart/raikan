@@ -273,7 +273,45 @@ mod tests {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+impl std::fmt::Debug for Line {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("Line (turn: {})\n", self.turn))?;
+        for (player, hand) in self.hands.iter().enumerate() {
+            f.write_str("[")?;
+            for (pos, slot) in hand.iter().enumerate() {
+                if pos > 0 {
+                    f.write_str(", ")?;
+                }
+                if player > 0 {
+                    std::fmt::Debug::fmt(&slot.card, f)?;
+                    f.write_str(" ")?;
+                } else {
+                    f.write_str("?? ")?;
+                }
+                std::fmt::Display::fmt(&slot.quantum, f)?;
+                if slot.clued {
+                    f.write_str("'")?;
+                } else {
+                    f.write_str(" ")?;
+                }
+                if slot.trash {
+                    f.write_str("kt")?;
+                } else if slot.play {
+                    f.write_str("! ")?;
+                } else {
+                    f.write_str("  ")?;
+                }
+            }
+            f.write_str("]\n")?;
+        }
+        f.write_str(" clued cards: ")?;
+        std::fmt::Debug::fmt(&self.clued_cards, f)?;
+        f.write_str("\n")?;
+        Ok(())
+    }
+}
+
+#[derive(PartialEq, Eq, Clone)]
 pub struct Line {
     pub hands: Vec<VecDeque<Slot>>,
     clued_cards: BTreeSet<game::Card>,

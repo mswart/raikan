@@ -44,7 +44,9 @@ impl std::fmt::Display for CardQuantum {
                     &if (1 << bit) & self.cards[index] > 0 {
                         char.to_string().color(suit.color()).bold()
                     } else {
-                        char.to_string().color(suit.color()).strikethrough()
+                        char.to_string()
+                            .color(colored::Color::BrightBlack)
+                            .strikethrough()
                     },
                     f,
                 )?;
