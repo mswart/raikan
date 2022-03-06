@@ -1,19 +1,21 @@
-use std::{env, ops::AddAssign, thread};
+use rand::prelude::*;
+use std::io::prelude::*;
+use std::{env, io, ops::AddAssign, thread};
 
 use hanabi::*;
-use rand::prelude::*;
 
-fn main() {
+fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
-    let stats = args.contains(&"stats".to_string());
 
-    if stats {
+    if args.contains(&"stats".to_string()) {
         run_stats();
+    } else if args.contains(&"debug_reg".to_string()) {
+        debug_regressions(&args[2], &args[3])?;
     } else {
-        let mut alice = hyphenated::HyphenatedPlayer::new(!stats);
-        let mut bob = hyphenated::HyphenatedPlayer::new(!stats);
-        let mut carl = hyphenated::HyphenatedPlayer::new(!stats);
-        let mut daniel = hyphenated::HyphenatedPlayer::new(!stats);
+        let mut alice = hyphenated::HyphenatedPlayer::new(true);
+        let mut bob = hyphenated::HyphenatedPlayer::new(true);
+        let mut carl = hyphenated::HyphenatedPlayer::new(true);
+        let mut daniel = hyphenated::HyphenatedPlayer::new(true);
         let mut players: Vec<&mut dyn game::PlayerStrategy> = Vec::new();
         players.push(&mut alice);
         players.push(&mut bob);
@@ -32,6 +34,7 @@ fn main() {
         println!("Used seed {}", seed);
         game.print_replay();
     }
+    Ok(())
 }
 
 struct Stats {
@@ -194,4 +197,112 @@ fn run_stats() {
             / (totals.invalid_games + totals.lost_games + totals.finished_games + totals.won_games)
                 as f64
     );
+}
+
+fn debug_regressions(old: &String, new: &String) -> io::Result<()> {
+    println!("old: {old}");
+    println!("new: {new}");
+    let old_file = std::fs::File::open(old)?;
+    let new_file = std::fs::File::open(new)?;
+    let old_reader = io::BufReader::new(old_file);
+    let new_reader = io::BufReader::new(new_file);
+
+    for (old_line, new_line) in std::iter::zip(old_reader.lines(), new_reader.lines()) {
+        let old_line = old_line?;
+        let new_line = new_line?;
+        if old_line == new_line {
+            continue;
+        }
+        let old_parts: Vec<&str> = old_line.split(" ").collect();
+        let new_parts: Vec<&str> = new_line.split(" ").collect();
+        if new_parts[1] != "Finished" {
+            continue;
+        }
+        if old_parts[2].parse::<u8>().unwrap() > new_parts[2].parse::<u8>().unwrap() {
+            println!(
+                "{} {} ({}/{}) vs {} ({}/{}) => {}",
+                old_parts[0],
+                old_parts[1],
+                old_parts[2],
+                old_parts[3],
+                new_parts[1],
+                new_parts[2],
+                new_parts[3],
+                new_parts[5],
+            );
+            let mut old_replay = old_parts[5][31..].split(",");
+            let mut new_replay = new_parts[5][31..].split(",");
+            let old_deck = old_replay.nth(0).unwrap();
+            let new_deck = new_replay.nth(0).unwrap();
+            let old_actions = old_replay.nth(0).unwrap();
+            let new_actions = new_replay.nth(0).unwrap();
+            let old_options = old_replay.nth(0).unwrap();
+            let new_options = new_replay.nth(0).unwrap();
+            assert_eq!(old_deck, new_deck);
+            assert_ne!(old_actions, new_actions);
+            let num_players = new_deck
+                .chars()
+                .nth(0)
+                .expect("deck should be non-empty")
+                .to_digit(10)
+                .expect("player count must be a number") as u8;
+            assert_eq!(num_players, 4);
+            let mut old_h1 = hyphenated::HyphenatedPlayer::new(false);
+            let mut old_h2 = hyphenated::HyphenatedPlayer::new(false);
+            let mut old_h3 = hyphenated::HyphenatedPlayer::new(false);
+            let mut old_h4 = hyphenated::HyphenatedPlayer::new(false);
+            let mut old_players: Vec<&mut dyn hanabi::game::PlayerStrategy> = Vec::new();
+            old_players.push(&mut old_h1);
+            old_players.push(&mut old_h2);
+            old_players.push(&mut old_h3);
+            old_players.push(&mut old_h4);
+            let mut new_h1 = hyphenated::HyphenatedPlayer::new(false);
+            let mut new_h2 = hyphenated::HyphenatedPlayer::new(false);
+            let mut new_h3 = hyphenated::HyphenatedPlayer::new(false);
+            let mut new_h4 = hyphenated::HyphenatedPlayer::new(false);
+            let mut new_players: Vec<&mut dyn hanabi::game::PlayerStrategy> = Vec::new();
+            new_players.push(&mut new_h1);
+            new_players.push(&mut new_h2);
+            new_players.push(&mut new_h3);
+            new_players.push(&mut new_h4);
+
+            let mut unchanged = 0;
+            for (old_action, new_action) in std::iter::zip(old_actions.chars(), new_actions.chars())
+            {
+                if old_action == new_action {
+                    unchanged += 1;
+                } else {
+                    break;
+                }
+            }
+            println!("unchanged: {unchanged}");
+
+            let turn = unchanged / 2;
+
+            game::Game::from_replay(turn, old_deck, old_actions, old_options, &mut old_players);
+            let target_player = (turn - 1) % num_players;
+            println!("target player: {target_player}");
+
+            println!("Old replay: {}", old_parts[5]);
+            let old_line = match target_player {
+                0 => old_h1.line(),
+                1 => old_h2.line(),
+                2 => old_h3.line(),
+                _ => old_h4.line(),
+            };
+            println!("Old line {:?}", old_line);
+
+            println!("New replay: {}", new_parts[5]);
+            game::Game::from_replay(turn, new_deck, new_actions, new_options, &mut new_players);
+            let new_line = match target_player {
+                0 => new_h1.line(),
+                1 => new_h2.line(),
+                2 => new_h3.line(),
+                _ => new_h4.line(),
+            };
+            println!("new line {:?}", new_line);
+            break;
+        }
+    }
+    Ok(())
 }
