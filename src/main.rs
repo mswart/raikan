@@ -118,26 +118,32 @@ fn run_stats() {
                         results.lost_games += 1;
                         results.lost_scores += game.score as usize;
                         results.lost_max_scores += game.max_score as usize;
-                        println!("{i}: Lost {}", game.turn);
+                        println!("{i} Lost 0 0 {} {}", game.turn, game.replay_url());
                     }
                     game::GameState::Finished() => {
                         results.finished_games += 1;
                         results.finished_scores += game.score as usize;
                         results.finished_score_intergrals += game.score_integral as usize;
                         results.finished_max_scores += game.max_score as usize;
-                        println!("{i}: Finished {}/{}", game.score, game.max_score);
+                        println!(
+                            "{i} Finished {} {} {} {}",
+                            game.score,
+                            game.max_score,
+                            game.turn,
+                            game.replay_url()
+                        );
                     }
                     game::GameState::Won() => {
                         results.won_games += 1;
                         results.finished_scores += game.score as usize;
                         results.finished_max_scores += game.max_score as usize;
-                        println!("{i}: Won");
+                        println!("{i} Won 25 25 {} {}", game.turn, game.replay_url());
                     }
                     game::GameState::Invalid() => {
                         results.invalid_games += 1;
                         results.invalid_scores += game.score as usize;
                         results.invalid_max_scores += game.max_score as usize;
-                        println!("{i}: Invalid");
+                        println!("{i} Invalid 0 0 {} {}", game.turn, game.replay_url());
                     }
                     _ => unimplemented!("Should not happen as final game score"),
                 }

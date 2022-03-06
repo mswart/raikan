@@ -905,10 +905,16 @@ impl Game {
     pub fn print_replay(&self) {
         let serialized = serde_json::to_string(&self.replay).unwrap();
         println!("replay JSON: {}", serialized);
+        println!("Replay url: {}", self.replay_url());
+    }
+
+    pub fn replay_url(&self) -> String {
+        let prefix = "https://hanab.live/replay-json/";
         let mut encoded = String::with_capacity(
             // 2 comma, num players, min+max+desk, min+max+actions, + variant
-            2 + 1 + 2 + self.replay.deck.len() + 2 + self.replay.actions.len() + 1,
+            prefix.len() + 2 + 1 + 2 + self.replay.deck.len() + 2 + self.replay.actions.len() + 1,
         );
+        encoded.push_str(prefix);
         let base62: Vec<char> = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
             .chars()
             .collect();
@@ -936,6 +942,6 @@ impl Game {
         encoded.push(',');
         // add variant id
         encoded.push('0');
-        println!("Replay url: https://hanab.live/replay-json/{}", encoded);
+        encoded
     }
 }
