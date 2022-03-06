@@ -330,3 +330,54 @@ fn clue_with_trash_in_safe_clue() {
         own_hand[2].quantum
     );
 }
+
+#[test]
+fn priority_saves() {
+    // seed 52
+    let line = replay_game(
+        39,
+        "415xtilakwjkoagpcyefqcsnumvfdghpramqpbfihkunvblrsdxuw",
+        "05pbaf0damobaq0darocaealuaad6cavuaawbgubbnDdaubiobbaa11abta3ucaj7aacahiab0a8Dabkvcbybsaxb5b6bzb27cbBb4aJ0aab1ab7bAaNqb",
+        "0",
+    );
+    assert!(clue(&line, 2, game::Clue::Rank(3)) > clue(&line, 3, game::Clue::Rank(2)));
+}
+
+#[test]
+fn no_double_cluing() {
+    // seed 52
+    let line = replay_game(
+        23,
+        "415wmjgiqdkvcfvadsshwpmloqxlbgciaenufbkaunpxtpkruhrfy",
+        "05idocakamubahoa0badasub1c0bauaqbo7dafbivcba6dbj7bbbaeuabxatidb1Dbac7ab6b4a5bgpbDbb2aBazbnb0avaw0cb7b3aIap0dbyalaF1dbDqc",
+        "0",
+    );
+    assert!(
+        clue(&line, 2, game::Clue::Color(game::ClueColor::Yellow()))
+            > clue(&line, 2, game::Clue::Rank(4))
+    );
+}
+
+#[test]
+/// giving clue to [b5, x, x, x] (with b1..b4 played) must be a play clue on the b5
+/// It must not interpreted as a trash card
+fn clue_clear_cards() {
+    // seed 17
+    let line = replay_game(
+        41,
+        "415xvpskfqgqixmgddhawafusoplmnwfchrcprbltubjeiayunkvk",
+        "05pbafodamibaqpaubacaepb0bodaubiap7cagajbn7dbsubbrbaayva6aabbh1abxa57ablicadbva90ba3bBobaobtaEid1cb8Dcbz1bbAa1ak6abIb6bwbFbDqb",
+        "0",
+    );
+    let own_hand = &line.hands[0];
+    assert!(
+        !own_hand[0].trash,
+        "Slot 0 should not be trash (quantum: {})",
+        own_hand[0].quantum
+    );
+    assert!(
+        own_hand[0].play,
+        "Slot 0 should be playable b5 (quantum: {})",
+        own_hand[0].quantum
+    );
+}

@@ -36,6 +36,7 @@ pub struct Slot {
     pub play: bool,
     pub trash: bool,
     pub quantum: CardQuantum,
+    fixed: bool,
 }
 
 impl Slot {
@@ -376,8 +377,8 @@ impl Line {
                     chop = false;
                     if !self.clued_cards.contains(&slot.card) {
                         match self.play_states[&slot.card] {
-                            CardPlayState::Critical() => discard_risk -= 3,
-                            CardPlayState::CriticalPlayable() => discard_risk -= 3,
+                            CardPlayState::Critical() => discard_risk -= 5,
+                            CardPlayState::CriticalPlayable() => discard_risk -= 5,
                             CardPlayState::Playable() => discard_risk -= 2,
                             _ => {}
                         }
@@ -428,6 +429,7 @@ impl Line {
             clued: false,
             play: false,
             trash: false,
+            fixed: false,
         });
         self.track_card(card);
     }
@@ -442,6 +444,7 @@ impl Line {
                 suit: self.variant.suits()[0],
                 rank: 0,
             },
+            fixed: false,
         };
         for (card, count) in self.tracked_cards.iter() {
             if *count == card.suit.card_count(card.rank) {
@@ -536,6 +539,10 @@ impl Line {
             }
             if old_size != 1 && slot.quantum.size() == 1 {
                 let card = slot.quantum.iter().nth(0).expect("we checked the size");
+                if slot.clued || newly_clued.contains(pos as u8) {
+                    self.clued_cards.insert(card);
+                    slot.fixed = true;
+                }
                 for other_pos in 0..self.hands[whom].len() {
                     if other_pos != pos {
                         self.hands[whom][other_pos].quantum.remove_card(&card);
@@ -587,8 +594,10 @@ impl Line {
                 .get_mut(pos as usize)
                 .expect("own and game state out of sync");
             slot.clued = true;
-            for card in self.clued_cards.iter() {
-                slot.quantum.remove_card(card);
+            if !slot.fixed {
+                for card in self.clued_cards.iter() {
+                    slot.quantum.remove_card(card);
+                }
             }
             if pos == focus {
                 if !potential_safe {
