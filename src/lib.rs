@@ -6,3 +6,4 @@ pub use card_quantum::CardQuantum;
 pub mod hyphenated;
 mod position_set;
 pub use position_set::PositionSet;
+pub mod webclient;

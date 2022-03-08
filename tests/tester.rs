@@ -41,7 +41,7 @@ impl std::fmt::Debug for InstructedPlayer {
 }
 
 impl game::PlayerStrategy for InstructedPlayer {
-    fn init(&mut self, _game: &game::Game) {}
+    fn init(&mut self, _num_players: u8) {}
     fn drawn(&mut self, _player: usize, _card: game::Card) {}
     fn own_drawn(&mut self) {}
     fn played(
@@ -62,11 +62,10 @@ impl game::PlayerStrategy for InstructedPlayer {
         _clue: game::Clue,
         _touched: game::PositionSet,
         _previously_clued: game::PositionSet,
-        _game: &game::Game,
     ) {
     }
 
-    fn act(&mut self, _game: &game::Game) -> game::Move {
+    fn act(&mut self, _status: &game::GameStatus) -> game::Move {
         self.actions.pop_front().unwrap_or_else(|| {
             self.default
                 .expect("Player should be given enough instructions or a default")

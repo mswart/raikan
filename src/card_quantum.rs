@@ -12,8 +12,8 @@ impl Variant {
     pub fn suits(&self) -> [game::Suit; 5] {
         [
             game::Suit::Red(),
-            game::Suit::Green(),
             game::Suit::Yellow(),
+            game::Suit::Green(),
             game::Suit::Blue(),
             game::Suit::Purple(),
         ]

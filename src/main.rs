@@ -11,6 +11,8 @@ fn main() -> io::Result<()> {
         run_stats();
     } else if args.contains(&"debug_reg".to_string()) {
         debug_regressions(&args[2], &args[3])?;
+    } else if args.contains(&"webclient".to_string()) {
+        webclient::run();
     } else {
         let mut alice = hyphenated::HyphenatedPlayer::new(true);
         let mut bob = hyphenated::HyphenatedPlayer::new(true);
@@ -119,34 +121,34 @@ fn run_stats() {
                 match game.state {
                     game::GameState::Lost() => {
                         results.lost_games += 1;
-                        results.lost_scores += game.score as usize;
-                        results.lost_max_scores += game.max_score as usize;
-                        println!("{i} Lost 0 0 {} {}", game.turn, game.replay_url());
+                        results.lost_scores += game.status.score as usize;
+                        results.lost_max_scores += game.status.max_score as usize;
+                        println!("{i} Lost 0 0 {} {}", game.status.turn, game.replay_url());
                     }
                     game::GameState::Finished() => {
                         results.finished_games += 1;
-                        results.finished_scores += game.score as usize;
+                        results.finished_scores += game.status.score as usize;
                         results.finished_score_intergrals += game.score_integral as usize;
-                        results.finished_max_scores += game.max_score as usize;
+                        results.finished_max_scores += game.status.max_score as usize;
                         println!(
                             "{i} Finished {} {} {} {}",
-                            game.score,
-                            game.max_score,
-                            game.turn,
+                            game.status.score,
+                            game.status.max_score,
+                            game.status.turn,
                             game.replay_url()
                         );
                     }
                     game::GameState::Won() => {
                         results.won_games += 1;
-                        results.finished_scores += game.score as usize;
-                        results.finished_max_scores += game.max_score as usize;
-                        println!("{i} Won 25 25 {} {}", game.turn, game.replay_url());
+                        results.finished_scores += game.status.score as usize;
+                        results.finished_max_scores += game.status.max_score as usize;
+                        println!("{i} Won 25 25 {} {}", game.status.turn, game.replay_url());
                     }
                     game::GameState::Invalid() => {
                         results.invalid_games += 1;
-                        results.invalid_scores += game.score as usize;
-                        results.invalid_max_scores += game.max_score as usize;
-                        println!("{i} Invalid 0 0 {} {}", game.turn, game.replay_url());
+                        results.invalid_scores += game.status.score as usize;
+                        results.invalid_max_scores += game.status.max_score as usize;
+                        println!("{i} Invalid 0 0 {} {}", game.status.turn, game.replay_url());
                     }
                     _ => unimplemented!("Should not happen as final game score"),
                 }

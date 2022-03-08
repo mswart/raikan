@@ -3,7 +3,9 @@ use crate::game;
 use rand::thread_rng;
 use rand::{seq::SliceRandom, Rng};
 
-pub struct DiscardPlayer;
+pub struct DiscardPlayer {
+    num_hand_cards: u8,
+}
 
 impl std::fmt::Debug for DiscardPlayer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -12,25 +14,34 @@ impl std::fmt::Debug for DiscardPlayer {
 }
 
 impl game::PlayerStrategy for DiscardPlayer {
-    fn init(&mut self, _game: &game::Game) {}
-    fn act(&mut self, game: &game::Game) -> game::Move {
-        game::Move::Discard(game.num_hand_cards(0) - 1)
+    fn init(&mut self, _num_players: u8) {}
+    fn act(&mut self, _status: &game::GameStatus) -> game::Move {
+        game::Move::Discard(self.num_hand_cards - 1)
     }
 
     fn drawn(&mut self, _player: usize, _card: game::Card) {}
-    fn own_drawn(&mut self) {}
+    fn own_drawn(&mut self) {
+        self.num_hand_cards -= 1;
+    }
 
     fn played(
         &mut self,
-        _player: usize,
+        player: usize,
         _pos: usize,
         _card: game::Card,
         _successful: bool,
         _blind: bool,
     ) {
+        if player == 0 {
+            self.num_hand_cards -= 1;
+        }
     }
 
-    fn discarded(&mut self, _player: usize, _pos: usize, _card: game::Card) {}
+    fn discarded(&mut self, player: usize, _pos: usize, _card: game::Card) {
+        if player == 0 {
+            self.num_hand_cards -= 1;
+        }
+    }
     fn clued(
         &mut self,
         _who: usize,
@@ -38,12 +49,13 @@ impl game::PlayerStrategy for DiscardPlayer {
         _clue: game::Clue,
         _touched: game::PositionSet,
         _previously_clued: game::PositionSet,
-        _game: &game::Game,
     ) {
     }
 }
 
-pub struct PlayPlayer;
+pub struct PlayPlayer {
+    num_hand_cards: u8,
+}
 
 impl std::fmt::Debug for PlayPlayer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -52,21 +64,30 @@ impl std::fmt::Debug for PlayPlayer {
 }
 
 impl game::PlayerStrategy for PlayPlayer {
-    fn init(&mut self, _game: &game::Game) {}
+    fn init(&mut self, _num_players: u8) {}
 
     fn drawn(&mut self, _player: usize, _card: game::Card) {}
-    fn own_drawn(&mut self) {}
+    fn own_drawn(&mut self) {
+        self.num_hand_cards += 1;
+    }
     fn played(
         &mut self,
-        _player: usize,
+        player: usize,
         _pos: usize,
         _card: game::Card,
         _successful: bool,
         _blind: bool,
     ) {
+        if player == 0 {
+            self.num_hand_cards -= 1;
+        }
     }
 
-    fn discarded(&mut self, _player: usize, _pos: usize, _card: game::Card) {}
+    fn discarded(&mut self, player: usize, _pos: usize, _card: game::Card) {
+        if player == 0 {
+            self.num_hand_cards -= 1;
+        }
+    }
     fn clued(
         &mut self,
         _who: usize,
@@ -74,12 +95,11 @@ impl game::PlayerStrategy for PlayPlayer {
         _clue: game::Clue,
         _touched: game::PositionSet,
         _previously_clued: game::PositionSet,
-        _game: &game::Game,
     ) {
     }
 
-    fn act(&mut self, game: &game::Game) -> game::Move {
-        game::Move::Play(game.num_hand_cards(0) - 1)
+    fn act(&mut self, _status: &game::GameStatus) -> game::Move {
+        game::Move::Play(self.num_hand_cards - 1)
     }
 }
 
@@ -92,7 +112,7 @@ impl std::fmt::Debug for RandCluePlayer {
 }
 
 impl game::PlayerStrategy for RandCluePlayer {
-    fn init(&mut self, _game: &game::Game) {}
+    fn init(&mut self, _num_players: u8) {}
     fn drawn(&mut self, _player: usize, _card: game::Card) {}
     fn own_drawn(&mut self) {}
 
@@ -114,11 +134,10 @@ impl game::PlayerStrategy for RandCluePlayer {
         _clue: game::Clue,
         _touched: game::PositionSet,
         _previously_clued: game::PositionSet,
-        _game: &game::Game,
     ) {
     }
 
-    fn act(&mut self, _game: &game::Game) -> game::Move {
+    fn act(&mut self, _status: &game::GameStatus) -> game::Move {
         let mut rng = thread_rng();
         if rng.gen_bool(0.3) {
             game::Move::Clue(0, game::Clue::Rank(rng.gen_range(1..=5)))

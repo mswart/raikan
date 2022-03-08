@@ -218,14 +218,9 @@ type Hand = VecDeque<CardState>;
 
 pub struct Game {
     pub suits: Vec<Suit>,
-    pub score: u8,
-    pub max_score: u8,
     pub score_integral: u16,
-    pub turn: u8,
     pub discarded: BTreeMap<Card, u8>,
     pub played: Vec<u8>,
-    pub num_strikes: u8,
-    pub clues: u8,
     deck: VecDeque<Card>,
     hands: Vec<Hand>,
     active_player: usize,
@@ -233,6 +228,15 @@ pub struct Game {
     debug: bool,
     replay: HanabiLiveGame,
     seed: u64,
+    pub status: GameStatus,
+}
+
+pub struct GameStatus {
+    pub turn: u8,
+    pub score: u8,
+    pub max_score: u8,
+    pub num_strikes: u8,
+    pub clues: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -270,8 +274,8 @@ pub enum Move {
 }
 
 pub trait PlayerStrategy: std::fmt::Debug {
-    fn init(&mut self, game: &Game);
-    fn act(&mut self, game: &Game) -> Move;
+    fn init(&mut self, num_players: u8);
+    fn act(&mut self, status: &GameStatus) -> Move;
 
     fn drawn(&mut self, player: usize, card: Card);
     fn own_drawn(&mut self);
@@ -286,7 +290,6 @@ pub trait PlayerStrategy: std::fmt::Debug {
         clue: Clue,
         touched: PositionSet,
         previously_clued: PositionSet,
-        game: &Game,
     );
 }
 
@@ -339,18 +342,20 @@ impl Game {
         player_names.truncate(players.len());
 
         let mut game = Self {
-            score: 0,
             score_integral: 0,
-            max_score: 5 * suits.len() as u8,
-            turn: 0,
             deck: deck.into(),
             discarded: BTreeMap::new(),
             played: vec![0; suits.len()],
             hands,
-            num_strikes: 0,
+            status: GameStatus {
+                num_strikes: 0,
+                clues: 8,
+                score: 0,
+                max_score: 5 * suits.len() as u8,
+                turn: 0,
+            },
             suits,
             active_player: 0,
-            clues: 8,
             state: GameState::Early(),
             debug,
             replay: HanabiLiveGame {
@@ -364,7 +369,7 @@ impl Game {
             seed,
         };
         for strategy in players.iter_mut() {
-            strategy.init(&game);
+            strategy.init(game.num_players());
         }
 
         for player in 0..players.len() {
@@ -410,18 +415,20 @@ impl Game {
         }
 
         Self {
-            score: 0,
+            status: GameStatus {
+                num_strikes: 0,
+                clues: 8,
+                score: 0,
+                max_score: 5 * suits.len() as u8,
+                turn: 0,
+            },
             score_integral: 0,
-            max_score: 5 * suits.len() as u8,
-            turn: 0,
             deck: VecDeque::new(),
             discarded: BTreeMap::new(),
             played: vec![0; suits.len()],
             hands,
-            num_strikes: 0,
             suits,
             active_player: 0,
-            clues: 8,
             state: GameState::Early(),
             debug: false,
             replay: HanabiLiveGame {
@@ -454,6 +461,7 @@ impl Game {
         assert_eq!(deck_chars.nth(0), Some('1'));
         assert_eq!(deck_chars.nth(0), Some('5'));
         let mut game = Self::empty(num_players);
+        game.debug = true;
         for card_char in deck_chars {
             let index = base62_chars
                 .find(card_char)
@@ -467,7 +475,7 @@ impl Game {
         }
 
         for strategy in players.iter_mut() {
-            strategy.init(&game);
+            strategy.init(num_players);
         }
 
         // 1. draw initial cards:
@@ -553,12 +561,12 @@ impl Game {
         println!(
             "  suits={:?} turn={} score={}/{} (sum: {}) strikes={} clues={} state={:?}",
             self.suits,
-            self.turn,
-            self.score,
-            self.max_score,
+            self.status.turn,
+            self.status.score,
+            self.status.max_score,
             self.score_integral,
-            self.num_strikes,
-            self.clues,
+            self.status.num_strikes,
+            self.status.clues,
             self.state,
         );
         print!("  played:");
@@ -607,7 +615,7 @@ impl Game {
                 self.dump(strategies);
             }
         }
-        self.score
+        self.status.score
     }
 
     fn played_rank(&self, suit: &Suit) -> u8 {
@@ -656,9 +664,9 @@ impl Game {
     }
 
     fn update_max_score(&mut self) {
-        self.max_score = 0;
+        self.status.max_score = 0;
         for suit in self.suits.iter() {
-            self.max_score += self.max_rank_for_suit(*suit);
+            self.status.max_score += self.max_rank_for_suit(*suit);
         }
     }
 
@@ -678,12 +686,12 @@ impl Game {
     }
 
     fn play(&mut self, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
-        let action = strategies[self.active_player].act(&self);
+        let action = strategies[self.active_player].act(&self.status);
         self.execute(action, strategies);
     }
 
     fn execute(&mut self, action: Move, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
-        self.turn += 1;
+        self.status.turn += 1;
         match action {
             Move::Discard(pos) => {
                 let card = self.hands[self.active_player].remove(pos as usize);
@@ -693,19 +701,19 @@ impl Game {
                         self.active_player,
                         pos,
                         self.hands[self.active_player].len(),
-                        self.turn,
+                        self.status.turn,
                         self.seed,
                     );
                     self.invalidate_game();
                     return;
                 }
-                if self.clues < 8 {
-                    self.clues += 1;
+                if self.status.clues < 8 {
+                    self.status.clues += 1;
                 } else {
                     if self.debug {
                         println!(
                             "With 8 clues you can't discard, but player {} did; turn {}, seed {}",
-                            self.active_player, self.turn, self.seed,
+                            self.active_player, self.status.turn, self.seed,
                         );
                     }
                     self.invalidate_game();
@@ -766,11 +774,11 @@ impl Game {
                             self.played[suit_pos] += 1;
                         }
                     }
-                    self.score += 1;
-                    if card.card.rank == 5 && self.clues < 8 {
-                        self.clues += 1;
+                    self.status.score += 1;
+                    if card.card.rank == 5 && self.status.clues < 8 {
+                        self.status.clues += 1;
                     }
-                    if self.score as usize == self.suits.len() * 5 {
+                    if self.status.score as usize == self.suits.len() * 5 {
                         self.state = GameState::Won();
                     }
                     true
@@ -782,8 +790,8 @@ impl Game {
                         );
                     }
                     self.discard(card.card);
-                    self.num_strikes += 1;
-                    if self.num_strikes == 3 {
+                    self.status.num_strikes += 1;
+                    if self.status.num_strikes == 3 {
                         self.state = GameState::Lost();
                         for card in self.deck.iter() {
                             self.replay.deck.push(HanabiLiveCard {
@@ -824,7 +832,7 @@ impl Game {
                     self.invalidate_game();
                     return;
                 }
-                if self.clues == 0 {
+                if self.status.clues == 0 {
                     println!(
                         "Invalid move: player {} tried to clue but no clue tokens are left",
                         self.active_player,
@@ -877,14 +885,13 @@ impl Game {
                         clue,
                         touched,
                         previously_clued,
-                        &self,
                     );
                 }
-                self.clues -= 1;
+                self.status.clues -= 1;
             }
         }
         self.active_player = (self.active_player + 1) % self.hands.len();
-        self.score_integral += self.score as u16;
+        self.score_integral += self.status.score as u16;
     }
 
     fn invalidate_game(&mut self) {

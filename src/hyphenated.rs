@@ -728,10 +728,10 @@ impl HyphenatedPlayer {
 }
 
 impl game::PlayerStrategy for HyphenatedPlayer {
-    fn init(&mut self, game: &game::Game) {
+    fn init(&mut self, num_players: u8) {
         self.variant = Variant {};
         self.turn = 0;
-        self.line = Line::new(game.num_players());
+        self.line = Line::new(num_players);
     }
 
     fn drawn(&mut self, player: usize, card: game::Card) {
@@ -766,17 +766,16 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         clue: game::Clue,
         touched: game::PositionSet,
         previously_clued: game::PositionSet,
-        _game: &game::Game,
     ) {
         self.line.clued(who, whom, clue, touched, previously_clued);
         self.turn += 1;
     }
 
-    fn act(&mut self, game: &game::Game) -> game::Move {
+    fn act(&mut self, status: &game::GameStatus) -> game::Move {
         if let Some(play_move) = self.line.play() {
             return play_move;
         }
-        if game.clues == 0 {
+        if status.clues == 0 {
             return self.line.discard();
         }
         // compare clues:
@@ -785,7 +784,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         if self.debug {
             println!("discarding score: {:?}", best_score);
         }
-        for player in 1..game.num_players() {
+        for player in 1..self.line.hands.len() as u8 {
             for suit in self.variant.suits().iter() {
                 let clue = game::Clue::Color(suit.clue_color());
                 if let Some(score) = self.line.clone().clue(player as usize, clue) {
