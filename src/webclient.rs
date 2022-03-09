@@ -57,6 +57,8 @@ pub fn run() {
         user_states: BTreeMap::new(),
         table_states: BTreeMap::new(),
         game: None,
+        game_actions: Vec::with_capacity(256),
+        replay_segment: None,
     };
     client.run();
 }
@@ -118,6 +120,13 @@ struct TableJoinMessage {
     #[serde(rename = "tableID")]
     table_id: usize,
     password: String,
+}
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct TableProgressMessage {
+    #[serde(rename = "tableID")]
+    table_id: usize,
+    progress: i8,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -183,14 +192,14 @@ struct GameActionMessage {
     action: GameAction,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 struct ClueMessage {
     #[serde(rename = "type")]
     kind: u8,
     value: u8,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 enum GameAction {
     #[serde(rename = "draw")]
@@ -237,6 +246,12 @@ enum GameAction {
     #[serde(rename = "gameOver")]
     #[serde(rename_all = "camelCase")]
     GameOver { end_condition: u8, player_index: i8 },
+    #[serde(rename = "playerTimes")]
+    #[serde(rename_all = "camelCase")]
+    PlayerTimes {
+        player_times: Vec<usize>,
+        duration: usize,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -251,6 +266,14 @@ struct ActionMessage {
     value: Option<u8>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct ReplaySegmentMessage {
+    #[serde(rename = "tableID")]
+    table_id: u64,
+    segment: u8,
+}
+
 struct HanabClient {
     client: websocket::sync::Client<Box<dyn NetworkStream + Send>>,
     user_id: usize,
@@ -259,6 +282,8 @@ struct HanabClient {
     table_states: std::collections::BTreeMap<usize, TableState>,
     table_id: usize,
     game: Option<HanabGame>,
+    game_actions: Vec<GameAction>,
+    replay_segment: Option<u8>,
 }
 
 impl HanabClient {
@@ -311,6 +336,7 @@ impl HanabClient {
 
             "chat" => self.on_chat(json),
             "chatList" => Ok(()),
+            "chatTyping" => Ok(()),
 
             "userList" => self.on_user_list(json),
             "user" => self.on_user(json),
@@ -319,6 +345,7 @@ impl HanabClient {
 
             "tableList" => self.on_table_list(json),
             "table" => self.on_table(json),
+            "tableProgress" => self.on_table_progress(json),
             "tableGone" => self.on_table_gone(json),
 
             "joined" => self.on_joined(json),
@@ -326,6 +353,15 @@ impl HanabClient {
             "init" => self.on_init(json),
             "gameActionList" => self.on_game_action_list(json),
             "gameAction" => self.on_action(json),
+
+            // replay related actions:
+            "replaySegment" => self.on_replay_segment(json),
+            "hypoStart" => Ok(()),
+            "hypoAction" => Ok(()),
+            "hypoShowDrawnCards" => Ok(()),
+            "hypoBack" => Ok(()),
+            "hypoEnd" => Ok(()),
+
             _ => {
                 println!("Recived message: {command} / {json}");
                 Ok(())
@@ -390,6 +426,10 @@ impl HanabClient {
                 self.table_id = table.id;
                 let table_ref = TableIdMessage { table_id: table.id };
                 self.send("tableReattend", &serde_json::to_string(&table_ref)?);
+            } else if table.shared_replay && table.players.contains(&self.username) {
+                println!("Found existing replay: {:?}", table);
+                let table_ref = TableIdMessage { table_id: table.id };
+                self.send("tableSpectate", &serde_json::to_string(&table_ref)?);
             }
         }
         Ok(())
@@ -401,6 +441,14 @@ impl HanabClient {
         Ok(())
     }
 
+    fn on_table_progress(&mut self, json: &str) -> Result<(), serde_json::Error> {
+        let progress: TableProgressMessage = serde_json::from_str(json)?;
+        self.table_states
+            .entry(progress.table_id)
+            .and_modify(|e| e.progress = progress.progress);
+        Ok(())
+    }
+
     fn on_table_gone(&mut self, json: &str) -> Result<(), serde_json::Error> {
         let table: TableIdMessage = serde_json::from_str(json)?;
         self.table_states.remove(&table.table_id);
@@ -409,40 +457,55 @@ impl HanabClient {
 
     fn on_chat(&mut self, json: &str) -> Result<(), serde_json::Error> {
         let chat: ChatMessage = serde_json::from_str(json)?;
-        if chat.recipient != self.username {
-            return Ok(());
-        }
-        if let "/join" = chat.msg.as_str() {
-            if let Some((_user, user)) = self
-                .user_states
-                .iter()
-                .find(|(_user_id, user)| user.name == chat.who)
-            {
-                println!("Join request by {}: {:?}", chat.who, user);
-                if user.table_id > 0 {
-                    self.table_id = user.table_id;
-                    if user.status == 5 {
-                        let table_ref = SpectateMessage {
-                            table_id: user.table_id,
-                            shadowing_player_index: -1,
-                        };
-                        self.send("tableSpectate", &serde_json::to_string(&table_ref)?);
-                    } else if user.status == 2 {
-                        let table_ref = TableIdMessage {
-                            table_id: user.table_id,
-                        };
-                        self.send("tableReattend", &serde_json::to_string(&table_ref)?);
-                    } else {
-                        let table_ref = TableJoinMessage {
-                            table_id: user.table_id,
-                            password: "bot".to_string(),
-                        };
-                        self.send("tableJoin", &serde_json::to_string(&table_ref)?);
+        if chat.recipient == self.username {
+            if let "/join" = chat.msg.as_str() {
+                if let Some((_user, user)) = self
+                    .user_states
+                    .iter()
+                    .find(|(_user_id, user)| user.name == chat.who)
+                {
+                    println!("Join request by {}: {:?}", chat.who, user);
+                    if user.table_id > 0 {
+                        self.table_id = user.table_id;
+                        if user.status == 5 {
+                            let table_ref = SpectateMessage {
+                                table_id: user.table_id,
+                                shadowing_player_index: -1,
+                            };
+                            self.send("tableSpectate", &serde_json::to_string(&table_ref)?);
+                        } else if user.status == 2 {
+                            let table_ref = TableIdMessage {
+                                table_id: user.table_id,
+                            };
+                            self.send("tableReattend", &serde_json::to_string(&table_ref)?);
+                        } else {
+                            let table_ref = TableJoinMessage {
+                                table_id: user.table_id,
+                                password: "secret".to_string(),
+                            };
+                            self.send("tableJoin", &serde_json::to_string(&table_ref)?);
+                        }
+                    }
+                }
+            } else {
+                eprintln!("Unknown message content {}", chat.msg);
+            }
+        } else if chat.room == format!("table{}", self.table_id) {
+            if let "dump" = chat.msg.as_str() {
+                if let Some(game) = &mut self.game {
+                    if let Some(segment) = self.replay_segment {
+                        game.reset();
+                        for action in self.game_actions.iter() {
+                            game.process_action(action);
+                            if game.status.turn >= segment {
+                                break;
+                            }
+                        }
+                        println!("player: {:?}", game.player);
+                        println!("line: {:?}", game.player.line());
                     }
                 }
             }
-        } else {
-            eprintln!("Unknown message content {}", chat.msg);
         }
         Ok(())
     }
@@ -469,6 +532,8 @@ impl HanabClient {
             table_id: init.table_id as usize,
         };
         self.game = Some(HanabGame::from_message(&init));
+        self.game_actions = Vec::with_capacity(256);
+        self.replay_segment = None;
         self.send("getGameInfo2", &serde_json::to_string(&table_id)?);
         Ok(())
     }
@@ -478,6 +543,7 @@ impl HanabClient {
             let action_list: GameActionListMessage = serde_json::from_str(json)?;
             for action in action_list.list.iter() {
                 game.process_action(action);
+                self.game_actions.push(action.clone());
             }
             let table_id = TableIdMessage {
                 table_id: action_list.table_id as usize,
@@ -494,10 +560,17 @@ impl HanabClient {
         let action: GameActionMessage = serde_json::from_str(json)?;
         if let Some(game) = &mut self.game {
             game.process_action(&action.action);
+            self.game_actions.push(action.action.clone());
             self.act()?;
         } else {
             println!("Retrieved game action but I aren't in a game");
         }
+        Ok(())
+    }
+
+    fn on_replay_segment(&mut self, json: &str) -> Result<(), serde_json::Error> {
+        let segment: ReplaySegmentMessage = serde_json::from_str(json)?;
+        self.replay_segment = Some(segment.segment);
         Ok(())
     }
 
@@ -566,6 +639,24 @@ impl HanabGame {
                 clues: 8,
             },
         }
+    }
+
+    fn reset(&mut self) {
+        self.hands = Vec::new();
+        for _ in 0..self.player_names.len() {
+            self.hands.push(VecDeque::new());
+        }
+
+        self.player = hyphenated::HyphenatedPlayer::new(true);
+        self.player.init(self.player_names.len() as u8);
+        self.current_player_index = Some(0);
+        self.status = game::GameStatus {
+            turn: 0,
+            score: 0,
+            max_score: 25,
+            num_strikes: 0,
+            clues: 8,
+        };
     }
 
     fn resolve_index(&self, player: u8) -> u8 {
@@ -803,6 +894,10 @@ impl HanabGame {
             } => {
                 println!("Game finished: {end_condition}");
             }
+            GameAction::PlayerTimes {
+                player_times: _,
+                duration: _,
+            } => {}
         }
     }
 }
