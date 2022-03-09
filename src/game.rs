@@ -495,16 +495,24 @@ impl Game {
 
         // 2 process actions:
         let mut action_chars = actions.chars();
-        assert_eq!(action_chars.nth(0), Some('0'));
-        assert_eq!(action_chars.nth(0), Some('5'));
+        let min_action = action_chars
+            .nth(0)
+            .expect("actions should be non-empty")
+            .to_digit(10)
+            .expect("action min must be a number") as usize;
+        let max_action = action_chars
+            .nth(0)
+            .expect("deck should be non-empty")
+            .to_digit(10)
+            .expect("action max must be a number") as usize;
         let mut current_turn = 0;
         let mut active_player = 0;
         while current_turn < turn {
             let action_num = base62_chars
                 .find(action_chars.nth(0).expect("target value is missing"))
                 .expect("Actions must only be valid 62 characters");
-            let action = action_num % 6;
-            let mut value = action_num / 6;
+            let action = action_num % (max_action - min_action + 1) + min_action;
+            let mut value = action_num / (max_action - min_action + 1);
             if value > 0 {
                 value -= 1;
             }
