@@ -135,6 +135,10 @@ impl LineScore {
             bonus: 0,
         }
     }
+
+    pub fn has_errors(&self) -> bool {
+        self.errors > 0
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -543,6 +547,7 @@ impl Line {
                     self.clued_cards.insert(card);
                     slot.fixed = true;
                 }
+                slot.update_slot_attributes(&self.play_states);
                 for other_pos in 0..self.hands[whom].len() {
                     if other_pos != pos {
                         self.hands[whom][other_pos].quantum.remove_card(&card);
@@ -552,8 +557,12 @@ impl Line {
         }
         if newly_clued.is_empty() {
             let focus = touched.first().expect("empty clues are not implemented");
+            if self.hands[whom][focus as usize].play {
+                // useless reclue
+                error += 1;
+            }
             self.hands[whom][focus as usize].play = true;
-            return 0;
+            return error;
         }
 
         let old_chop = self.foreign_chop(whom);

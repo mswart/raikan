@@ -380,3 +380,67 @@ fn clue_clear_cards() {
         own_hand[0].quantum
     );
 }
+
+#[test]
+fn immediatly_update_play_flags() {
+    // seed 205
+    let line = replay_game(
+        21,
+        "415nkifgwinraekpdfqvhlyumwsudcaacxftjoqmpuxbshbrgkvlp",
+        "05pdpcalaoobaeajamubasodarubav0dap0cbfai7bbaaxubbnicahakbu0dagbqa6ucpda8ay6cb2atobbba71diaaEb4a0b3b1azb5vbbcaL6daw6cqb",
+        "0",
+    );
+    let own_hand = &line.hands[0];
+    assert!(
+        own_hand[2].play,
+        "Slot 2 is playable (card is clearly g4): quantum: {}",
+        own_hand[2].quantum
+    );
+    assert!(
+        own_hand[3].play,
+        "Slot 3 is playable (card is clearly y4): quantum: {}",
+        own_hand[3].quantum
+    );
+}
+
+#[test]
+fn immediatly_update_play_flags2() {
+    // shared replay 739462
+    let line = replay_game(
+        1,
+        "415fmblraiypxfkrwscdakedvjsuniuaxmvkclhwnhufggqobqtpp",
+        "33cc",
+        "0",
+    );
+    let target_hand = &line.hands[1];
+    assert!(
+        target_hand[0].play,
+        "Slot 1 is playable (card is a one): quantum: {}",
+        target_hand[0].quantum
+    );
+    assert!(
+        target_hand[1].play,
+        "Slot 2 is playable (card is a one): quantum: {}",
+        target_hand[1].quantum
+    );
+    assert!(
+        target_hand[3].play,
+        "Slot 4 is playable (card is a one): quantum: {}",
+        target_hand[3].quantum
+    );
+}
+
+#[test]
+fn dont_reclue_uselessly() {
+    // shared replay 739462
+    let mut line = replay_game(
+        1,
+        "415fmblraiypxfkrwscdakedvjsuniuaxmvkclhwnhufggqobqtpp",
+        "33cc",
+        "0",
+    );
+    let score = line.clue(1, game::Clue::Color(game::ClueColor::Yellow()));
+    println!("score: {:?}", score);
+    println!("=> {:?}", line);
+    assert!(score.expect("Clue is valid").has_errors());
+}
