@@ -203,7 +203,6 @@ fn safe_5s_midgame1() {
 }
 
 #[test]
-#[ignore]
 fn safe_5s_midgame2() {
     // seed 28176
     let line = replay_game(

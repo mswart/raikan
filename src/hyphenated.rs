@@ -563,12 +563,15 @@ impl Line {
             let chop_slot = &mut self.hands[whom][old_chop as usize];
             // check whether it can be a safe clue.
             for potential_card in chop_slot.quantum.clone().iter() {
-                if potential_card.rank == 5 && clue != game::Clue::Rank(5) {
-                    // 5 will only be safed via rank
-                    continue;
-                }
                 match self.play_states[&potential_card] {
-                    game::CardPlayState::Critical() => potential_safe = true,
+                    game::CardPlayState::Critical() => {
+                        if potential_card.rank == 5 && clue != game::Clue::Rank(5) {
+                            chop_slot.quantum.remove_card(&potential_card);
+                            // 5 will only be safed via rank
+                        } else {
+                            potential_safe = true
+                        }
+                    }
                     game::CardPlayState::Dead() => {
                         chop_slot.quantum.remove_card(&potential_card);
                     }
