@@ -609,7 +609,11 @@ impl Game {
                         target: self.active_player as u8,
                         value: Some(1), // normal end
                     });
-                    self.state = GameState::Finished()
+                    if self.status.score == 25 {
+                        self.state = GameState::Won()
+                    } else {
+                        self.state = GameState::Finished()
+                    }
                 }
                 GameState::Final(remaining) => {
                     self.play(strategies);
