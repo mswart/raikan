@@ -50,6 +50,8 @@ struct Stats {
     finished_scores: usize,
     finished_score_intergrals: usize,
     finished_max_scores: usize,
+    finished_dist: [usize; 26],
+    finished_max_dist: [usize; 26],
     won_games: usize,
 }
 
@@ -66,8 +68,34 @@ impl Stats {
             finished_scores: 0,
             finished_score_intergrals: 0,
             finished_max_scores: 0,
+            finished_dist: [0; 26],
+            finished_max_dist: [0; 26],
             won_games: 0,
         }
+    }
+
+    fn median(&self) -> (f64, f64) {
+        let num_median = self.finished_games / 2;
+        let mut num_seen = 0;
+        let mut max_seen = 0;
+        let mut score_median = 0.0;
+        let mut max_median = 0.0;
+        for i in 0..=25 {
+            if num_median > num_seen + self.finished_dist[i] {
+                num_seen += self.finished_dist[i];
+            } else if score_median == 0.0 {
+                score_median =
+                    i as f64 + ((num_median - num_seen) as f64 / self.finished_dist[i] as f64);
+            }
+            if num_median > max_seen + self.finished_max_dist[i] {
+                max_seen += self.finished_max_dist[i];
+            } else if max_median == 0.0 {
+                max_median =
+                    i as f64 + ((num_median - max_seen) as f64 / self.finished_max_dist[i] as f64);
+            }
+        }
+
+        (score_median, max_median)
     }
 }
 
@@ -84,6 +112,10 @@ impl AddAssign for Stats {
         self.finished_score_intergrals += other.finished_score_intergrals;
         self.finished_max_scores += other.finished_max_scores;
         self.won_games += other.won_games;
+        for i in 0..=25 {
+            self.finished_dist[i] += other.finished_dist[i];
+            self.finished_max_dist[i] += other.finished_max_dist[i];
+        }
     }
 }
 
@@ -128,8 +160,10 @@ fn run_stats() {
                     game::GameState::Finished() => {
                         results.finished_games += 1;
                         results.finished_scores += game.status.score as usize;
+                        results.finished_dist[game.status.score as usize] += 1;
                         results.finished_score_intergrals += game.score_integral as usize;
                         results.finished_max_scores += game.status.max_score as usize;
+                        results.finished_max_dist[game.status.max_score as usize] += 1;
                         println!(
                             "{i} Finished {} {} {} {}",
                             game.status.score,
@@ -180,12 +214,17 @@ fn run_stats() {
         totals.lost_max_scores as f64 / totals.lost_games as f64,
     );
 
+    let median = totals.median();
     eprintln!(
-        "Finished {} games with ~{:.2}/{:.2} scores (~{:.2} integral)",
+        "Finished {} games with ~{:.2}/{:.2} scores (~{:.2} integral) => \n dist: {:?}\n  max: {:?}\n => {:.2} / {:.2}",
         totals.finished_games,
         totals.finished_scores as f64 / (totals.finished_games + totals.won_games) as f64,
         totals.finished_max_scores as f64 / (totals.finished_games + totals.won_games) as f64,
         totals.finished_score_intergrals as f64 / totals.finished_games as f64,
+        totals.finished_dist,
+        totals.finished_max_dist,
+        median.0,
+        median.1,
     );
     eprintln!(
         "Won {:.2}% {} games",
