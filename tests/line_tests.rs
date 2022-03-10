@@ -444,3 +444,26 @@ fn dont_reclue_uselessly() {
     println!("=> {:?}", line);
     assert!(score.expect("Clue is valid").has_errors());
 }
+
+#[test]
+fn fix_clue_revealing_real_identity() {
+    // shared replay 37630
+    let mut line = replay_game(
+        11,
+        "415qiwbhdnvrygexohsdxwpfmsfnbuurkpfajquicmgctaklvapkl",
+        "05ibafbiDcbavcbrpc7dDdatocbbbeauvcodbgbkbn6dbhiba00dbwpbubbca3bxbpDdb1bziabs6db66cbv6ca9bm6cb51dbE6cb80dicb4vaoauaaIuabBb2bCbyblibbJ6cqc",
+        "0",
+    );
+    assert_eq!(line.hands[3][2].quantum.size(), 1);
+    assert_eq!(
+        line.hands[3][2].quantum.iter().nth(0).expect("size is 1"),
+        game::Card {
+            rank: 2,
+            suit: game::Suit::Blue()
+        }
+    );
+    line.clue(3, game::Clue::Color(game::ClueColor::Yellow()));
+    println!("=> {:?}", line);
+    assert_eq!(line.hands[3][2].quantum.size(), 1);
+    assert!(line.hands[3][2].fixed);
+}

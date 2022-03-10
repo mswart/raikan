@@ -36,7 +36,8 @@ pub struct Slot {
     pub play: bool,
     pub trash: bool,
     pub quantum: CardQuantum,
-    fixed: bool,
+    locked: bool,
+    pub fixed: bool,
 }
 
 impl Slot {
@@ -360,12 +361,16 @@ impl Line {
         let mut clued = 0;
         let mut play = 0;
         let mut errors = extra_error;
+        if cfg!(debug_assertions) && extra_error > 0 {
+            println!("error {extra_error}: initial error passed in",);
+        }
         let mut bonus = 0;
         for hand in self.hands.iter().skip(1) {
             let mut queued_actions = 0;
             let mut chop = true;
             let mut discard_risk = 0;
             for slot in hand.iter().rev() {
+                let play_state = self.play_states[&slot.card];
                 if slot.clued {
                     clued += 1;
                     if slot.play {
@@ -373,25 +378,47 @@ impl Line {
                         queued_actions += 1;
                     }
                     if slot.trash {
-                        match self.play_states[&slot.card] {
-                            CardPlayState::Trash() => queued_actions += 1,
-                            CardPlayState::Dead() => queued_actions += 1,
-                            CardPlayState::Critical() => errors += 3,
-                            CardPlayState::CriticalPlayable() => errors += 3,
-                            CardPlayState::Playable() => errors += 2,
-                            CardPlayState::Normal() => errors += 1,
-                        };
+                        if let Some(error) = match play_state {
+                            CardPlayState::Trash() => {
+                                queued_actions += 1;
+                                None
+                            }
+                            CardPlayState::Dead() => {
+                                queued_actions += 1;
+                                None
+                            }
+                            CardPlayState::Critical() => Some(3),
+                            CardPlayState::CriticalPlayable() => Some(3),
+                            CardPlayState::Playable() => Some(2),
+                            CardPlayState::Normal() => Some(1),
+                        } {
+                            if cfg!(debug_assertions) {
+                                println!(
+                                    "Error 2: trash card {:?} ({}) is NOT trash",
+                                    slot.card, slot.quantum
+                                );
+                            }
+                            errors += error;
+                        }
                     } else {
-                        match self.play_states[&slot.card] {
-                            CardPlayState::Trash() => errors += 2,
-                            CardPlayState::Dead() => errors += 2,
-                            _ => {}
-                        };
+                        if let Some(error) = match play_state {
+                            CardPlayState::Trash() => Some(2),
+                            CardPlayState::Dead() => Some(2),
+                            _ => None,
+                        } {
+                            if cfg!(debug_assertions) {
+                                println!(
+                                    "Error 2: clued card {:?} ({}) is trash",
+                                    slot.card, slot.quantum
+                                );
+                            }
+                            errors += error;
+                        }
                     }
                 } else if chop {
                     chop = false;
                     if !self.clued_cards.contains(&slot.card) {
-                        match self.play_states[&slot.card] {
+                        match play_state {
                             CardPlayState::Critical() => discard_risk -= 5,
                             CardPlayState::CriticalPlayable() => discard_risk -= 5,
                             CardPlayState::Playable() => discard_risk -= 2,
@@ -400,24 +427,39 @@ impl Line {
                     }
                 }
                 if slot.play {
-                    match self.play_states[&slot.card] {
-                        CardPlayState::Playable() => {}
-                        CardPlayState::CriticalPlayable() => {}
-                        CardPlayState::Critical() => errors += 3,
-                        CardPlayState::Normal() => errors += 2,
-                        CardPlayState::Dead() => errors += 1,
-                        CardPlayState::Trash() => errors += 1,
+                    if let Some(error) = match play_state {
+                        CardPlayState::Playable() => None,
+                        CardPlayState::CriticalPlayable() => None,
+                        CardPlayState::Critical() => Some(3),
+                        CardPlayState::Normal() => Some(2),
+                        CardPlayState::Dead() => Some(1),
+                        CardPlayState::Trash() => Some(1),
+                    } {
+                        if cfg!(debug_assertions) {
+                            println!(
+                                "Error {error}: {play_state:?} card ({:?}; {}) marked as to play",
+                                slot.card, slot.quantum
+                            );
+                        }
+                        errors += error;
                     }
                 }
                 if !slot.trash && !slot.quantum.contains(&slot.card) {
-                    match self.play_states[&slot.card] {
-                        CardPlayState::Playable() => errors += 2,
-                        CardPlayState::Critical() => errors += 3,
-                        CardPlayState::CriticalPlayable() => errors += 3,
-                        CardPlayState::Normal() => errors += 2,
-                        CardPlayState::Dead() => errors += 1,
-                        CardPlayState::Trash() => errors += 1,
+                    let error = match play_state {
+                        CardPlayState::Playable() => 2,
+                        CardPlayState::Critical() => 3,
+                        CardPlayState::CriticalPlayable() => 3,
+                        CardPlayState::Normal() => 2,
+                        CardPlayState::Dead() => 1,
+                        CardPlayState::Trash() => 1,
+                    };
+                    if cfg!(debug_assertions) {
+                        println!(
+                            "Error {error}: {play_state:?} card {:?} is not contained in its quantum {}",
+                            slot.card, slot.quantum
+                        );
                     }
+                    errors += error;
                 }
                 if slot.quantum.size() == 1 {
                     bonus += 1;
@@ -444,6 +486,7 @@ impl Line {
             clued: false,
             play: false,
             trash: false,
+            locked: false,
             fixed: false,
         });
         self.track_card(card);
@@ -459,12 +502,13 @@ impl Line {
                 suit: self.variant.suits()[0],
                 rank: 0,
             },
+            locked: false,
             fixed: false,
         };
         for (card, count) in self.tracked_cards.iter() {
             if *count == card.suit.card_count(card.rank) {
                 // a card is lost -> updated maximal possible score based on remaining cards
-                hand.quantum.remove_card(card);
+                hand.quantum.remove_card(card, false);
             }
         }
         self.hands[0].push_front(hand);
@@ -485,7 +529,7 @@ impl Line {
             if removed.clued && successful {
                 self.clued_cards.insert(card);
                 for slot in self.hands[0].iter_mut() {
-                    slot.quantum.remove_card(&card);
+                    slot.quantum.remove_card(&card, true);
                 }
             }
         }
@@ -525,7 +569,7 @@ impl Line {
         if *count == card.suit.card_count(card.rank) {
             // all instances of card are tracked (elsewhere!), card cannot be in our hand
             for slot in self.hands[0].iter_mut() {
-                slot.quantum.remove_card(&card);
+                slot.quantum.remove_card(&card, false);
             }
         }
     }
@@ -552,27 +596,41 @@ impl Line {
                     .quantum
                     .limit_by_suit(&color.suit(), touched.contains(pos as u8)),
             }
+            if old_size != 0 && slot.quantum.size() == 0 && slot.quantum.hard_size() == 1 {
+                slot.quantum.soft_clear();
+                slot.fixed = true;
+            }
             if old_size != 1 && slot.quantum.size() == 1 {
                 let card = slot.quantum.iter().nth(0).expect("we checked the size");
                 if slot.clued || newly_clued.contains(pos as u8) {
                     self.clued_cards.insert(card);
-                    slot.fixed = true;
+                    if !slot.play {
+                        slot.locked = true;
+                    }
                 }
+
                 slot.update_slot_attributes(&self.play_states);
                 for other_pos in 0..self.hands[whom].len() {
                     if other_pos != pos {
-                        self.hands[whom][other_pos].quantum.remove_card(&card);
+                        self.hands[whom][other_pos].quantum.remove_card(&card, true);
                     }
                 }
             }
         }
         if newly_clued.is_empty() {
             let focus = touched.first().expect("empty clues are not implemented");
-            if self.hands[whom][focus as usize].play {
+            let slot = &mut self.hands[whom][focus as usize];
+            if slot.play && !slot.locked && !slot.fixed {
                 // useless reclue
+                if cfg!(debug_assertions) {
+                    println!(
+                        "Error 1: focused card {:?} ({}) already has play clue",
+                        slot.card, slot.quantum,
+                    );
+                }
                 error += 1;
             }
-            self.hands[whom][focus as usize].play = true;
+            slot.play = true;
             return error;
         }
 
@@ -586,20 +644,20 @@ impl Line {
                 match self.play_states[&potential_card] {
                     game::CardPlayState::Critical() => {
                         if potential_card.rank == 5 && clue != game::Clue::Rank(5) {
-                            chop_slot.quantum.remove_card(&potential_card);
+                            chop_slot.quantum.remove_card(&potential_card, true);
                             // 5 will only be safed via rank
                         } else {
                             potential_safe = true
                         }
                     }
                     game::CardPlayState::Dead() => {
-                        chop_slot.quantum.remove_card(&potential_card);
+                        chop_slot.quantum.remove_card(&potential_card, true);
                     }
                     game::CardPlayState::Trash() => {
-                        chop_slot.quantum.remove_card(&potential_card);
+                        chop_slot.quantum.remove_card(&potential_card, true);
                     }
                     game::CardPlayState::Normal() => {
-                        chop_slot.quantum.remove_card(&potential_card);
+                        chop_slot.quantum.remove_card(&potential_card, true);
                     }
                     _ => {}
                 }
@@ -617,9 +675,9 @@ impl Line {
                 .get_mut(pos as usize)
                 .expect("own and game state out of sync");
             slot.clued = true;
-            if !slot.fixed {
+            if !slot.locked {
                 for card in self.clued_cards.iter() {
-                    slot.quantum.remove_card(card);
+                    slot.quantum.remove_card(card, true);
                 }
             }
             if pos == focus {
@@ -629,7 +687,7 @@ impl Line {
                         match self.play_states[&potential_card] {
                             game::CardPlayState::Playable() => {}
                             game::CardPlayState::CriticalPlayable() => {}
-                            _ => slot.quantum.remove_card(&potential_card),
+                            _ => slot.quantum.remove_card(&potential_card, true),
                         }
                     }
                 }
@@ -652,7 +710,7 @@ impl Line {
                 let card = slot.card.clone();
                 for own_hand in self.hands[0].iter_mut() {
                     if own_hand.clued {
-                        own_hand.quantum.remove_card(&card);
+                        own_hand.quantum.remove_card(&card, true);
                     }
                 }
             }

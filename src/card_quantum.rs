@@ -33,7 +33,8 @@ impl Variant {
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub struct CardQuantum {
     variant: Variant,
-    cards: [u8; 6],
+    hard_cards: [u8; 6],
+    soft_cards: [u8; 6],
 }
 
 impl std::fmt::Display for CardQuantum {
@@ -41,12 +42,17 @@ impl std::fmt::Display for CardQuantum {
         for (index, suit) in self.variant.suits().iter().enumerate() {
             for (bit, char) in ['1', '2', '3', '4', '5'].iter().enumerate() {
                 std::fmt::Display::fmt(
-                    &if (1 << bit) & self.cards[index] > 0 {
+                    &if (1 << bit) & self.soft_cards[index] > 0 {
                         char.to_string().color(suit.color()).bold()
-                    } else {
+                    } else if (1 << bit) & self.hard_cards[index] > 0 {
                         char.to_string()
                             .color(colored::Color::BrightBlack)
                             .strikethrough()
+                    } else {
+                        " ".to_string().strikethrough()
+                        // char.to_string()
+                        //     .color(colored::Color::BrightBlack)
+                        //     .strikethrough()
                     },
                     f,
                 )?;
@@ -58,13 +64,16 @@ impl std::fmt::Display for CardQuantum {
 
 impl CardQuantum {
     pub fn new(variant: Variant) -> Self {
-        let mut cards = [255; 6];
+        let mut hard_cards = [255; 6];
+        let mut soft_cards = [255; 6];
         for i in 0..variant.len() {
-            cards[i] = 0b11111;
+            hard_cards[i] = 0b11111;
+            soft_cards[i] = 0b11111;
         }
         Self {
             variant: variant,
-            cards,
+            hard_cards,
+            soft_cards,
         }
     }
 
@@ -72,7 +81,8 @@ impl CardQuantum {
     /// define the set of possible cards with `.add_card`
     pub fn clear(&mut self) {
         for i in 0..self.variant.len() {
-            self.cards[i] = 0;
+            self.hard_cards[i] = 0;
+            self.soft_cards[i] = 0;
         }
     }
 
@@ -80,7 +90,8 @@ impl CardQuantum {
         let index = self.variant.suit_index(suit);
         for i in 0..self.variant.len() {
             if (i != index) == effect {
-                self.cards[i] = 0;
+                self.hard_cards[i] = 0;
+                self.soft_cards[i] = 0;
             }
         }
     }
@@ -91,32 +102,39 @@ impl CardQuantum {
             rank_modifier = !rank_modifier;
         }
         for i in 0..self.variant.len() {
-            self.cards[i] &= rank_modifier
+            self.hard_cards[i] &= rank_modifier;
+            self.soft_cards[i] &= rank_modifier;
         }
     }
 
-    pub fn add_card(&mut self, card: &game::Card) {
+    pub fn add_card(&mut self, card: &game::Card, soft: bool) {
         let index = self.variant.suit_index(&card.suit);
         let rank_bit = 1 << (card.rank - 1);
-        self.cards[index] |= rank_bit;
+        self.soft_cards[index] |= rank_bit;
+        if !soft {
+            self.hard_cards[index] |= rank_bit;
+        }
     }
 
-    pub fn remove_card(&mut self, card: &game::Card) {
+    pub fn remove_card(&mut self, card: &game::Card, soft: bool) {
         let index = self.variant.suit_index(&card.suit);
         let rank_bit = !(1 << (card.rank - 1));
-        self.cards[index] &= rank_bit;
+        self.soft_cards[index] &= rank_bit;
+        if !soft {
+            self.hard_cards[index] &= rank_bit;
+        }
     }
 
     pub fn contains(&self, card: &game::Card) -> bool {
         let index = self.variant.suit_index(&card.suit);
         let rank_bit = 1 << (card.rank - 1);
-        self.cards[index] & rank_bit > 0
+        self.soft_cards[index] & rank_bit > 0
     }
 
     pub fn is_rank(&self, rank: u8) -> bool {
         let bit_test = !(1 << (rank - 1));
         for suit_index in 0..self.variant.suits().len() {
-            if self.cards[suit_index] & bit_test > 0 {
+            if self.soft_cards[suit_index] & bit_test > 0 {
                 return false;
             }
         }
@@ -126,9 +144,23 @@ impl CardQuantum {
     pub fn size(&self) -> u8 {
         let mut set = 0;
         for suit_index in 0..self.variant.suits().len() {
-            set += self.cards[suit_index].count_ones()
+            set += self.soft_cards[suit_index].count_ones()
         }
         set as u8
+    }
+
+    pub fn hard_size(&self) -> u8 {
+        let mut set = 0;
+        for suit_index in 0..self.variant.suits().len() {
+            set += self.hard_cards[suit_index].count_ones()
+        }
+        set as u8
+    }
+
+    pub fn soft_clear(&mut self) {
+        for suit_index in 0..self.variant.suits().len() {
+            self.soft_cards[suit_index] = self.hard_cards[suit_index];
+        }
     }
 }
 
@@ -136,7 +168,7 @@ impl<'a> CardQuantum {
     pub fn iter(&'a self) -> CardIterator<'a> {
         CardIterator {
             variant: &self.variant,
-            cards: &self.cards,
+            cards: &self.soft_cards,
             current_card: game::Card {
                 suit: self.variant.suits()[0],
                 rank: 0,
@@ -187,28 +219,43 @@ mod tests {
     fn it_initials_with_everything() {
         let variant = Variant {};
         let c = CardQuantum::new(variant);
-        assert_eq!(c.cards[0], 0b11111);
-        assert_eq!(c.cards[1], 0b11111);
-        assert_eq!(c.cards[2], 0b11111);
-        assert_eq!(c.cards[3], 0b11111);
-        assert_eq!(c.cards[4], 0b11111);
+        assert_eq!(c.soft_cards[0], 0b11111);
+        assert_eq!(c.soft_cards[1], 0b11111);
+        assert_eq!(c.soft_cards[2], 0b11111);
+        assert_eq!(c.soft_cards[3], 0b11111);
+        assert_eq!(c.soft_cards[4], 0b11111);
+        assert_eq!(c.hard_cards[0], 0b11111);
+        assert_eq!(c.hard_cards[1], 0b11111);
+        assert_eq!(c.hard_cards[2], 0b11111);
+        assert_eq!(c.hard_cards[3], 0b11111);
+        assert_eq!(c.hard_cards[4], 0b11111);
     }
 
     #[test]
     fn it_clears() {
         let variant = Variant {};
         let mut c = CardQuantum::new(variant);
-        assert_eq!(c.cards[0], 0b11111);
-        assert_eq!(c.cards[1], 0b11111);
-        assert_eq!(c.cards[2], 0b11111);
-        assert_eq!(c.cards[3], 0b11111);
-        assert_eq!(c.cards[4], 0b11111);
+        assert_eq!(c.soft_cards[0], 0b11111);
+        assert_eq!(c.soft_cards[1], 0b11111);
+        assert_eq!(c.soft_cards[2], 0b11111);
+        assert_eq!(c.soft_cards[3], 0b11111);
+        assert_eq!(c.soft_cards[4], 0b11111);
+        assert_eq!(c.hard_cards[0], 0b11111);
+        assert_eq!(c.hard_cards[1], 0b11111);
+        assert_eq!(c.hard_cards[2], 0b11111);
+        assert_eq!(c.hard_cards[3], 0b11111);
+        assert_eq!(c.hard_cards[4], 0b11111);
         c.clear();
-        assert_eq!(c.cards[0], 0);
-        assert_eq!(c.cards[1], 0);
-        assert_eq!(c.cards[2], 0);
-        assert_eq!(c.cards[3], 0);
-        assert_eq!(c.cards[4], 0);
+        assert_eq!(c.soft_cards[0], 0);
+        assert_eq!(c.soft_cards[1], 0);
+        assert_eq!(c.soft_cards[2], 0);
+        assert_eq!(c.soft_cards[3], 0);
+        assert_eq!(c.soft_cards[4], 0);
+        assert_eq!(c.hard_cards[0], 0);
+        assert_eq!(c.hard_cards[1], 0);
+        assert_eq!(c.hard_cards[2], 0);
+        assert_eq!(c.hard_cards[3], 0);
+        assert_eq!(c.hard_cards[4], 0);
     }
 
     #[test]
@@ -222,10 +269,13 @@ mod tests {
         assert!(c.contains(&card1));
         c.clear();
         assert!(!c.contains(&card1));
-        c.add_card(&game::Card {
-            rank: 1,
-            suit: variant.suits()[0],
-        });
+        c.add_card(
+            &game::Card {
+                rank: 1,
+                suit: variant.suits()[0],
+            },
+            true,
+        );
         assert!(c.contains(&card1));
     }
 
@@ -236,10 +286,13 @@ mod tests {
         assert_eq!(c.size(), 25);
         c.clear();
         assert_eq!(c.size(), 0);
-        c.add_card(&game::Card {
-            rank: 1,
-            suit: variant.suits()[0],
-        });
+        c.add_card(
+            &game::Card {
+                rank: 1,
+                suit: variant.suits()[0],
+            },
+            true,
+        );
         assert_eq!(c.size(), 1);
     }
 }
