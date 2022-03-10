@@ -830,7 +830,7 @@ impl HanabGame {
                 giver,
                 list,
                 target,
-                turn: _turn,
+                ..
             } => {
                 let mut touched = PositionSet::new(self.hands[*target as usize].len() as u8);
                 let mut previously_clued =
@@ -888,16 +888,10 @@ impl HanabGame {
                 self.status.num_strikes += 1;
                 println!("Strike {num}");
             }
-            &GameAction::GameOver {
-                end_condition,
-                player_index: _player_index,
-            } => {
+            &GameAction::GameOver { end_condition, .. } => {
                 println!("Game finished: {end_condition}");
             }
-            GameAction::PlayerTimes {
-                player_times: _,
-                duration: _,
-            } => {}
+            GameAction::PlayerTimes { .. } => {}
         }
     }
 }
