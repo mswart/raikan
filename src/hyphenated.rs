@@ -139,6 +139,17 @@ impl LineScore {
     pub fn has_errors(&self) -> bool {
         self.errors > 0
     }
+
+    pub fn bad() -> Self {
+        Self {
+            score: 0,
+            clued: 0,
+            play: 0,
+            discard_risks: 0,
+            errors: 20,
+            bonus: 0,
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -791,7 +802,11 @@ impl game::PlayerStrategy for HyphenatedPlayer {
             return self.line.discard();
         }
         // compare clues:
-        let mut best_score = self.line.score(0); // LineScore::zero();
+        let mut best_score = if status.clues == 8 {
+            LineScore::bad()
+        } else {
+            self.line.score(0)
+        };
         let mut best_move = self.line.discard();
         if self.debug {
             println!("discarding score: {:?}", best_score);
