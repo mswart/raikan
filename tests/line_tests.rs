@@ -579,9 +579,43 @@ fn only_mark_card_as_clued_if_actually_the_case() {
         "0",
     );
     for line in replay.lines.iter() {
-        assert!(!line.clued_cards.contains(&game::Card {
+        assert!(!line.clued_cards.contains_key(&game::Card {
             rank: 2,
             suit: game::Suit::Yellow(),
         }));
+    }
+}
+
+#[test]
+/// If a safed card could have multiple identities, do not consider this card is clearly clued for that player.
+fn dont_consider_ambiguous_safes_as_clued() {
+    // id 88355
+    let replay = replay_game(
+        29,
+        "415soerqcrcvfnatpxkhjwiywpxgfmasidqkfdglvuubklahubmpn",
+        "05pdpcalapDdbeajanbaDabiboDd6dbkvcbdbfay1bocb0aq0bbvbsat0b7dodbwarbz6db1vcb4idaApcb9vaaCicaBbhaEiabcbGb7ucbD1a1ab8bLucbKoabNqb",
+        "0",
+    );
+    for line in replay.lines.iter() {
+        assert_ne!(
+            *line
+                .clued_cards
+                .get(&game::Card {
+                    rank: 2,
+                    suit: game::Suit::Blue(),
+                })
+                .unwrap_or(&0),
+            255
+        );
+        assert_ne!(
+            *line
+                .clued_cards
+                .get(&game::Card {
+                    rank: 4,
+                    suit: game::Suit::Blue(),
+                })
+                .unwrap_or(&0),
+            255
+        );
     }
 }

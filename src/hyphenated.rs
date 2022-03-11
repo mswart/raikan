@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 
 use crate::game::{self, CardPlayState};
 use crate::{
@@ -334,7 +334,7 @@ impl std::fmt::Debug for Line {
 #[derive(PartialEq, Eq, Clone)]
 pub struct Line {
     pub hands: Vec<VecDeque<Slot>>,
-    pub clued_cards: BTreeSet<game::Card>,
+    pub clued_cards: BTreeMap<game::Card, u8>,
     tracked_cards: BTreeMap<game::Card, (u8, [i8; 3])>,
     turn: u8,
     variant: Variant,
@@ -350,7 +350,7 @@ impl Line {
             hands.push(VecDeque::new());
         }
         Self {
-            clued_cards: BTreeSet::new(),
+            clued_cards: BTreeMap::new(),
             hands,
             tracked_cards: BTreeMap::new(),
             turn: 0,
@@ -422,7 +422,7 @@ impl Line {
                     }
                 } else if chop {
                     chop = false;
-                    if !self.clued_cards.contains(&slot.card) {
+                    if !self.clued_cards.contains_key(&slot.card) {
                         match play_state {
                             CardPlayState::Critical() => discard_risk -= 5,
                             CardPlayState::CriticalPlayable() => discard_risk -= 5,
@@ -538,7 +538,7 @@ impl Line {
         if player == 0 {
             self.track_card(card, -1, -2);
             if removed.clued && successful {
-                self.clued_cards.insert(card);
+                self.clued_cards.insert(card, 255);
                 for slot in self.hands[0].iter_mut() {
                     slot.quantum.remove_card(&card, true);
                 }
@@ -548,6 +548,7 @@ impl Line {
         }
         if successful {
             self.score += 1;
+            self.clued_cards.insert(card, 255);
             self.play_states.played(&card);
         } else {
             self.clued_cards.remove(&card);
@@ -637,7 +638,7 @@ impl Line {
                 let card = slot.quantum.iter().nth(0).expect("we checked the size");
                 if slot.clued || newly_clued.contains(pos as u8) {
                     if whom == 0 || slot.card == card {
-                        self.clued_cards.insert(card);
+                        self.clued_cards.insert(card, 255);
                     }
                     if !slot.play {
                         slot.locked = true;
@@ -711,8 +712,10 @@ impl Line {
                 .expect("own and game state out of sync");
             slot.clued = true;
             if !slot.locked {
-                for card in self.clued_cards.iter() {
-                    slot.quantum.remove_card(card, true);
+                for (card, player) in self.clued_cards.iter() {
+                    if *player != whom as u8 {
+                        slot.quantum.remove_card(card, true);
+                    }
                 }
             }
             if pos == focus {
@@ -735,7 +738,7 @@ impl Line {
                         .expect("We checked the size");
                     // for self mode
                     if whom == 0 || card == slot.card {
-                        self.clued_cards.insert(card);
+                        self.clued_cards.insert(card, 255);
                     }
                 }
             }
@@ -752,7 +755,9 @@ impl Line {
                 }
             }
             if whom != 0 {
-                self.clued_cards.insert(self.hands[whom][pos as usize].card);
+                self.clued_cards
+                    .entry(self.hands[whom][pos as usize].card)
+                    .or_insert(whom as u8);
             }
         }
         error
