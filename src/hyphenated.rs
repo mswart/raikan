@@ -332,7 +332,7 @@ impl std::fmt::Debug for Line {
 pub struct Line {
     pub hands: Vec<VecDeque<Slot>>,
     clued_cards: BTreeSet<game::Card>,
-    tracked_cards: BTreeMap<game::Card, u8>,
+    tracked_cards: BTreeMap<game::Card, (u8, [i8; 3])>,
     turn: u8,
     variant: Variant,
     play_states: PlayStates,
@@ -480,8 +480,15 @@ impl Line {
     }
 
     pub fn drawn(&mut self, player: usize, card: game::Card) {
+        let mut quantum = CardQuantum::new(self.variant);
+        for (card, (count, places)) in self.tracked_cards.iter() {
+            if *count == card.suit.card_count(card.rank) && !places.contains(&(player as i8)) {
+                // player sees all instances of this card
+                quantum.remove_card(card, false);
+            }
+        }
         self.hands[player].push_front(Slot {
-            quantum: CardQuantum::new(self.variant),
+            quantum,
             card: card,
             clued: false,
             play: false,
@@ -489,7 +496,7 @@ impl Line {
             locked: false,
             fixed: false,
         });
-        self.track_card(card);
+        self.track_card(card, player as i8, -2);
     }
 
     pub fn own_drawn(&mut self) {
@@ -505,9 +512,8 @@ impl Line {
             locked: false,
             fixed: false,
         };
-        for (card, count) in self.tracked_cards.iter() {
+        for (card, (count, _places)) in self.tracked_cards.iter() {
             if *count == card.suit.card_count(card.rank) {
-                // a card is lost -> updated maximal possible score based on remaining cards
                 hand.quantum.remove_card(card, false);
             }
         }
@@ -525,13 +531,15 @@ impl Line {
         self.turn += 1;
         let removed = self.hands[player].remove(pos).expect("Game ensures this");
         if player == 0 {
-            self.track_card(card);
+            self.track_card(card, -1, -2);
             if removed.clued && successful {
                 self.clued_cards.insert(card);
                 for slot in self.hands[0].iter_mut() {
                     slot.quantum.remove_card(&card, true);
                 }
             }
+        } else {
+            self.track_card(card, -1, player as i8);
         }
         if successful {
             self.score += 1;
@@ -542,12 +550,14 @@ impl Line {
         }
     }
 
-    fn discarded(&mut self, player: usize, pos: usize, card: game::Card) {
+    pub fn discarded(&mut self, player: usize, pos: usize, card: game::Card) {
         self.turn += 1;
         self.play_states.discarded(&card);
         self.hands[player].remove(pos);
         if player == 0 {
-            self.track_card(card);
+            self.track_card(card, -1, -2);
+        } else {
+            self.track_card(card, -1, player as i8);
         }
     }
 
@@ -560,16 +570,34 @@ impl Line {
         return -1;
     }
 
-    fn track_card(&mut self, card: game::Card) {
-        let count = self
+    fn track_card(&mut self, card: game::Card, place: i8, old_place: i8) {
+        let (count, places) = self
             .tracked_cards
             .entry(card)
-            .and_modify(|e| *e += 1)
-            .or_insert(1);
+            .and_modify(|(c, p)| {
+                for place_slot in p.iter_mut() {
+                    if *place_slot == old_place {
+                        *place_slot = place;
+                        break;
+                    }
+                }
+                if old_place == -2 {
+                    *c += 1
+                }
+            })
+            .or_insert((1, [place, -2, -2]));
         if *count == card.suit.card_count(card.rank) {
-            // all instances of card are tracked (elsewhere!), card cannot be in our hand
-            for slot in self.hands[0].iter_mut() {
-                slot.quantum.remove_card(&card, false);
+            // all instances of card are tracked (elsewhere!), update card quantum accordingly
+            for (pos, hand) in self.hands.iter_mut().enumerate() {
+                if !places.contains(&(pos as i8)) {
+                    // player actually sees all tracked cards
+                    for slot in hand.iter_mut() {
+                        if slot.card != card {
+                            slot.quantum.remove_card(&card, false);
+                            slot.update_slot_attributes(&self.play_states);
+                        }
+                    }
+                }
             }
         }
     }

@@ -121,6 +121,97 @@ fn safe_5s() {
 }
 
 #[test]
+fn track_cards() {
+    let mut line = hyphenated::Line::new(4);
+    line.own_drawn();
+    line.own_drawn();
+    line.own_drawn();
+    line.own_drawn();
+    hand!(line 1: [r 3, r 1, g 4, b 5]);
+    hand!(line 2: [y 3, y 1, y 4, y 4]);
+    hand!(line 3: [g 4, r 1, g 3, g 1]);
+
+    println!("line: {:?}", line);
+
+    // everybody except bob can exclude b5:
+    let b5 = game::Card {
+        rank: 5,
+        suit: game::Suit::Blue(),
+    };
+    for (player, hand) in line.hands.iter().enumerate() {
+        for slot in hand.iter() {
+            if player == 1 {
+                assert!(
+                    slot.quantum.contains(&b5),
+                    "Player 1 does not see b5 and may have it: {:?} / {}",
+                    slot.card,
+                    slot.quantum
+                );
+            } else {
+                assert!(
+                    !slot.quantum.contains(&b5),
+                    "Player {} sees b5 elsewhere and does not have it: {:?} / {}",
+                    player,
+                    slot.card,
+                    slot.quantum
+                );
+            }
+        }
+    }
+
+    // everybody except bob & donald can exclude g4:
+    let g4 = game::Card {
+        rank: 4,
+        suit: game::Suit::Green(),
+    };
+    for (player, hand) in line.hands.iter().enumerate() {
+        for slot in hand.iter() {
+            if player == 1 || player == 3 {
+                assert!(
+                    slot.quantum.contains(&g4),
+                    "Player 1 does not see g4 and may have it: {:?} / {}",
+                    slot.card,
+                    slot.quantum
+                );
+            } else {
+                assert!(
+                    !slot.quantum.contains(&g4),
+                    "Player {} sees both g4 elsewhere and does not have it: {:?} / {}",
+                    player,
+                    slot.card,
+                    slot.quantum
+                );
+            }
+        }
+    }
+
+    // let bob discard the g4
+    line.discarded(1, 2, g4);
+    println!("line (after discard g4): {:?}", line);
+
+    for (player, hand) in line.hands.iter().enumerate() {
+        for slot in hand.iter() {
+            if player == 3 {
+                assert!(
+                    slot.quantum.contains(&g4),
+                    "Player 3 does not see g4 and may have it: {:?} / {}",
+                    slot.card,
+                    slot.quantum
+                );
+            } else {
+                assert!(
+                    !slot.quantum.contains(&g4),
+                    "Player {} sees both g4 elsewhere and does not have it: {:?} / {}",
+                    player,
+                    slot.card,
+                    slot.quantum
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn dont_bad_touch_same_card1() {
     let mut line = hyphenated::Line::new(4);
     let game = game::Game::empty(4);
