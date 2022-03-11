@@ -84,8 +84,17 @@ fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> Replay {
     println!("target player: {target_player}");
     let lines = [h1.line(), h2.line(), h3.line(), h4.line()];
     let line = &lines[target_player as usize];
-    println!("start lines: {:?}\n===", lines);
-    println!("start line: {:?}\n===", line);
+    println!("Start lines:\n---");
+    for player in 0..4 {
+        println!("Player {player}");
+        for j in 0..4 {
+            println!("- P{j} {:?}", lines[j].hands[(4 + player - j) % 4]);
+        }
+    }
+    println!("Clued cards:");
+    for line in lines.iter() {
+        println!(" - {:?}", line.clued_cards);
+    }
     Replay {
         line: line.clone(),
         lines,
@@ -618,4 +627,19 @@ fn dont_consider_ambiguous_safes_as_clued() {
             255
         );
     }
+}
+
+#[test]
+/// Don't keep wrong state from a bad intermediate clue
+/// In a 8 clue situtation, a purple clue was given (touching p2 on chop).
+/// Upon misplaying them as p1, it should be clear that p1 was not yet clued.
+fn correct_card_assumption_upon_misplay() {
+    // id 4441
+    let line = replay_game(
+        18,
+        "415tijdgavpvlsxrcsgrxampmyuucibbkoeffudhkqnkwwnqphlaf",
+        "05pbahDabmbbaf7abn6cbeai6b1bbvbj6cbsiaby7cocbxa0oaiba1pbiaaza3DbDaada5oapaa6b7odapbcodbkaA0cb9aC0bb8aq0dbubBbgbwucbGbEaLbobJbHqc",
+        "0",
+    ).line;
+    assert!(line.hands[0][0].play, "p1 must be marked as playable");
 }

@@ -74,15 +74,24 @@ impl Slot {
 
 impl std::fmt::Debug for Slot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(&self.card, f)?;
+        if self.card.rank != 0 {
+            std::fmt::Debug::fmt(&self.card, f)?;
+            f.write_str(" ")?;
+        } else {
+            f.write_str("?? ")?;
+        }
+        std::fmt::Display::fmt(&self.quantum, f)?;
         if self.clued {
             f.write_str("'")?;
+        } else {
+            f.write_str(" ")?;
         }
         if self.trash {
             f.write_str("kt")?;
-        }
-        if self.play {
-            f.write_str("!")?;
+        } else if self.play {
+            f.write_str("! ")?;
+        } else {
+            f.write_str("  ")?;
         }
         Ok(())
     }
@@ -551,6 +560,10 @@ impl Line {
             self.clued_cards.insert(card, 255);
             self.play_states.played(&card);
         } else {
+            if removed.quantum.size() == 1 {
+                self.clued_cards
+                    .remove(&removed.quantum.iter().nth(0).expect("asd"));
+            }
             self.clued_cards.remove(&card);
             self.play_states.discarded(&card);
         }
