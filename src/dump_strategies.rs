@@ -14,7 +14,7 @@ impl std::fmt::Debug for DiscardPlayer {
 }
 
 impl game::PlayerStrategy for DiscardPlayer {
-    fn init(&mut self, _num_players: u8) {}
+    fn init(&mut self, _num_players: u8, _own_index: u8) {}
     fn act(&mut self, _status: &game::GameStatus) -> game::Move {
         game::Move::Discard(self.num_hand_cards - 1)
     }
@@ -64,7 +64,7 @@ impl std::fmt::Debug for PlayPlayer {
 }
 
 impl game::PlayerStrategy for PlayPlayer {
-    fn init(&mut self, _num_players: u8) {}
+    fn init(&mut self, _num_players: u8, _own_index: u8) {}
 
     fn drawn(&mut self, _player: usize, _card: game::Card) {}
     fn own_drawn(&mut self) {
@@ -112,7 +112,7 @@ impl std::fmt::Debug for RandCluePlayer {
 }
 
 impl game::PlayerStrategy for RandCluePlayer {
-    fn init(&mut self, _num_players: u8) {}
+    fn init(&mut self, _num_players: u8, _own_index: u8) {}
     fn drawn(&mut self, _player: usize, _card: game::Card) {}
     fn own_drawn(&mut self) {}
 

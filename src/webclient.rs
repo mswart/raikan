@@ -622,7 +622,7 @@ impl HanabGame {
         }
 
         let mut player = hyphenated::HyphenatedPlayer::new(true);
-        player.init(init.player_names.len() as u8);
+        player.init(init.player_names.len() as u8, init.our_player_index);
 
         Self {
             player_names: init.player_names.clone(),
@@ -648,7 +648,8 @@ impl HanabGame {
         }
 
         self.player = hyphenated::HyphenatedPlayer::new(true);
-        self.player.init(self.player_names.len() as u8);
+        self.player
+            .init(self.player_names.len() as u8, self.own_player);
         self.current_player_index = Some(0);
         self.status = game::GameStatus {
             turn: 0,

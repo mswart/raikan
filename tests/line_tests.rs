@@ -56,7 +56,12 @@ macro_rules! hand {
     };
 }
 
-fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> hyphenated::Line {
+struct Replay {
+    pub line: hyphenated::Line,
+    pub lines: [hyphenated::Line; 4],
+}
+
+fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> Replay {
     let num_players = deck
         .chars()
         .nth(0)
@@ -77,14 +82,14 @@ fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> hyphenated
 
     let target_player = (turn) % num_players;
     println!("target player: {target_player}");
-    let line = match target_player {
-        0 => h1.line(),
-        1 => h2.line(),
-        2 => h3.line(),
-        _ => h4.line(),
-    };
+    let lines = [h1.line(), h2.line(), h3.line(), h4.line()];
+    let line = &lines[target_player as usize];
+    println!("start lines: {:?}\n===", lines);
     println!("start line: {:?}\n===", line);
-    line
+    Replay {
+        line: line.clone(),
+        lines,
+    }
 }
 
 fn clue(line: &hyphenated::Line, player: usize, clue: game::Clue) -> hyphenated::LineScore {
@@ -96,7 +101,7 @@ fn clue(line: &hyphenated::Line, player: usize, clue: game::Clue) -> hyphenated:
 
 #[test]
 fn safe_5s() {
-    let mut line = hyphenated::Line::new(4);
+    let mut line = hyphenated::Line::new(4, 0);
     let game = game::Game::empty(4);
     let suits = game.suits.clone();
     line.own_drawn();
@@ -122,7 +127,7 @@ fn safe_5s() {
 
 #[test]
 fn track_cards() {
-    let mut line = hyphenated::Line::new(4);
+    let mut line = hyphenated::Line::new(4, 0);
     line.own_drawn();
     line.own_drawn();
     line.own_drawn();
@@ -213,7 +218,7 @@ fn track_cards() {
 
 #[test]
 fn dont_bad_touch_same_card1() {
-    let mut line = hyphenated::Line::new(4);
+    let mut line = hyphenated::Line::new(4, 0);
     let game = game::Game::empty(4);
     let suits = game.suits.clone();
     line.own_drawn();
@@ -253,7 +258,7 @@ fn dont_bad_touch_same_card2() {
         "415lwngfqylimrcnbjifgqmfcusxawbusopkktuhekpahvpxdrvad",
         "05obaeoabmadbfDbbnDdbhuabpocpdbjawbbia0aauaziabkbra1ua1bby0davuba56da60ab7asoaoavaaAbqaiaoaaat6bDaacaGbla0a4icaJ6baBaIDbb90dqb",
         "0"
-    );
+    ).line;
 
     assert!(
         clue(&line, 2, game::Clue::Rank(1))
@@ -269,7 +274,7 @@ fn multi_safes() {
         "415fxsufhniwcwaprcmhkaebirlpjaqldkpogbykmxvuqusgndvft",
         "05obae0damicudalarbaiapaboauDdbiucad6caxbvudbg0bapbba10danbcbqobb0bwa71bb2byaf6bobb3aD6auaaEah7boca6aHaz7b6caJakb50db47aaNaC1cajb87cbAaKatqa",
         "0"
-    );
+    ).line;
 
     assert!(
         clue(&line, 2, game::Clue::Rank(5))
@@ -285,7 +290,8 @@ fn safe_5s_midgame1() {
         "415lwngfqylimrcnbjifgqmfcusxawbusopkktuhekpahvpxdrvad",
         "05obaeoabmadbf6bbnDdagbi6c7dbhawuabbia0abraziaiabua11d1bb2udav0ba4uda5uda6asbq0da8wd",
         "0",
-    );
+    )
+    .line;
 
     assert!(
         clue(&line, 3, game::Clue::Rank(5))
@@ -301,7 +307,7 @@ fn safe_5s_midgame2() {
         "415lwngfqylimrcnbjifgqmfcusxawbusopkktuhekpahvpxdrvad",
         "05obaeoabmadbfDbbnDdbhuabpoc6dbjawbbia0abraziabkbua1ua1bby0davuba56da60ab7asoaoavaaADaaiaoaaat7ab9ac6dblaGa4id1aaJaKbqDbbDaB0dqc",
         "0",
-    );
+    ).line;
 
     assert!(
         clue(&line, 3, game::Clue::Rank(5)) > clue(&line, 3, game::Clue::Color(ClueColor::Green()))
@@ -316,7 +322,7 @@ fn maximize_knowledge_transfer1() {
         "415lwngfqylimrcnbjifgqmfcusxawbusopkktuhekpahvpxdrvad",
         "05obaeoabmadbfDbbnDdbhuabpoc6dbjawbbia0abraziabkbua1ua1bby0davuba56da60ab7asoaoavaaADaaiaoaaat7ab9ac6dblaGa4id1aaJaKbqDbbDaB0dqc",
         "0",
-    );
+    ).line;
 
     assert!(
         clue(&line, 2, game::Clue::Rank(2)) > clue(&line, 2, game::Clue::Color(ClueColor::Blue()))
@@ -331,7 +337,7 @@ fn clue_multiple_ones1() {
         "415xubpclkdpbfpfiisghlmxdsruwgnfoawrncaqutkahjvmkqyev",
         "05oc0aakubadagpaocabvcaqoaarbeajbmbaiabibn7dodblao7cbhibbyDda4vab5aciabxb7a80dvdaADd7ab00bava6b2apvdbw0daHbt1ab9aCazocaG7cidqb",
         "0",
-    );
+    ).line;
     assert!(
         clue(&line, 3, game::Clue::Rank(1)) > clue(&line, 3, game::Clue::Color(ClueColor::Blue()))
     );
@@ -345,7 +351,7 @@ fn clue_multiple_ones2() {
         "415isapgyqxplkqmbsktuwhivnexfncwdgvrajfpahfurdlmcboku",
         "05uc0cakiaacidaianvc6aalDcar6aajbmav6casbo6bahbuibbaa1iabpa3af1aoca6beazbtDdDdbwaxudbgvbb5bba4b21cocb7aIa0udb9aCaLbdbEbqqd",
         "0",
-    );
+    ).line;
 
     assert!(
         clue(&line, 3, game::Clue::Rank(1)) > clue(&line, 1, game::Clue::Color(ClueColor::Blue()))
@@ -361,7 +367,7 @@ fn clue_with_trash() {
         "415isapgyqxplkqmbsktuwhivnexfncwdgvrajfpahfurdlmcboku",
         "05uc0cakiaacidaianvc6aalDcar6aajbmav6casbo6bahbuibbaa1iabpa3af1aoca6beazbtDdDdbwaxudbgvbb5bba4b21cocb7aIa0udb9aCaLbdbEbqqd",
         "0",
-    );
+    ).line;
 
     assert!(
         clue(&line, 3, game::Clue::Color(ClueColor::Red())) > clue(&line, 3, game::Clue::Rank(5))
@@ -378,7 +384,7 @@ fn clue_with_trash_based_on_previous_clues() {
         "415humvpfntxydvaucswfikulpqnschpwgkxrirbafdljambkoegq",
         "05pbafpdanvcaealam6baqbiucDcbgatvbDbaxubbobaavuabpacoabk7ca47aay1ca6bsa70bbbaz1abra1ahoaica8b9aADbbdaFajubbBaKbwbu1d7dqc",
         "0",
-    );
+    ).line;
     let own_hand = &line.hands[0];
     assert!(
         own_hand[0].trash,
@@ -407,7 +413,7 @@ fn clue_with_trash_in_safe_clue() {
         "415tmcfndirjgqahxplurubyfomvhegsbdlkwqpfxauiwsvkcknap",
         "05icoaal6cadDaaqDcvc0dajaoodbebsamicucatbnvcbfayobbbagak1aarbvai0aa26ca7bpacvab16aaBbhubbuaaa61dDba5b3udaxb8ica4bFDba07abzqa",
         "0",
-    );
+    ).line;
     let own_hand = &line.hands[0];
     assert!(
         own_hand[1].trash,
@@ -429,7 +435,7 @@ fn priority_saves() {
         "415xtilakwjkoagpcyefqcsnumvfdghpramqpbfihkunvblrsdxuw",
         "05pbaf0damobaq0darocaealuaad6cavuaawbgubbnDdaubiobbaa11abta3ucaj7aacahiab0a8Dabkvcbybsaxb5b6bzb27cbBb4aJ0aab1ab7bAaNqb",
         "0",
-    );
+    ).line;
     assert!(clue(&line, 2, game::Clue::Rank(3)) > clue(&line, 3, game::Clue::Rank(2)));
 }
 
@@ -441,7 +447,7 @@ fn no_double_cluing() {
         "415wmjgiqdkvcfvadsshwpmloqxlbgciaenufbkaunpxtpkruhrfy",
         "05idocakamubahoa0badasub1c0bauaqbo7dafbivcba6dbj7bbbaeuabxatidb1Dbac7ab6b4a5bgpbDbb2aBazbnb0avaw0cb7b3aIap0dbyalaF1dbDqc",
         "0",
-    );
+    ).line;
     assert!(
         clue(&line, 2, game::Clue::Color(game::ClueColor::Yellow()))
             > clue(&line, 2, game::Clue::Rank(4))
@@ -458,7 +464,7 @@ fn clue_clear_cards() {
         "415xvpskfqgqixmgddhawafusoplmnwfchrcprbltubjeiayunkvk",
         "05pbafodamibaqpaubacaepb0bodaubiap7cagajbn7dbsubbrbaayva6aabbh1abxa57ablicadbva90ba3bBobaobtaEid1cb8Dcbz1bbAa1ak6abIb6bwbFbDqb",
         "0",
-    );
+    ).line;
     let own_hand = &line.hands[0];
     assert!(
         !own_hand[0].trash,
@@ -480,7 +486,7 @@ fn immediatly_update_play_flags() {
         "415nkifgwinraekpdfqvhlyumwsudcaacxftjoqmpuxbshbrgkvlp",
         "05pdpcalaoobaeajamubasodarubav0dap0cbfai7bbaaxubbnicahakbu0dagbqa6ucpda8ay6cb2atobbba71diaaEb4a0b3b1azb5vbbcaL6daw6cqb",
         "0",
-    );
+    ).line;
     let own_hand = &line.hands[0];
     assert!(
         own_hand[2].play,
@@ -502,7 +508,8 @@ fn immediatly_update_play_flags2() {
         "415fmblraiypxfkrwscdakedvjsuniuaxmvkclhwnhufggqobqtpp",
         "33cc",
         "0",
-    );
+    )
+    .line;
     let target_hand = &line.hands[1];
     assert!(
         target_hand[0].play,
@@ -529,7 +536,8 @@ fn dont_reclue_uselessly() {
         "415fmblraiypxfkrwscdakedvjsuniuaxmvkclhwnhufggqobqtpp",
         "33cc",
         "0",
-    );
+    )
+    .line;
     let score = line.clue(1, game::Clue::Color(game::ClueColor::Yellow()));
     println!("score: {:?}", score);
     println!("=> {:?}", line);
@@ -544,7 +552,7 @@ fn fix_clue_revealing_real_identity() {
         "415qiwbhdnvrygexohsdxwpfmsfnbuurkpfajquicmgctaklvapkl",
         "05ibafbiDcbavcbrpc7dDdatocbbbeauvcodbgbkbn6dbhiba00dbwpbubbca3bxbpDdb1bziabs6db66cbv6ca9bm6cb51dbE6cb80dicb4vaoauaaIuabBb2bCbyblibbJ6cqc",
         "0",
-    );
+    ).line;
     assert_eq!(line.hands[3][2].quantum.size(), 1);
     assert_eq!(
         line.hands[3][2].quantum.iter().nth(0).expect("size is 1"),
@@ -557,4 +565,23 @@ fn fix_clue_revealing_real_identity() {
     println!("=> {:?}", line);
     assert_eq!(line.hands[3][2].quantum.size(), 1);
     assert!(line.hands[3][2].fixed);
+}
+
+#[test]
+/// Clues should only mark cards as clued if that is actually the case (even if the foreign player
+/// will assume it is a y2 we must not makr y2 as clued).
+fn only_mark_card_as_clued_if_actually_the_case() {
+    // id 66540
+    let replay = replay_game(
+        8,
+        "415gdjsfnaqvarhgwaifbfwnboxlvrpkhtdklcqpcyxiukuupsmem",
+        "05pbagbivcbaaearoaodbfbjpabsvdbk0bbbvdblucbd0ab0uca1bhvdbmodbqububbcb6odbppc0da2vc0dbtayb96dbvbApcDcb4aFbo7db8ibbIbxaB1aa5aLvaauoaqa",
+        "0",
+    );
+    for line in replay.lines.iter() {
+        assert!(!line.clued_cards.contains(&game::Card {
+            rank: 2,
+            suit: game::Suit::Yellow(),
+        }));
+    }
 }

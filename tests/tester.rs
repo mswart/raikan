@@ -41,7 +41,7 @@ impl std::fmt::Debug for InstructedPlayer {
 }
 
 impl game::PlayerStrategy for InstructedPlayer {
-    fn init(&mut self, _num_players: u8) {}
+    fn init(&mut self, _num_players: u8, _own_index: u8) {}
     fn drawn(&mut self, _player: usize, _card: game::Card) {}
     fn own_drawn(&mut self) {}
     fn played(

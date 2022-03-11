@@ -274,7 +274,7 @@ pub enum Move {
 }
 
 pub trait PlayerStrategy: std::fmt::Debug {
-    fn init(&mut self, num_players: u8);
+    fn init(&mut self, num_players: u8, start_player: u8);
     fn act(&mut self, status: &GameStatus) -> Move;
 
     fn drawn(&mut self, player: usize, card: Card);
@@ -368,8 +368,8 @@ impl Game {
             },
             seed,
         };
-        for strategy in players.iter_mut() {
-            strategy.init(game.num_players());
+        for (pos, strategy) in players.iter_mut().enumerate() {
+            strategy.init(game.num_players(), pos as u8);
         }
 
         for player in 0..players.len() {
@@ -474,8 +474,8 @@ impl Game {
             });
         }
 
-        for strategy in players.iter_mut() {
-            strategy.init(num_players);
+        for (pos, strategy) in players.iter_mut().enumerate() {
+            strategy.init(num_players, pos as u8);
         }
 
         // 1. draw initial cards:

@@ -294,7 +294,10 @@ impl std::fmt::Debug for Line {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("Line (turn: {})\n", self.turn))?;
         for (player, hand) in self.hands.iter().enumerate() {
-            f.write_str("[")?;
+            f.write_fmt(format_args!(
+                "P{} [",
+                (self.own_player as usize + player) % self.hands.len()
+            ))?;
             for (pos, slot) in hand.iter().enumerate() {
                 if pos > 0 {
                     f.write_str(", ")?;
@@ -331,16 +334,17 @@ impl std::fmt::Debug for Line {
 #[derive(PartialEq, Eq, Clone)]
 pub struct Line {
     pub hands: Vec<VecDeque<Slot>>,
-    clued_cards: BTreeSet<game::Card>,
+    pub clued_cards: BTreeSet<game::Card>,
     tracked_cards: BTreeMap<game::Card, (u8, [i8; 3])>,
     turn: u8,
     variant: Variant,
     play_states: PlayStates,
     score: u8,
+    own_player: u8,
 }
 
 impl Line {
-    pub fn new(num_players: u8) -> Self {
+    pub fn new(num_players: u8, own_player: u8) -> Self {
         let mut hands = Vec::new();
         for _ in 0..num_players {
             hands.push(VecDeque::new());
@@ -353,6 +357,7 @@ impl Line {
             variant: Variant {},
             play_states: PlayStates::new(),
             score: 0,
+            own_player,
         }
     }
 
@@ -631,7 +636,9 @@ impl Line {
             if old_size != 1 && slot.quantum.size() == 1 {
                 let card = slot.quantum.iter().nth(0).expect("we checked the size");
                 if slot.clued || newly_clued.contains(pos as u8) {
-                    self.clued_cards.insert(card);
+                    if whom == 0 || slot.card == card {
+                        self.clued_cards.insert(card);
+                    }
                     if !slot.play {
                         slot.locked = true;
                     }
@@ -720,14 +727,16 @@ impl Line {
                     }
                 }
                 if slot.quantum.size() == 1 {
+                    let card = slot
+                        .quantum
+                        .clone()
+                        .iter()
+                        .nth(0)
+                        .expect("We checked the size");
                     // for self mode
-                    self.clued_cards.insert(
-                        slot.quantum
-                            .clone()
-                            .iter()
-                            .nth(0)
-                            .expect("We checked the size"),
-                    );
+                    if whom == 0 || card == slot.card {
+                        self.clued_cards.insert(card);
+                    }
                 }
             }
             slot.update_slot_attributes(&self.play_states);
@@ -827,7 +836,7 @@ impl HyphenatedPlayer {
             debug,
             variant: Variant {},
             turn: 0,
-            line: Line::new(0),
+            line: Line::new(0, 0),
         }
     }
 
@@ -837,10 +846,10 @@ impl HyphenatedPlayer {
 }
 
 impl game::PlayerStrategy for HyphenatedPlayer {
-    fn init(&mut self, num_players: u8) {
+    fn init(&mut self, num_players: u8, own_player: u8) {
         self.variant = Variant {};
         self.turn = 0;
-        self.line = Line::new(num_players);
+        self.line = Line::new(num_players, own_player);
     }
 
     fn drawn(&mut self, player: usize, card: game::Card) {
