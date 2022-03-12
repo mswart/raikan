@@ -662,3 +662,21 @@ fn dont_play_cards_not_playable() {
         slot
     );
 }
+
+#[test]
+/// Should a player be forced to discard a clued card, remove them from the clued state
+fn clear_clued_cards_on_discard() {
+    // id 34077
+    let replay = replay_game(
+        19,
+        "415suknlcxuhfpimviqsejnpqbvfxywdcghbwtdfmuaakkraplgro",
+        "05pcpaakbmac0dajapab6dvbanbaaebibo7cDdbz6cbdDaa1buodbf6ba4icbhbtDcbvbg6db0udbyb8aBpcb5aDoabs0abGocaHbFaq7cbx7cbl1cb2iabNqd",
+        "0",
+    );
+    for line in replay.lines.iter() {
+        assert!(!line.clued_cards.contains_key(&game::Card {
+            rank: 4,
+            suit: game::Suit::Purple(),
+        }));
+    }
+}

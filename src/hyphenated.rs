@@ -588,7 +588,10 @@ impl Line {
     pub fn discarded(&mut self, player: usize, pos: usize, card: game::Card) {
         self.turn += 1;
         self.play_states.discarded(&card);
-        self.hands[player].remove(pos);
+        let removed = self.hands[player].remove(pos).expect("Game ensures this");
+        if removed.clued {
+            self.clued_cards.remove(&removed.card);
+        }
         if player == 0 {
             self.track_card(card, -1, -2);
         } else {
