@@ -42,12 +42,23 @@ pub struct Slot {
 
 impl Slot {
     fn update_slot_attributes(&mut self, play_states: &PlayStates) {
+        if self.quantum.size() == 0 {
+            self.trash = true;
+            return;
+        }
         let mut all_trash = true;
         let mut all_playable = true;
+        let mut non_playable = true;
         for card in self.quantum.iter() {
             match play_states[&card] {
-                game::CardPlayState::Playable() => all_trash = false,
-                game::CardPlayState::CriticalPlayable() => all_trash = false,
+                game::CardPlayState::Playable() => {
+                    all_trash = false;
+                    non_playable = false;
+                }
+                game::CardPlayState::CriticalPlayable() => {
+                    all_trash = false;
+                    non_playable = false;
+                }
                 game::CardPlayState::Critical() => {
                     all_trash = false;
                     all_playable = false;
@@ -62,11 +73,16 @@ impl Slot {
                 game::CardPlayState::Dead() => all_playable = false,
             }
         }
+        if non_playable {
+            self.play = false;
+        }
         if all_playable {
             self.play = true;
         }
         if all_trash {
             self.trash = true;
+        }
+        if self.trash {
             self.play = false;
         }
     }
@@ -679,7 +695,9 @@ impl Line {
                 }
                 error += 1;
             }
-            slot.play = true;
+            if !slot.fixed {
+                slot.play = true;
+            }
             return error;
         }
 
@@ -829,9 +847,6 @@ impl Line {
             }
             if slot.clued {
                 slot.update_slot_attributes(&self.play_states);
-            }
-            if slot.trash {
-                slot.play = false;
             }
             if slot.play {
                 return Some(game::Move::Play(pos as u8));

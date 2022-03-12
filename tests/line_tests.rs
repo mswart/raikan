@@ -643,3 +643,22 @@ fn correct_card_assumption_upon_misplay() {
     ).line;
     assert!(line.hands[0][0].play, "p1 must be marked as playable");
 }
+
+#[test]
+/// Only play cards if there is a change they are playable.
+/// Fix clue that clear the identity should potentially remove the play annotation
+fn dont_play_cards_not_playable() {
+    // id 6631
+    let line = replay_game(
+        17,
+        "415xapsgahtqlohngmwnedbudqvfirupuxiswfpkfkcjkmvbclary",
+        "05ibafbivbba7dbjicDcbgat6b1cauDbobbbae0a6aax1dobapacaybvamvbbwubbn6dbh7aa4bzb2pbb0bdaA1b6bb1aDiab6asb7arb8vdb5blaKud6d1daNqa",
+        "0",
+    ).line;
+    let slot = &line.hands[0][3];
+    assert!(
+        !slot.play,
+        "y2 must be marked as playable (it can't be) {:?}",
+        slot
+    );
+}
