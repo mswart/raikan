@@ -680,3 +680,21 @@ fn clear_clued_cards_on_discard() {
         }));
     }
 }
+
+#[test]
+/// Should a clue fixed the identity of a card, clear clued cards from old reasoning
+fn clear_clued_cards_on_fix_clue() {
+    // id 51155
+    let replay = replay_game(
+        7,
+        "415mftyndbwgicxorhvqdsrflpuckjuhqkaeppifalvunwskgxmab",
+        "05Ddoabibnab1dodbpbaDabj7bubbg0bbr6daw0daxpd0caqazuc1davbtbs0abkicbcbha5ibbub7blDcb4Daoab16d7ab2aDbC6a1ab3aGbAobvbbIaJ6aaoaKiaub6aaNqb",
+        "0",
+    );
+    for line in replay.lines.iter() {
+        assert!(!line.clued_cards.contains_key(&game::Card {
+            rank: 3,
+            suit: game::Suit::Blue(),
+        }));
+    }
+}

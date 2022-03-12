@@ -654,6 +654,7 @@ impl Line {
         for pos in 0..self.hands[whom].len() {
             let slot = &mut self.hands[whom][pos];
             let old_size = slot.quantum.size();
+            let previsous_first_quantum_card = slot.quantum.iter().nth(0);
             match clue {
                 game::Clue::Rank(rank) => slot
                     .quantum
@@ -664,6 +665,10 @@ impl Line {
             }
             if old_size != 0 && slot.quantum.size() == 0 && slot.quantum.hard_size() == 1 {
                 slot.quantum.soft_clear();
+                if old_size == 1 {
+                    self.clued_cards
+                        .remove(&previsous_first_quantum_card.expect("size was tested"));
+                }
                 slot.fixed = true;
             }
             if old_size != 1 && slot.quantum.size() == 1 {
