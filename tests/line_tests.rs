@@ -93,7 +93,7 @@ fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> Replay {
     }
     println!("Clued cards:");
     for line in lines.iter() {
-        println!(" - {:?}", line.clued_cards);
+        println!(" - {:?}", line.card_states);
     }
     Replay {
         line: line.clone(),
@@ -588,10 +588,12 @@ fn only_mark_card_as_clued_if_actually_the_case() {
         "0",
     );
     for line in replay.lines.iter() {
-        assert!(!line.clued_cards.contains_key(&game::Card {
+        assert!(line.card_states[&game::Card {
             rank: 2,
             suit: game::Suit::Yellow(),
-        }));
+        }]
+            .clued
+            .is_none());
     }
 }
 
@@ -607,23 +609,21 @@ fn dont_consider_ambiguous_safes_as_clued() {
     );
     for line in replay.lines.iter() {
         assert_ne!(
-            *line
-                .clued_cards
-                .get(&game::Card {
-                    rank: 2,
-                    suit: game::Suit::Blue(),
-                })
-                .unwrap_or(&0),
+            line.card_states[&game::Card {
+                rank: 2,
+                suit: game::Suit::Blue(),
+            }]
+                .clued
+                .unwrap_or(0),
             255
         );
         assert_ne!(
-            *line
-                .clued_cards
-                .get(&game::Card {
-                    rank: 4,
-                    suit: game::Suit::Blue(),
-                })
-                .unwrap_or(&0),
+            line.card_states[&game::Card {
+                rank: 4,
+                suit: game::Suit::Blue(),
+            }]
+                .clued
+                .unwrap_or(0),
             255
         );
     }
@@ -674,10 +674,12 @@ fn clear_clued_cards_on_discard() {
         "0",
     );
     for line in replay.lines.iter() {
-        assert!(!line.clued_cards.contains_key(&game::Card {
+        assert!(line.card_states[&game::Card {
             rank: 4,
             suit: game::Suit::Purple(),
-        }));
+        }]
+            .clued
+            .is_none());
     }
 }
 
@@ -692,9 +694,11 @@ fn clear_clued_cards_on_fix_clue() {
         "0",
     );
     for line in replay.lines.iter() {
-        assert!(!line.clued_cards.contains_key(&game::Card {
+        assert!(line.card_states[&game::Card {
             rank: 3,
             suit: game::Suit::Blue(),
-        }));
+        }]
+            .clued
+            .is_none());
     }
 }
