@@ -384,6 +384,26 @@ fn clue_with_trash() {
 }
 
 #[test]
+#[ignore]
+/// With g 1..3 played, and g5 visible on other hand; clue green to b5, g4, g1, g4 hand
+fn clue_with_trash2() {
+    // seed 62369
+    let mut line = replay_game(
+        11,
+        "415vkglnkntsbxmjwvedqdiombhuuylsfupafpfarwcpxqhcgraki",
+        "05Ddpabibnabuabjuaaducalbobavabk6cbc6caybridvdudaw0dbeob7bbsa3Da0bbxa5bqb1bzaguabpaubfodbCpdb7odb9vbbGDbb2odod1daHb4bhbt0bb6Ddbvqd",
+        "0",
+    ).line;
+
+    let score = line
+        .clue(2, game::Clue::Color(game::ClueColor::Green()))
+        .expect("Clue should be valid");
+    println!("=> {:?}", line);
+    println!("Score: {score:?}");
+    assert!(!score.has_errors());
+}
+
+#[test]
 /// with [b3, b1, b4, b5[5]]
 /// clue blue with full hand, identifies b4 on chop, b5 from previously + two chop cards
 fn clue_with_trash_based_on_previous_clues() {
@@ -701,4 +721,22 @@ fn clear_clued_cards_on_fix_clue() {
             .clued
             .is_none());
     }
+}
+
+#[test]
+#[ignore]
+/// Should a player have two copies of the same card, on is to be discarded
+fn discard_double_card() {
+    // id 50241
+    let line = replay_game(
+        13,
+        "415pbedsnnyrwhjgaucxllpaiafudfxqtmuqfkmkkgicpsowhrvbv",
+        "05pd0abiaoaabepdanbbDabj7bubbhobbmbdax1dbriduabkau0cDca2bybviabqb1pdDdbwa8b6vab4vcasucaCb5bB7aa9bAubagobucbcaJaH0aaK6a6bvcaNqb",
+        "0",
+    ).line;
+    println!("line: {:?}", line);
+    assert_ne!(
+        line.hands[0][2].trash, line.hands[0][3].trash,
+        "Only one g4 is needed, discard the other one"
+    );
 }
