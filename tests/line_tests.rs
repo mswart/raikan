@@ -384,7 +384,6 @@ fn clue_with_trash() {
 }
 
 #[test]
-#[ignore]
 /// With g 1..3 played, and g5 visible on other hand; clue green to b5, g4, g1, g4 hand
 fn clue_with_trash2() {
     // seed 62369
@@ -469,7 +468,7 @@ fn priority_saves() {
 }
 
 #[test]
-fn no_double_cluing() {
+fn no_double_cluing1() {
     // seed 52
     let line = replay_game(
         23,
@@ -480,6 +479,23 @@ fn no_double_cluing() {
     assert!(
         clue(&line, 2, game::Clue::Color(game::ClueColor::Yellow()))
             > clue(&line, 2, game::Clue::Rank(4))
+    );
+}
+
+#[test]
+/// don't clue [y1 y4 y1 xx] with yellow if there are good alternatives
+fn no_double_cluing2() {
+    // id 2
+    let line = &replay_game(
+        0,
+        "415jqgbuywktfifdpraklukmhrpsaxnvlgvehdcncfpmxauoqsiwb",
+        "05ocDaalpc6baeaqoaacpdvbapudarbjauDcbh1banbbaviabmad6dbsa2uba1bw6abtagibboa0a97abxa8a6Db0cb3afbiuc7cbyaI0bbBaJakbDaabMbNqd",
+        "0",
+    ).line;
+    println!("line: {:?}", line);
+    assert!(
+        clue(&line, 1, game::Clue::Rank(1))
+            > clue(&line, 2, game::Clue::Color(game::ClueColor::Yellow()))
     );
 }
 
@@ -882,5 +898,22 @@ fn extend_delayed_play_after_first_plays() {
             suit: game::Suit::Purple()
         },],
         "When slot 1 been played as p1, this must be p2"
+    );
+}
+
+#[test]
+/// prefer color clues if it clear card clued twice on one hand (makes on playable and one trash)
+fn clear_up_doubled_card_in_one_card() {
+    // id 58695
+    let line = &replay_game(
+        10,
+        "415lxtvebqbsihwflnoppqrnifjmpdsvuwhxakgrkfakduymucgac",
+        "05Dbodbiam0cbfaqvb1cbevbbnvbvabjboDdbuudvbbbDavbbpvbby7bbr7db1pbvb6da36ab2ad6abwicbcuaa7b5a8asat0baaahb91cbz6abDucbBbgaIocbEb4aLbAbJbCqc",
+        "0",
+    ).line;
+    println!("line: {:?}", line);
+    assert!(
+        clue(&line, 3, game::Clue::Color(game::ClueColor::Blue()))
+            > clue(&line, 3, game::Clue::Rank(2))
     );
 }

@@ -5,6 +5,7 @@ use crate::game::{self, CardPlayState};
 pub struct CardState {
     pub play: CardPlayState,
     pub clued: Option<u8>,
+    pub locked: Option<(u8, i8)>,
     pub tracked_count: u8,
     pub tracked_places: [i8; 3],
 }
@@ -14,6 +15,7 @@ impl CardState {
         Self {
             play: CardPlayState::Normal(),
             clued: None,
+            locked: None,
             tracked_count: 0,
             tracked_places: [-2; 3],
         }
@@ -35,6 +37,10 @@ impl std::fmt::Debug for CardState {
             if clued < 255 {
                 std::fmt::Debug::fmt(&clued, f)?;
             }
+        }
+        if let Some(turn) = self.locked {
+            f.write_str("L")?;
+            std::fmt::Debug::fmt(&turn, f)?;
         }
         Ok(())
     }

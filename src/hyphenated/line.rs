@@ -159,7 +159,7 @@ impl Line {
             println!("error {extra_error}: initial error passed in",);
         }
         let mut bonus = 0;
-        for hand in self.hands.iter().skip(1) {
+        for (player, hand) in self.hands.iter().enumerate().skip(1) {
             let mut queued_actions = 0;
             let mut chop = true;
             let mut discard_risk = 0;
@@ -186,13 +186,24 @@ impl Line {
                             CardPlayState::Playable() => Some(2),
                             CardPlayState::Normal() => Some(1),
                         } {
-                            if cfg!(debug_assertions) {
-                                println!(
-                                    "Error 2: trash card {:?} ({}) is NOT trash",
+                            let mut duplicated_self = false;
+                            if let Some((locked_player, turn)) = card_state.locked {
+                                if player as u8 == locked_player
+                                    && slot.turn != turn
+                                    && slot.quantum.size() == 0
+                                {
+                                    duplicated_self = true;
+                                }
+                            }
+                            if !duplicated_self {
+                                if cfg!(debug_assertions) {
+                                    println!(
+                                    "Error 2: trash card {:?} ({card_state:?}, {}) is NOT trash",
                                     slot.card, slot.quantum
                                 );
+                                }
+                                errors += error;
                             }
-                            errors += error;
                         }
                     } else {
                         if let Some(error) = match card_state.play {
@@ -202,7 +213,7 @@ impl Line {
                         } {
                             if cfg!(debug_assertions) {
                                 println!(
-                                    "Error 2: clued card {:?} ({}) is trash",
+                                    "Error 2: clued card {:?} ({card_state:?}, {}) is trash",
                                     slot.card, slot.quantum
                                 );
                             }
@@ -238,7 +249,12 @@ impl Line {
                         errors += error;
                     }
                 }
-                if !slot.trash && !slot.quantum.contains(&slot.card) {
+                if !slot.trash
+                    && (card_state.locked.unwrap_or((player as u8, slot.turn))
+                        == (player as u8, slot.turn)
+                        || slot.quantum.size() > 0)
+                    && !slot.quantum.contains(&slot.card)
+                {
                     let error = match card_state.play {
                         CardPlayState::Playable() => 2,
                         CardPlayState::Critical() => 3,
@@ -478,6 +494,7 @@ impl Line {
                 if slot.clued || newly_clued.contains(pos as u8) {
                     if whom == 0 || slot.card == card {
                         self.card_states[&card].clued = Some(255);
+                        self.card_states[&card].locked = Some((whom as u8, slot.turn));
                     }
                     if !slot.play {
                         slot.locked = true;
@@ -655,6 +672,7 @@ impl Line {
                     // for self mode
                     if whom == 0 || card == slot.card {
                         self.card_states[&card].clued = Some(255);
+                        self.card_states[&card].locked = Some((whom as u8, slot.turn));
                     }
                 }
             }

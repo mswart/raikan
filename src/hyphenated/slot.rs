@@ -41,12 +41,10 @@ impl Slot {
                 game::CardPlayState::Critical() => {
                     all_trash = false;
                     all_playable = false;
-                    break;
                 }
                 game::CardPlayState::Normal() => {
                     all_trash = false;
                     all_playable = false;
-                    break;
                 }
                 game::CardPlayState::Trash() => all_playable = false,
                 game::CardPlayState::Dead() => all_playable = false,
