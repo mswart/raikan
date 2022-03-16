@@ -75,7 +75,7 @@ impl Stats {
     }
 
     fn median(&self) -> (f64, f64) {
-        let num_median = self.finished_games / 2;
+        let num_median = (self.finished_games + self.won_games) / 2;
         let mut num_seen = 0;
         let mut max_seen = 0;
         let mut score_median = 0.0;
@@ -176,6 +176,8 @@ fn run_stats() {
                         results.won_games += 1;
                         results.finished_scores += game.status.score as usize;
                         results.finished_max_scores += game.status.max_score as usize;
+                        results.finished_dist[game.status.score as usize] += 1;
+                        results.finished_max_dist[game.status.max_score as usize] += 1;
                         println!("{i} Won 25 25 {} {}", game.status.turn, game.replay_url());
                     }
                     game::GameState::Invalid() => {
