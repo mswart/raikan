@@ -11,10 +11,16 @@ pub struct Slot {
     pub quantum: CardQuantum,
     pub locked: bool,
     pub fixed: bool,
+    pub turn: i8,
+    pub delayed: u8,
+    pub callbacks: bool,
 }
 
 impl Slot {
     pub fn update_slot_attributes(&mut self, card_states: &CardStates) {
+        if self.delayed > 0 {
+            return;
+        }
         if self.quantum.size() == 0 {
             self.trash = true;
             return;
@@ -51,6 +57,7 @@ impl Slot {
         }
         if all_playable {
             self.play = true;
+            self.trash = false;
         }
         if all_trash {
             self.trash = true;

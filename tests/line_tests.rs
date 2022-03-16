@@ -740,3 +740,147 @@ fn discard_double_card() {
         "Only one g4 is needed, discard the other one"
     );
 }
+
+// delayed play clues:
+#[test]
+fn unambiguous_delayed_play_clue_by_color() {
+    let mut line = hyphenated::Line::new(4, 0);
+    line.own_drawn();
+    line.own_drawn();
+    line.own_drawn();
+    line.own_drawn();
+    hand!(line 1: [y 1, g 1, r 1, b 1]);
+    hand!(line 2: [y 3, y 3, y 4, y 4]);
+    hand!(line 3: [g 4, g 4, g 3, g 3]);
+
+    println!("line: {:?}", line);
+
+    line.clue(1, game::Clue::Rank(1));
+
+    println!("line: {:?}", line);
+
+    line.played(
+        1,
+        3,
+        game::Card {
+            rank: 1,
+            suit: game::Suit::Blue(),
+        },
+        true,
+        false,
+    );
+
+    println!("line: {:?}", line);
+
+    line.clued(
+        2,
+        0,
+        game::Clue::Color(game::ClueColor::Red()),
+        PositionSet::create(4, 0100),
+        PositionSet::new(4),
+    );
+
+    println!("line: {:?}", line);
+
+    assert_eq!(
+        line.hands[0][2].quantum.size(),
+        1,
+        "clued card can only be r2"
+    );
+    assert_eq!(
+        line.hands[0][2]
+            .quantum
+            .iter()
+            .nth(0)
+            .expect("check previously"),
+        game::Card {
+            rank: 2,
+            suit: game::Suit::Red()
+        },
+        "r2 as delayed play clue on r1"
+    );
+}
+
+#[test]
+fn ambiguous_delayed_play_clue_by_rank() {
+    let mut line = hyphenated::Line::new(4, 0);
+    line.own_drawn();
+    line.own_drawn();
+    line.own_drawn();
+    line.own_drawn();
+    hand!(line 1: [y 1, g 1, r 1, b 1]);
+    hand!(line 2: [y 3, y 3, y 4, y 4]);
+    hand!(line 3: [g 4, g 4, g 3, g 3]);
+    line.clue(1, game::Clue::Rank(1));
+    line.played(
+        1,
+        3,
+        game::Card {
+            rank: 1,
+            suit: game::Suit::Blue(),
+        },
+        true,
+        false,
+    );
+
+    println!("line: {:?}", line);
+
+    line.clued(
+        2,
+        0,
+        game::Clue::Rank(2),
+        PositionSet::create(4, 0100),
+        PositionSet::new(4),
+    );
+
+    println!("line: {:?}", line);
+
+    assert_eq!(
+        line.hands[0][2].quantum.size(),
+        4,
+        "clued card can only be y2, g2, r2, b2"
+    );
+    assert_eq!(
+        line.hands[0][2].quantum.iter().collect::<Vec<game::Card>>(),
+        vec![
+            game::Card {
+                rank: 2,
+                suit: game::Suit::Red()
+            },
+            game::Card {
+                rank: 2,
+                suit: game::Suit::Yellow()
+            },
+            game::Card {
+                rank: 2,
+                suit: game::Suit::Green()
+            },
+            game::Card {
+                rank: 2,
+                suit: game::Suit::Blue()
+            },
+        ],
+        "the 2 could be any building of any of the already played/clued 1"
+    );
+}
+
+#[test]
+/// delayed play clues on player themselves
+fn extend_delayed_play_after_first_plays() {
+    // id 24141
+    let line = &replay_game(
+        6,
+        "415eptdwhpvmcirgmivulubndghkxykucpjlfaaxsnqwsqbffokar",
+        "050bagDapbvbaqbibm1d6dbjbpbbbhia7abwuaubucayarbkan7cbeaubobzbfpbbtpda7bla86dbxiab20db0iaaDb6iabsibicb9aHibbGa3uabvaK0abJiaaNqb",
+        "0",
+    ).lines[1];
+    println!("line: {:?}", line);
+    assert_eq!(
+        line.hands[0][1].quantum.iter().collect::<Vec<game::Card>>(),
+        vec![game::Card {
+            rank: 2,
+            suit: game::Suit::Purple()
+        },],
+        "When slot 1 been played as p1, this must be p2"
+    );
+}
