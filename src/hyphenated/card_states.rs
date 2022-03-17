@@ -1,5 +1,6 @@
 use crate::card_quantum::Variant;
 use crate::game::{self, CardPlayState};
+use crate::CardQuantum;
 
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub struct CardState {
@@ -51,6 +52,8 @@ pub struct CardStates {
     variant: Variant,
     states: [CardState; 25],
     first_one_discard: [bool; 5],
+    pub trash_quantum: CardQuantum,
+    pub play_quantum: CardQuantum,
 }
 
 impl std::fmt::Debug for CardStates {
@@ -67,24 +70,46 @@ impl CardStates {
             states[v.suit_index(suit) * 5].play = CardPlayState::Playable();
             states[v.suit_index(suit) * 5 + 5 - 1].play = CardPlayState::Critical();
         }
+        let mut trash_quantum = CardQuantum::new(v);
+        trash_quantum.clear();
+        let mut play_quantum = CardQuantum::new(v);
+        play_quantum.limit_by_rank(1, true);
         Self {
             variant: v,
             states,
             first_one_discard: [false; 5],
+            trash_quantum,
+            play_quantum,
         }
     }
 
     pub fn played(&mut self, card: &game::Card) {
         let offset = self.variant.suit_index(&card.suit) * 5;
         self.states[offset + card.rank as usize - 1].play = CardPlayState::Trash();
+        self.trash_quantum.add_card(card, false);
+        self.play_quantum.remove_card(card, false);
         if card.rank == 5 {
             return;
         }
         match self.states[offset + card.rank as usize].play {
             CardPlayState::Normal() => {
+                self.play_quantum.add_card(
+                    &game::Card {
+                        suit: card.suit,
+                        rank: card.rank + 1,
+                    },
+                    false,
+                );
                 self.states[offset + card.rank as usize].play = CardPlayState::Playable()
             }
             CardPlayState::Critical() => {
+                self.play_quantum.add_card(
+                    &game::Card {
+                        suit: card.suit,
+                        rank: card.rank + 1,
+                    },
+                    false,
+                );
                 self.states[offset + card.rank as usize].play = CardPlayState::CriticalPlayable()
             }
             _ => {}
@@ -108,11 +133,26 @@ impl CardStates {
             CardPlayState::Critical() => {
                 for higher_rank in card.rank..=5 {
                     self.states[offset + higher_rank as usize - 1].play = CardPlayState::Dead();
+                    self.trash_quantum.add_card(
+                        &game::Card {
+                            suit: card.suit,
+                            rank: higher_rank,
+                        },
+                        false,
+                    );
                 }
             }
             CardPlayState::CriticalPlayable() => {
                 for higher_rank in card.rank..=5 {
                     self.states[offset + higher_rank as usize - 1].play = CardPlayState::Dead();
+                    self.play_quantum.remove_card(card, false);
+                    self.trash_quantum.add_card(
+                        &game::Card {
+                            suit: card.suit,
+                            rank: higher_rank,
+                        },
+                        false,
+                    );
                 }
             }
             _ => {}

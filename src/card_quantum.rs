@@ -34,6 +34,7 @@ impl Variant {
 pub struct CardQuantum {
     variant: Variant,
     hard_cards: [u8; 6],
+    soft_size: u8,
     soft_cards: [u8; 6],
 }
 
@@ -74,6 +75,7 @@ impl CardQuantum {
             variant: variant,
             hard_cards,
             soft_cards,
+            soft_size: variant.len() as u8 * 5,
         }
     }
 
@@ -84,10 +86,16 @@ impl CardQuantum {
             self.hard_cards[i] = 0;
             self.soft_cards[i] = 0;
         }
+        self.soft_size = 0;
     }
 
     pub fn limit_by_suit(&mut self, suit: &game::Suit, effect: bool) {
         let index = self.variant.suit_index(suit);
+        if effect {
+            self.soft_size = self.soft_cards[index].count_ones() as u8;
+        } else {
+            self.soft_size -= self.soft_cards[index].count_ones() as u8;
+        }
         for i in 0..self.variant.len() {
             if (i != index) == effect {
                 self.hard_cards[i] = 0;
@@ -97,12 +105,22 @@ impl CardQuantum {
     }
 
     pub fn limit_by_rank(&mut self, rank: usize, effect: bool) {
-        let mut rank_modifier = 1 << (rank - 1);
-        if !effect {
-            rank_modifier = !rank_modifier;
-        }
+        let rank_bit = 1 << (rank - 1);
+        let rank_modifier = if effect {
+            self.soft_size = 0;
+            rank_bit
+        } else {
+            !rank_bit
+        };
         for i in 0..self.variant.len() {
             self.hard_cards[i] &= rank_modifier;
+            if self.soft_cards[i] & rank_bit > 0 {
+                if effect {
+                    self.soft_size += 1;
+                } else {
+                    self.soft_size -= 1;
+                }
+            }
             self.soft_cards[i] &= rank_modifier;
         }
     }
@@ -110,6 +128,9 @@ impl CardQuantum {
     pub fn add_card(&mut self, card: &game::Card, soft: bool) {
         let index = self.variant.suit_index(&card.suit);
         let rank_bit = 1 << (card.rank - 1);
+        if self.soft_cards[index] & rank_bit == 0 {
+            self.soft_size += 1;
+        }
         self.soft_cards[index] |= rank_bit;
         if !soft {
             self.hard_cards[index] |= rank_bit;
@@ -118,10 +139,14 @@ impl CardQuantum {
 
     pub fn remove_card(&mut self, card: &game::Card, soft: bool) {
         let index = self.variant.suit_index(&card.suit);
-        let rank_bit = !(1 << (card.rank - 1));
-        self.soft_cards[index] &= rank_bit;
+        let rank_bit = 1 << (card.rank - 1);
+        if self.soft_cards[index] & rank_bit > 0 {
+            self.soft_size -= 1;
+        }
+        let rank_mask = !rank_bit;
+        self.soft_cards[index] &= rank_mask;
         if !soft {
-            self.hard_cards[index] &= rank_bit;
+            self.hard_cards[index] &= rank_mask;
         }
     }
 
@@ -142,11 +167,7 @@ impl CardQuantum {
     }
 
     pub fn size(&self) -> u8 {
-        let mut set = 0;
-        for suit_index in 0..self.variant.suits().len() {
-            set += self.soft_cards[suit_index].count_ones()
-        }
-        set as u8
+        self.soft_size
     }
 
     pub fn hard_size(&self) -> u8 {
@@ -161,6 +182,28 @@ impl CardQuantum {
         for suit_index in 0..self.variant.suits().len() {
             self.soft_cards[suit_index] = self.hard_cards[suit_index];
         }
+        self.soft_size = 0;
+        for suit_index in 0..self.variant.suits().len() {
+            self.soft_size += self.soft_cards[suit_index].count_ones() as u8
+        }
+    }
+
+    pub fn superset(&self, set: Self) -> bool {
+        for suit_index in 0..self.variant.suits().len() {
+            if !self.soft_cards[suit_index] & set.soft_cards[suit_index] > 0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn interset(&self, set: Self) -> bool {
+        for suit_index in 0..self.variant.suits().len() {
+            if self.soft_cards[suit_index] & set.soft_cards[suit_index] > 0 {
+                return true;
+            }
+        }
+        false
     }
 }
 

@@ -76,13 +76,85 @@ impl LineScore {
 
 #[derive(PartialEq, Eq, Clone)]
 pub struct Line {
-    pub hands: Vec<VecDeque<Slot>>,
+    pub hands: Hands,
     turn: i8,
     variant: Variant,
     pub card_states: CardStates,
     score: u8,
     own_player: u8,
     callbacks: VecDeque<Callback>,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct Hands {
+    pub num_players: u8,
+    hand_sizes: [u8; 6],
+    max_hand_size: u8,
+    hand_slots: [u8; 20],
+    slots: [Slot; 20],
+    next_slot: Option<u8>,
+    used_slots: u8,
+}
+
+impl Hands {
+    fn insert_slot(&mut self, player: usize, slot: Slot) {
+        let slot_index = if let Some(slot_index) = self.next_slot {
+            self.next_slot = None;
+            slot_index
+        } else {
+            self.used_slots += 1;
+            self.used_slots - 1
+        };
+        self.slots[slot_index as usize] = slot;
+        // update hands
+        let offset = player * self.max_hand_size as usize;
+        for i in (offset..offset + self.hand_sizes[player] as usize).rev() {
+            self.hand_slots[i as usize + 1] = self.hand_slots[i as usize];
+        }
+        self.hand_slots[offset] = slot_index;
+        self.hand_sizes[player] += 1;
+    }
+
+    fn remove_slot(&mut self, player: usize, pos: u8) -> usize {
+        let offset = player * self.max_hand_size as usize;
+        let old_pos = self.hand_slots[offset + pos as usize];
+        self.next_slot = Some(old_pos);
+        for i in offset + pos as usize..offset + self.hand_sizes[player] as usize {
+            self.hand_slots[i as usize] = self.hand_slots[i as usize + 1];
+        }
+        self.hand_sizes[player] -= 1;
+        old_pos as usize
+    }
+
+    pub fn iter_hand(&self, player: u8) -> HandIterator {
+        HandIterator {
+            hands: self,
+            player,
+            next_pos: 0,
+            back_pos: self.hand_sizes[player as usize],
+        }
+    }
+
+    fn iter_hand_mut(&mut self, player: u8) -> HandMutIterator {
+        let back_pos = self.hand_sizes[player as usize];
+        HandMutIterator {
+            slots: &mut self.slots,
+            hand_slots: &self.hand_slots,
+            next_pos: 0,
+            back_pos,
+            offset: player * self.max_hand_size,
+        }
+    }
+
+    pub fn slot(&self, player: u8, pos: u8) -> &Slot {
+        &self.slots
+            [self.hand_slots[player as usize * self.max_hand_size as usize + pos as usize] as usize]
+    }
+
+    pub fn slot_mut(&mut self, player: u8, pos: u8) -> &mut Slot {
+        &mut self.slots
+            [self.hand_slots[player as usize * self.max_hand_size as usize + pos as usize] as usize]
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -94,12 +166,12 @@ struct Callback {
 impl std::fmt::Debug for Line {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("Line (turn: {})\n", self.turn))?;
-        for (player, hand) in self.hands.iter().enumerate() {
+        for player in 0..self.hands.num_players {
             f.write_fmt(format_args!(
                 "P{} [",
-                (self.own_player as usize + player) % self.hands.len()
+                (self.own_player + player) % self.hands.num_players
             ))?;
-            for (pos, slot) in hand.iter().enumerate() {
+            for (pos, slot) in self.hands.iter_hand(player) {
                 if pos > 0 {
                     f.write_str(", ")?;
                 }
@@ -133,14 +205,127 @@ impl std::fmt::Debug for Line {
     }
 }
 
+pub struct HandIterator<'a> {
+    hands: &'a Hands,
+    next_pos: u8,
+    back_pos: u8,
+    player: u8,
+}
+
+impl<'a> Iterator for HandIterator<'a> {
+    type Item = (u8, &'a Slot);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next_pos >= self.back_pos {
+            return None;
+        }
+        let offset = self.player * self.hands.max_hand_size;
+        let result = Some((
+            self.next_pos,
+            &self.hands.slots
+                [self.hands.hand_slots[offset as usize + self.next_pos as usize] as usize],
+        ));
+        self.next_pos += 1;
+        result
+    }
+}
+
+impl<'a> DoubleEndedIterator for HandIterator<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.back_pos <= self.next_pos {
+            return None;
+        }
+        let offset = self.player * self.hands.max_hand_size;
+        self.back_pos -= 1;
+        let result = Some((
+            self.back_pos,
+            &self.hands.slots
+                [self.hands.hand_slots[offset as usize + self.back_pos as usize] as usize],
+        ));
+        result
+    }
+}
+
+pub struct HandMutIterator<'a> {
+    next_pos: u8,
+    back_pos: u8,
+    offset: u8,
+    slots: &'a mut [Slot],
+    hand_slots: &'a [u8],
+}
+
+impl<'a> Iterator for HandMutIterator<'a> {
+    type Item = (u8, &'a mut Slot);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next_pos >= self.back_pos {
+            return None;
+        }
+        unsafe {
+            let ptr = self
+                .slots
+                .as_mut_ptr()
+                .add(self.hand_slots[self.offset as usize + self.next_pos as usize] as usize);
+            let result = Some((self.next_pos, &mut *ptr));
+            self.next_pos += 1;
+            result
+        }
+    }
+}
+
+impl<'a> DoubleEndedIterator for HandMutIterator<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.back_pos <= self.next_pos {
+            return None;
+        }
+        unsafe {
+            let ptr = self
+                .slots
+                .as_mut_ptr()
+                .add(self.hand_slots[self.offset as usize + self.back_pos as usize] as usize);
+            self.back_pos -= 1;
+            let result = Some((self.next_pos, &mut *ptr));
+            result
+        }
+    }
+}
+
 impl Line {
     pub fn new(num_players: u8, own_player: u8) -> Self {
-        let mut hands = Vec::new();
-        for _ in 0..num_players {
-            hands.push(VecDeque::new());
-        }
+        let variant = Variant {};
+        let empty_slot = Slot {
+            quantum: CardQuantum::new(variant),
+            play: false,
+            trash: false,
+            clued: false,
+            card: game::Card {
+                suit: variant.suits()[0],
+                rank: 0,
+            },
+            locked: false,
+            fixed: false,
+            turn: -100,
+            delayed: 0,
+            callbacks: false,
+        };
         Self {
-            hands,
+            hands: Hands {
+                num_players,
+                hand_sizes: [0; 6],
+                max_hand_size: match num_players {
+                    2 => 5,
+                    3 => 5,
+                    4 => 4,
+                    5 => 4,
+                    6 => 3,
+                    _ => unimplemented!(),
+                },
+
+                hand_slots: [0; 20],
+                slots: [empty_slot; 20],
+                next_slot: None,
+                used_slots: 0,
+            },
             turn: -16,
             variant: Variant {},
             card_states: CardStates::new(),
@@ -159,11 +344,11 @@ impl Line {
             println!("error {extra_error}: initial error passed in",);
         }
         let mut bonus = 0;
-        for (player, hand) in self.hands.iter().enumerate().skip(1) {
+        for player in 1..self.hands.num_players {
             let mut queued_actions = 0;
             let mut chop = true;
             let mut discard_risk = 0;
-            for slot in hand.iter().rev() {
+            for (_pos, slot) in self.hands.iter_hand(player).rev() {
                 let card_state = self.card_states[&slot.card];
                 if slot.clued {
                     clued += 1;
@@ -299,18 +484,21 @@ impl Line {
                 quantum.remove_card(&card, false);
             }
         }
-        self.hands[player].push_front(Slot {
-            quantum,
-            card,
-            clued: false,
-            play: false,
-            trash: false,
-            locked: false,
-            fixed: false,
-            turn: self.turn as i8,
-            delayed: 0,
-            callbacks: false,
-        });
+        self.hands.insert_slot(
+            player,
+            Slot {
+                quantum,
+                card,
+                clued: false,
+                play: false,
+                trash: false,
+                locked: false,
+                fixed: false,
+                turn: self.turn as i8,
+                delayed: 0,
+                callbacks: false,
+            },
+        );
         if self.turn < 0 {
             self.turn += 1;
         }
@@ -341,7 +529,7 @@ impl Line {
                 hand.quantum.remove_card(&card, false);
             }
         }
-        self.hands[0].push_front(hand);
+        self.hands.insert_slot(0, hand);
     }
 
     pub fn played(
@@ -353,12 +541,12 @@ impl Line {
         _blind: bool,
     ) {
         self.turn += 1;
-        let removed = self.hands[player].remove(pos).expect("Game ensures this");
+        let slot_index = self.hands.remove_slot(player, pos as u8);
         if player == 0 {
             self.track_card(card, -1, -2);
-            if removed.clued && successful {
+            if self.hands.slots[slot_index as usize].clued && successful {
                 self.card_states[&card].clued = Some(255);
-                for slot in self.hands[0].iter_mut() {
+                for (_pos, slot) in self.hands.iter_hand_mut(0) {
                     slot.quantum.remove_card(&card, true);
                 }
             }
@@ -370,16 +558,21 @@ impl Line {
             self.card_states[&card].clued = Some(255);
             self.card_states.played(&card);
         } else {
-            if removed.quantum.size() == 1 {
-                self.card_states[&removed.quantum.iter().nth(0).expect("asd")].clued = None;
+            if self.hands.slots[slot_index as usize].quantum.size() == 1 {
+                self.card_states[&self.hands.slots[slot_index as usize]
+                    .quantum
+                    .iter()
+                    .nth(0)
+                    .expect("asd")]
+                    .clued = None;
             }
             self.card_states[&card].clued = None;
             self.card_states.discarded(&card);
         }
         for i in (0..self.callbacks.len()).rev() {
-            if self.callbacks[i].trigger_card == removed.turn {
-                for hand in self.hands.iter_mut() {
-                    for slot in hand.iter_mut() {
+            if self.callbacks[i].trigger_card == self.hands.slots[slot_index as usize].turn {
+                for player in 0..self.hands.num_players {
+                    for (_pos, slot) in self.hands.iter_hand_mut(player) {
                         if slot.turn == self.callbacks[i].target_card {
                             slot.delayed -= 1;
                             if card.rank < 5 {
@@ -400,8 +593,8 @@ impl Line {
                 self.callbacks.remove(i);
             }
         }
-        for hand in self.hands.iter_mut() {
-            for slot in hand.iter_mut() {
+        for player in 0..self.hands.num_players {
+            for (_pos, slot) in self.hands.iter_hand_mut(player) {
                 slot.update_slot_attributes(&self.card_states);
             }
         }
@@ -410,9 +603,9 @@ impl Line {
     pub fn discarded(&mut self, player: usize, pos: usize, card: game::Card) {
         self.turn += 1;
         self.card_states.discarded(&card);
-        let removed = self.hands[player].remove(pos).expect("Game ensures this");
-        if removed.clued && player > 0 {
-            self.card_states[&removed.card].clued = None;
+        let slot_index = self.hands.remove_slot(player, pos as u8);
+        if self.hands.slots[slot_index].clued && player > 0 {
+            self.card_states[&self.hands.slots[slot_index].card].clued = None;
         }
         if player == 0 {
             self.track_card(card, -1, -2);
@@ -422,7 +615,7 @@ impl Line {
     }
 
     fn foreign_chop(&self, player: usize) -> i8 {
-        for (pos, slot) in self.hands[player].iter().enumerate().rev() {
+        for (pos, slot) in self.hands.iter_hand(player as u8).rev() {
             if !slot.clued {
                 return pos as i8;
             }
@@ -444,10 +637,10 @@ impl Line {
         let state = &self.card_states[&card];
         if state.tracked_count == card.suit.card_count(card.rank) {
             // all instances of card are tracked (elsewhere!), update card quantum accordingly
-            for (pos, hand) in self.hands.iter_mut().enumerate() {
-                if !state.tracked_places.contains(&(pos as i8)) {
+            for player in 0..self.hands.num_players {
+                if !state.tracked_places.contains(&(player as i8)) {
                     // player actually sees all tracked cards
-                    for slot in hand.iter_mut() {
+                    for (_pos, slot) in self.hands.iter_hand_mut(player) {
                         if slot.card != card {
                             slot.quantum.remove_card(&card, false);
                             slot.update_slot_attributes(&self.card_states);
@@ -469,8 +662,8 @@ impl Line {
         self.turn += 1;
         let mut error = 0;
         let newly_clued = touched - previously_clued;
-        for pos in 0..self.hands[whom].len() {
-            let slot = &mut self.hands[whom][pos];
+        for pos in 0..self.hands.hand_sizes[whom] {
+            let slot = self.hands.slot_mut(whom as u8, pos);
             let old_size = slot.quantum.size();
             let previsous_first_quantum_card = slot.quantum.iter().nth(0);
             match clue {
@@ -502,16 +695,19 @@ impl Line {
                 }
 
                 slot.update_slot_attributes(&self.card_states);
-                for other_pos in 0..self.hands[whom].len() {
+                for other_pos in 0..self.hands.hand_sizes[whom] {
                     if other_pos != pos {
-                        self.hands[whom][other_pos].quantum.remove_card(&card, true);
+                        self.hands
+                            .slot_mut(whom as u8, other_pos)
+                            .quantum
+                            .remove_card(&card, true);
                     }
                 }
             }
         }
         if newly_clued.is_empty() {
             let focus = touched.first().expect("empty clues are not implemented");
-            let slot = &mut self.hands[whom][focus as usize];
+            let slot = self.hands.slot_mut(whom as u8, focus);
             if slot.play && !slot.locked && !slot.fixed {
                 // useless reclue
                 if cfg!(debug_assertions) {
@@ -532,7 +728,7 @@ impl Line {
 
         let mut potential_safe = false;
         let focus = if old_chop >= 0 && touched.contains(old_chop as u8) {
-            let chop_slot = &mut self.hands[whom][old_chop as usize];
+            let chop_slot = self.hands.slot_mut(whom as u8, old_chop as u8);
             // check whether it can be a safe clue.
             for potential_card in chop_slot.quantum.clone().iter() {
                 match self.card_states[&potential_card].play {
@@ -562,9 +758,7 @@ impl Line {
 
         // somebody else was clued -> remember which cards are clued
         for pos in (touched - previously_clued).iter_first(focus) {
-            let slot = self.hands[whom]
-                .get_mut(pos as usize)
-                .expect("own and game state out of sync");
+            let slot = self.hands.slot_mut(whom as u8, pos);
             slot.clued = true;
             if !slot.locked {
                 for (card, state) in self.card_states.iter_clued() {
@@ -591,14 +785,18 @@ impl Line {
                     }
                 } else {
                     slot.play = true;
-                    for potential_card in self.hands[whom][pos as usize].quantum.clone().iter() {
+                    for potential_card in self.hands.slot(whom as u8, pos).quantum.clone().iter() {
                         match self.card_states[&potential_card].play {
                             game::CardPlayState::Playable() => {}
                             game::CardPlayState::CriticalPlayable() => {}
-                            game::CardPlayState::Trash() => self.hands[whom][pos as usize]
+                            game::CardPlayState::Trash() => self
+                                .hands
+                                .slot_mut(whom as u8, pos)
                                 .quantum
                                 .remove_card(&potential_card, true),
-                            game::CardPlayState::Dead() => self.hands[whom][pos as usize]
+                            game::CardPlayState::Dead() => self
+                                .hands
+                                .slot_mut(whom as u8, pos)
                                 .quantum
                                 .remove_card(&potential_card, true),
                             _ => {
@@ -621,9 +819,9 @@ impl Line {
                                             {
                                                 let mut delayed = 0;
                                                 for (other_pos, other_slot) in
-                                                    self.hands[whom].iter().enumerate()
+                                                    self.hands.iter_hand(whom as u8)
                                                 {
-                                                    if other_pos == pos as usize {
+                                                    if other_pos == pos {
                                                         continue;
                                                     }
                                                     if other_slot.clued
@@ -633,15 +831,16 @@ impl Line {
                                                     {
                                                         self.callbacks.push_front(Callback {
                                                             trigger_card: other_slot.turn,
-                                                            target_card: self.hands[whom]
-                                                                [pos as usize]
+                                                            target_card: self
+                                                                .hands
+                                                                .slot(whom as u8, pos)
                                                                 .turn,
                                                         });
                                                         delayed += 1;
                                                     }
                                                 }
                                                 if delayed > 0 {
-                                                    self.hands[whom][pos as usize].delayed +=
+                                                    self.hands.slot_mut(whom as u8, pos).delayed +=
                                                         delayed;
                                                 }
                                                 all_connecting_cards = false;
@@ -651,7 +850,8 @@ impl Line {
                                     }
                                 }
                                 if !all_connecting_cards {
-                                    self.hands[whom][pos as usize]
+                                    self.hands
+                                        .slot_mut(whom as u8, pos)
                                         .quantum
                                         .remove_card(&potential_card, true)
                                 }
@@ -659,9 +859,7 @@ impl Line {
                         }
                     }
                 }
-                let slot = self.hands[whom]
-                    .get_mut(pos as usize)
-                    .expect("own and game state out of sync");
+                let slot = self.hands.slot_mut(whom as u8, pos);
                 if slot.quantum.size() == 1 {
                     let card = slot
                         .quantum
@@ -676,36 +874,34 @@ impl Line {
                     }
                 }
             }
-            let slot = self.hands[whom]
-                .get_mut(pos as usize)
-                .expect("own and game state out of sync");
+            let slot = self.hands.slot_mut(whom as u8, pos);
             slot.update_slot_attributes(&self.card_states);
             if pos == focus && slot.trash {
                 error += 5;
             }
             if who > 0 && whom != 0 {
                 let card = slot.card.clone();
-                for own_hand in self.hands[0].iter_mut() {
-                    if own_hand.clued {
-                        own_hand.quantum.remove_card(&card, true);
+                for (_pos, own_slot) in self.hands.iter_hand_mut(0) {
+                    if own_slot.clued {
+                        own_slot.quantum.remove_card(&card, true);
                     }
                 }
             }
             if whom != 0
-                && self.card_states[&self.hands[whom][pos as usize].card]
+                && self.card_states[&self.hands.slot(whom as u8, pos).card]
                     .clued
                     .is_none()
             {
-                self.card_states[&self.hands[whom][pos as usize].card].clued = Some(whom as u8);
+                self.card_states[&self.hands.slot(whom as u8, pos).card].clued = Some(whom as u8);
             }
         }
         error
     }
 
     pub fn clue(&mut self, whom: usize, clue: game::Clue) -> Option<LineScore> {
-        let mut touched = PositionSet::new(self.hands[whom].len() as u8);
-        let mut previously_clued = PositionSet::new(self.hands[whom].len() as u8);
-        for (pos, slot) in self.hands[whom].iter().enumerate() {
+        let mut touched = PositionSet::new(self.hands.hand_sizes[whom]);
+        let mut previously_clued = PositionSet::new(self.hands.hand_sizes[whom]);
+        for (pos, slot) in self.hands.iter_hand_mut(whom as u8) {
             if slot.card.affected(clue) {
                 touched.add(pos as u8);
             }
@@ -723,7 +919,7 @@ impl Line {
     pub fn discard(&mut self) -> game::Move {
         // look for trash
         let mut chop = -1;
-        for (pos, slot) in self.hands[0].iter().enumerate() {
+        for (pos, slot) in self.hands.iter_hand_mut(0) {
             if slot.trash {
                 return game::Move::Discard(pos as u8);
             }
@@ -738,7 +934,7 @@ impl Line {
         // all positions occupied, search for the best worst scenario to drop:
         // lock for highest possible card (least damage):
         for rank in [5, 4, 3, 2, 1].iter() {
-            for (pos, slot) in self.hands[0].iter().enumerate() {
+            for (pos, slot) in self.hands.iter_hand_mut(0) {
                 if slot.quantum.is_rank(*rank) {
                     return game::Move::Discard(pos as u8);
                 }
@@ -749,7 +945,7 @@ impl Line {
     }
 
     pub fn play(&mut self) -> Option<game::Move> {
-        for (pos, slot) in self.hands[0].iter_mut().enumerate() {
+        for (pos, slot) in self.hands.iter_hand_mut(0) {
             if slot.trash {
                 continue;
             }

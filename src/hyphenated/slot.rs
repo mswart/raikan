@@ -2,7 +2,7 @@ use super::card_states::CardStates;
 use crate::card_quantum::CardQuantum;
 use crate::game;
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Copy, Clone)]
 pub struct Slot {
     pub card: game::Card,
     pub clued: bool,
@@ -25,39 +25,14 @@ impl Slot {
             self.trash = true;
             return;
         }
-        let mut all_trash = true;
-        let mut all_playable = true;
-        let mut non_playable = true;
-        for card in self.quantum.iter() {
-            match card_states[&card].play {
-                game::CardPlayState::Playable() => {
-                    all_trash = false;
-                    non_playable = false;
-                }
-                game::CardPlayState::CriticalPlayable() => {
-                    all_trash = false;
-                    non_playable = false;
-                }
-                game::CardPlayState::Critical() => {
-                    all_trash = false;
-                    all_playable = false;
-                }
-                game::CardPlayState::Normal() => {
-                    all_trash = false;
-                    all_playable = false;
-                }
-                game::CardPlayState::Trash() => all_playable = false,
-                game::CardPlayState::Dead() => all_playable = false,
-            }
-        }
-        if non_playable {
+        if !card_states.play_quantum.interset(self.quantum) {
             self.play = false;
         }
-        if all_playable {
+        if card_states.play_quantum.superset(self.quantum) {
             self.play = true;
             self.trash = false;
         }
-        if all_trash {
+        if card_states.trash_quantum.superset(self.quantum) {
             self.trash = true;
         }
         if self.trash {

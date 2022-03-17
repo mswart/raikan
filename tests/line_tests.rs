@@ -1,7 +1,7 @@
 use hanabi::{
     self,
     game::{self, ClueColor, Game},
-    hyphenated::{self, HyphenatedPlayer},
+    hyphenated::{self, HyphenatedPlayer, Slot},
     PositionSet,
 };
 
@@ -88,7 +88,13 @@ fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> Replay {
     for player in 0..4 {
         println!("Player {player}");
         for j in 0..4 {
-            println!("- P{j} {:?}", lines[j].hands[(4 + player - j) % 4]);
+            println!(
+                "- P{j} {:?}",
+                lines[j]
+                    .hands
+                    .iter_hand(((4 + player - j) % 4) as u8)
+                    .collect::<Vec<(u8, &Slot)>>()
+            );
         }
     }
     println!("Clued cards:");
@@ -152,8 +158,8 @@ fn track_cards() {
         rank: 5,
         suit: game::Suit::Blue(),
     };
-    for (player, hand) in line.hands.iter().enumerate() {
-        for slot in hand.iter() {
+    for player in 0..line.hands.num_players {
+        for (_pos, slot) in line.hands.iter_hand(player) {
             if player == 1 {
                 assert!(
                     slot.quantum.contains(&b5),
@@ -178,8 +184,8 @@ fn track_cards() {
         rank: 4,
         suit: game::Suit::Green(),
     };
-    for (player, hand) in line.hands.iter().enumerate() {
-        for slot in hand.iter() {
+    for player in 0..line.hands.num_players {
+        for (_pos, slot) in line.hands.iter_hand(player) {
             if player == 1 || player == 3 {
                 assert!(
                     slot.quantum.contains(&g4),
@@ -203,8 +209,8 @@ fn track_cards() {
     line.discarded(1, 2, g4);
     println!("line (after discard g4): {:?}", line);
 
-    for (player, hand) in line.hands.iter().enumerate() {
-        for slot in hand.iter() {
+    for player in 0..line.hands.num_players {
+        for (_pos, slot) in line.hands.iter_hand(player) {
             if player == 3 {
                 assert!(
                     slot.quantum.contains(&g4),
@@ -413,21 +419,20 @@ fn clue_with_trash_based_on_previous_clues() {
         "05pbafpdanvcaealam6baqbiucDcbgatvbDbaxubbobaavuabpacoabk7ca47aay1ca6bsa70bbbaz1abra1ahoaica8b9aADbbdaFajubbBaKbwbu1d7dqc",
         "0",
     ).line;
-    let own_hand = &line.hands[0];
     assert!(
-        own_hand[0].trash,
+        line.hands.slot(0, 0).trash,
         "Slot 0 should be trash (quantum: {})",
-        own_hand[0].quantum
+        line.hands.slot(0, 0).quantum
     );
     assert!(
-        own_hand[1].trash,
+        line.hands.slot(0, 1).trash,
         "Slot 1 should be trash (quantum: {})",
-        own_hand[1].quantum
+        line.hands.slot(0, 1).quantum
     );
     assert!(
-        own_hand[2].play,
+        line.hands.slot(0, 2).play,
         "Slot 2 (previously chop), should be playable b4 (quantum: {})",
-        own_hand[2].quantum
+        line.hands.slot(0, 2).quantum
     );
 }
 
@@ -442,16 +447,15 @@ fn clue_with_trash_in_safe_clue() {
         "05icoaal6cadDaaqDcvc0dajaoodbebsamicucatbnvcbfayobbbagak1aarbvai0aa26ca7bpacvab16aaBbhubbuaaa61dDba5b3udaxb8ica4bFDba07abzqa",
         "0",
     ).line;
-    let own_hand = &line.hands[0];
     assert!(
-        own_hand[1].trash,
+        line.hands.slot(0, 1).trash,
         "Slot 0 should be trash (quantum: {})",
-        own_hand[1].quantum
+        line.hands.slot(0, 1).quantum
     );
     assert!(
-        !own_hand[2].trash,
+        !line.hands.slot(0, 2).trash,
         "Slot 2 (previously chop), should be playable b4 (quantum: {})",
-        own_hand[2].quantum
+        line.hands.slot(0, 2).quantum
     );
 }
 
@@ -510,16 +514,15 @@ fn clue_clear_cards() {
         "05pbafodamibaqpaubacaepb0bodaubiap7cagajbn7dbsubbrbaayva6aabbh1abxa57ablicadbva90ba3bBobaobtaEid1cb8Dcbz1bbAa1ak6abIb6bwbFbDqb",
         "0",
     ).line;
-    let own_hand = &line.hands[0];
     assert!(
-        !own_hand[0].trash,
+        !line.hands.slot(0, 0).trash,
         "Slot 0 should not be trash (quantum: {})",
-        own_hand[0].quantum
+        line.hands.slot(0, 0).quantum
     );
     assert!(
-        own_hand[0].play,
+        line.hands.slot(0, 0).play,
         "Slot 0 should be playable b5 (quantum: {})",
-        own_hand[0].quantum
+        line.hands.slot(0, 0).quantum
     );
 }
 
@@ -532,16 +535,15 @@ fn immediatly_update_play_flags() {
         "05pdpcalaoobaeajamubasodarubav0dap0cbfai7bbaaxubbnicahakbu0dagbqa6ucpda8ay6cb2atobbba71diaaEb4a0b3b1azb5vbbcaL6daw6cqb",
         "0",
     ).line;
-    let own_hand = &line.hands[0];
     assert!(
-        own_hand[2].play,
+        line.hands.slot(0, 2).play,
         "Slot 2 is playable (card is clearly g4): quantum: {}",
-        own_hand[2].quantum
+        line.hands.slot(0, 2).quantum
     );
     assert!(
-        own_hand[3].play,
+        line.hands.slot(0, 3).play,
         "Slot 3 is playable (card is clearly y4): quantum: {}",
-        own_hand[3].quantum
+        line.hands.slot(0, 3).quantum
     );
 }
 
@@ -555,21 +557,20 @@ fn immediatly_update_play_flags2() {
         "0",
     )
     .line;
-    let target_hand = &line.hands[1];
     assert!(
-        target_hand[0].play,
+        line.hands.slot(1, 0).play,
         "Slot 1 is playable (card is a one): quantum: {}",
-        target_hand[0].quantum
+        line.hands.slot(1, 0).quantum
     );
     assert!(
-        target_hand[1].play,
+        line.hands.slot(1, 1).play,
         "Slot 2 is playable (card is a one): quantum: {}",
-        target_hand[1].quantum
+        line.hands.slot(1, 1).quantum
     );
     assert!(
-        target_hand[3].play,
+        line.hands.slot(1, 3).play,
         "Slot 4 is playable (card is a one): quantum: {}",
-        target_hand[3].quantum
+        line.hands.slot(1, 3).quantum
     );
 }
 
@@ -598,9 +599,14 @@ fn fix_clue_revealing_real_identity() {
         "05ibafbiDcbavcbrpc7dDdatocbbbeauvcodbgbkbn6dbhiba00dbwpbubbca3bxbpDdb1bziabs6db66cbv6ca9bm6cb51dbE6cb80dicb4vaoauaaIuabBb2bCbyblibbJ6cqc",
         "0",
     ).line;
-    assert_eq!(line.hands[3][2].quantum.size(), 1);
+    assert_eq!(line.hands.slot(3, 2).quantum.size(), 1);
     assert_eq!(
-        line.hands[3][2].quantum.iter().nth(0).expect("size is 1"),
+        line.hands
+            .slot(3, 2)
+            .quantum
+            .iter()
+            .nth(0)
+            .expect("size is 1"),
         game::Card {
             rank: 2,
             suit: game::Suit::Blue()
@@ -608,8 +614,8 @@ fn fix_clue_revealing_real_identity() {
     );
     line.clue(3, game::Clue::Color(game::ClueColor::Yellow()));
     println!("=> {:?}", line);
-    assert_eq!(line.hands[3][2].quantum.size(), 1);
-    assert!(line.hands[3][2].fixed);
+    assert_eq!(line.hands.slot(3, 2).quantum.size(), 1);
+    assert!(line.hands.slot(3, 2).fixed);
 }
 
 #[test]
@@ -677,7 +683,7 @@ fn correct_card_assumption_upon_misplay() {
         "05pbahDabmbbaf7abn6cbeai6b1bbvbj6cbsiaby7cocbxa0oaiba1pbiaaza3DbDaada5oapaa6b7odapbcodbkaA0cb9aC0bb8aq0dbubBbgbwucbGbEaLbobJbHqc",
         "0",
     ).line;
-    assert!(line.hands[0][0].play, "p1 must be marked as playable");
+    assert!(line.hands.slot(0, 0).play, "p1 must be marked as playable");
 }
 
 #[test]
@@ -691,7 +697,7 @@ fn dont_play_cards_not_playable() {
         "05ibafbivbba7dbjicDcbgat6b1cauDbobbbae0a6aax1dobapacaybvamvbbwubbn6dbh7aa4bzb2pbb0bdaA1b6bb1aDiab6asb7arb8vdb5blaKud6d1daNqa",
         "0",
     ).line;
-    let slot = &line.hands[0][3];
+    let slot = &line.hands.slot(0, 3);
     assert!(
         !slot.play,
         "y2 must be marked as playable (it can't be) {:?}",
@@ -752,7 +758,8 @@ fn discard_double_card() {
     ).line;
     println!("line: {:?}", line);
     assert_ne!(
-        line.hands[0][2].trash, line.hands[0][3].trash,
+        line.hands.slot(0, 2).trash,
+        line.hands.slot(0, 3).trash,
         "Only one g4 is needed, discard the other one"
     );
 }
@@ -799,12 +806,13 @@ fn unambiguous_delayed_play_clue_by_color() {
     println!("line: {:?}", line);
 
     assert_eq!(
-        line.hands[0][2].quantum.size(),
+        line.hands.slot(0, 2).quantum.size(),
         1,
         "clued card can only be r2"
     );
     assert_eq!(
-        line.hands[0][2]
+        line.hands
+            .slot(0, 2)
             .quantum
             .iter()
             .nth(0)
@@ -852,12 +860,16 @@ fn ambiguous_delayed_play_clue_by_rank() {
     println!("line: {:?}", line);
 
     assert_eq!(
-        line.hands[0][2].quantum.size(),
+        line.hands.slot(0, 2).quantum.size(),
         4,
         "clued card can only be y2, g2, r2, b2"
     );
     assert_eq!(
-        line.hands[0][2].quantum.iter().collect::<Vec<game::Card>>(),
+        line.hands
+            .slot(0, 2)
+            .quantum
+            .iter()
+            .collect::<Vec<game::Card>>(),
         vec![
             game::Card {
                 rank: 2,
@@ -892,7 +904,11 @@ fn extend_delayed_play_after_first_plays() {
     ).lines[1];
     println!("line: {:?}", line);
     assert_eq!(
-        line.hands[0][1].quantum.iter().collect::<Vec<game::Card>>(),
+        line.hands
+            .slot(0, 1)
+            .quantum
+            .iter()
+            .collect::<Vec<game::Card>>(),
         vec![game::Card {
             rank: 2,
             suit: game::Suit::Purple()

@@ -7,11 +7,12 @@ use crate::game;
 
 pub use line::Line;
 pub use line::LineScore;
+pub use slot::Slot;
 
 impl std::fmt::Debug for HyphenatedPlayer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("[")?;
-        for (pos, slot) in self.line.hands[0].iter().enumerate() {
+        for (pos, slot) in self.line.hands.iter_hand(0) {
             if pos > 0 {
                 f.write_str(", ")?;
             }
@@ -44,7 +45,7 @@ impl HyphenatedPlayer {
             debug,
             variant: Variant {},
             turn: 0,
-            line: line::Line::new(0, 0),
+            line: line::Line::new(4, 0),
         }
     }
 
@@ -114,7 +115,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         if self.debug {
             println!("discarding score: {:?}", best_score);
         }
-        for player in 1..self.line.hands.len() as u8 {
+        for player in 1..self.line.hands.num_players {
             for suit in self.variant.suits().iter() {
                 let clue = game::Clue::Color(suit.clue_color());
                 if let Some(score) = self.line.clone().clue(player as usize, clue) {
