@@ -107,6 +107,20 @@ fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> Replay {
     }
 }
 
+impl Replay {
+    fn slot_perspectives(&self, player: u8, pos: u8) -> Vec<Slot> {
+        let mut slots = Vec::new();
+        for (current_player, line) in self.lines.iter().enumerate() {
+            slots.push(
+                line.hands
+                    .slot((4 + player - current_player as u8) % 4, pos)
+                    .clone(),
+            );
+        }
+        slots
+    }
+}
+
 fn clue(line: &hyphenated::Line, player: usize, clue: game::Clue) -> hyphenated::LineScore {
     let mut clue_line = line.clone();
     let clued = clue_line.clue(player, clue);
@@ -932,4 +946,28 @@ fn clear_up_doubled_card_in_one_card() {
         clue(&line, 3, game::Clue::Color(game::ClueColor::Blue()))
             > clue(&line, 3, game::Clue::Rank(2))
     );
+}
+
+#[test]
+/// a nice 5-for-1 finess starting with a self-finess (all in order)
+fn good_touch_principal() {
+    // id 31554
+    let replay = &replay_game(
+        23,
+        "415tlxnrlfdxhwyrjckpmpkhifvvgckgmaunaisweausbpfoduqbq",
+        "05obagDapbudaquaapabbe1dbnbc6cbjbsbtvaobbvazau1bby6carib7aada46ab0a57abxb3a8bfblb7bwiabkiaaFidbiaouc7daIbJ0db2b9aL0db67bqd",
+        "0",
+    );
+    let g4_slots = replay.slot_perspectives(0, 2);
+    println!("g4_slots: {:?}", g4_slots);
+    for (player, slot) in g4_slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 4,
+                suit: game::Suit::Green()
+            }],
+            "Player {player} missed a clue on green; only g4 is left"
+        );
+    }
 }

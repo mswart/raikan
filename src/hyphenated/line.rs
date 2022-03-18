@@ -871,6 +871,18 @@ impl Line {
                     if whom == 0 || card == slot.card {
                         self.card_states[&card].clued = Some(255);
                         self.card_states[&card].locked = Some((whom as u8, slot.turn));
+                        if whom == 0 {
+                            for player in 1..self.hands.num_players {
+                                if player == who as u8 {
+                                    continue;
+                                }
+                                for (_pos, slot) in self.hands.iter_hand_mut(player) {
+                                    if slot.clued {
+                                        slot.quantum.remove_card(&card, true);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -879,20 +891,21 @@ impl Line {
             if pos == focus && slot.trash {
                 error += 5;
             }
-            if who > 0 && whom != 0 {
+            if whom != 0 {
                 let card = slot.card.clone();
-                for (_pos, own_slot) in self.hands.iter_hand_mut(0) {
-                    if own_slot.clued {
-                        own_slot.quantum.remove_card(&card, true);
+                for player in 0..self.hands.num_players {
+                    if player == who as u8 || player == whom as u8 {
+                        continue;
+                    }
+                    for (_pos, slot) in self.hands.iter_hand_mut(player) {
+                        if slot.clued {
+                            slot.quantum.remove_card(&card, true);
+                        }
                     }
                 }
-            }
-            if whom != 0
-                && self.card_states[&self.hands.slot(whom as u8, pos).card]
-                    .clued
-                    .is_none()
-            {
-                self.card_states[&self.hands.slot(whom as u8, pos).card].clued = Some(whom as u8);
+                if self.card_states[&card].clued.is_none() {
+                    self.card_states[&card].clued = Some(whom as u8);
+                }
             }
         }
         error
