@@ -734,8 +734,7 @@ impl Line {
                 match self.card_states[&potential_card].play {
                     game::CardPlayState::Critical() => {
                         if potential_card.rank == 5 && clue != game::Clue::Rank(5) {
-                            chop_slot.quantum.remove_card(&potential_card, true);
-                            // 5 will only be safed via rank
+                            // 5s will only be safed via rank
                         } else {
                             potential_safe = true
                         }
@@ -779,6 +778,12 @@ impl Line {
                             }
                             game::CardPlayState::Trash() => {
                                 slot.quantum.remove_card(&potential_card, true);
+                            }
+                            game::CardPlayState::Critical() => {
+                                if potential_card.rank == 5 && clue != game::Clue::Rank(5) {
+                                    slot.quantum.remove_card(&potential_card, true);
+                                    // 5 will only be safed via rank
+                                }
                             }
                             _ => {}
                         }

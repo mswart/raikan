@@ -347,9 +347,24 @@ fn safe_5s_midgame2() {
 fn maximize_knowledge_transfer1() {
     // seed 28176
     let line = replay_game(
-        34,
+        21,
         "415lwngfqylimrcnbjifgqmfcusxawbusopkktuhekpahvpxdrvad",
         "05obaeoabmadbfDbbnDdbhuabpoc6dbjawbbia0abraziabkbua1ua1bby0davuba56da60ab7asoaoavaaADaaiaoaaat7ab9ac6dblaGa4id1aaJaKbqDbbDaB0dqc",
+        "0",
+    ).line;
+
+    assert!(
+        clue(&line, 3, game::Clue::Rank(2)) > clue(&line, 3, game::Clue::Color(ClueColor::Red()))
+    );
+}
+
+#[test]
+fn maximize_knowledge_transfer2() {
+    // seed 28176
+    let line = replay_game(
+        34,
+        "415lwngfqylimrcnbjifgqmfcusxawbusopkktuhekpahvpxdrvad",
+        "05obaeoabmadbfDbbnDdbhuabpoc6dbjawbbia0abraziabkbua1Da1bby0davuba56da60ab7asoaoavaaADaaiaoaaat7ab9ac6dblaGa4id1aaJaKbqDbbDaB0dqc",
         "0",
     ).line;
 
@@ -928,6 +943,22 @@ fn extend_delayed_play_after_first_plays() {
             suit: game::Suit::Purple()
         },],
         "When slot 1 been played as p1, this must be p2"
+    );
+}
+#[test]
+/// clue p5 on chop, with purple if p3 is already played and p4 already clued
+fn clue_color_instead_5_for_delayed_playable_5s() {
+    // id 13851371563455722778
+    let line = &replay_game(
+        33,
+        "415xfaqfgptnpfgrascsviywuachvkwdkuerxnbmdpqibmhljkuol",
+        "05pbagia0aadae0damacvcalaoDbahbi6c1cbfayobucasa0bnbabqavvaar1a6abpauDdibbwa7vabjiaa9bz6daticaxa2b3vda5obaIbBaJ1daAudbEuba8qa",
+        "0",
+    ).line;
+    println!("line: {:?}", line);
+    assert!(
+        clue(&line, 2, game::Clue::Color(game::ClueColor::Purple()))
+            > clue(&line, 2, game::Clue::Rank(5))
     );
 }
 
