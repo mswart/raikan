@@ -47,7 +47,7 @@ impl PositionSet {
         );
         Self {
             max: position_count,
-            bits: initial & (1 << position_count) - 1,
+            bits: initial & ((1 << position_count) - 1),
         }
     }
 

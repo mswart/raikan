@@ -161,7 +161,7 @@ impl CardStates {
 
     pub fn iter(&self) -> CardStateIterator {
         CardStateIterator {
-            card_states: &self,
+            card_states: self,
             next_pos: 0,
             only_clued: false,
         }
@@ -169,7 +169,7 @@ impl CardStates {
 
     pub fn iter_clued(&self) -> CardStateIterator {
         CardStateIterator {
-            card_states: &self,
+            card_states: self,
             next_pos: 0,
             only_clued: true,
         }
@@ -214,6 +214,12 @@ impl<'a> Iterator for CardStateIterator<'a> {
             return Some((card, card_state));
         }
         None
+    }
+}
+
+impl Default for CardStates {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

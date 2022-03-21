@@ -21,12 +21,12 @@ impl Variant {
 
     pub fn suit_index(&self, suit: &game::Suit) -> usize {
         let suits = self.suits();
-        for index in 0..suits.len() {
+        for (index, _suit) in suits.iter().enumerate() {
             if suits[index] == *suit {
                 return index;
             }
         }
-        return 0;
+        0
     }
 }
 
@@ -72,7 +72,7 @@ impl CardQuantum {
             soft_cards[i] = 0b11111;
         }
         Self {
-            variant: variant,
+            variant,
             hard_cards,
             soft_cards,
             soft_size: variant.len() as u8 * 5,

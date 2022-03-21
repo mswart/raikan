@@ -18,19 +18,15 @@ fn main() -> io::Result<()> {
         let mut bob = hyphenated::HyphenatedPlayer::new(true);
         let mut carl = hyphenated::HyphenatedPlayer::new(true);
         let mut daniel = hyphenated::HyphenatedPlayer::new(true);
-        let mut players: Vec<&mut dyn game::PlayerStrategy> = Vec::new();
-        players.push(&mut alice);
-        players.push(&mut bob);
-        players.push(&mut carl);
-        players.push(&mut daniel);
-        let seed;
+        let mut players: Vec<&mut dyn game::PlayerStrategy> =
+            vec![&mut alice, &mut bob, &mut carl, &mut daniel];
         println!("args: {:?}", args);
-        if args.len() > 1 {
-            seed = args[1].parse().expect("Invalid seed format");
+        let seed = if args.len() > 1 {
+            args[1].parse().expect("Invalid seed format")
         } else {
             let mut seed_rng = rand::thread_rng();
-            seed = seed_rng.gen();
-        }
+            seed_rng.gen()
+        };
         let mut game = game::Game::new(&mut players, true, seed);
         game.run(&mut players);
         println!("Used seed {}", seed);
@@ -139,11 +135,8 @@ fn run_stats() {
             let mut bob = hyphenated::HyphenatedPlayer::new(false);
             let mut carl = hyphenated::HyphenatedPlayer::new(false);
             let mut daniel = hyphenated::HyphenatedPlayer::new(false);
-            let mut players: Vec<&mut dyn game::PlayerStrategy> = Vec::new();
-            players.push(&mut alice);
-            players.push(&mut bob);
-            players.push(&mut carl);
-            players.push(&mut daniel);
+            let mut players: Vec<&mut dyn game::PlayerStrategy> =
+                vec![&mut alice, &mut bob, &mut carl, &mut daniel];
             for i in 0..total {
                 if i % thread_count != t {
                     continue;
@@ -242,7 +235,7 @@ fn run_stats() {
     );
 }
 
-fn debug_regressions(old: &String, new: &String) -> io::Result<()> {
+fn debug_regressions(old: &str, new: &str) -> io::Result<()> {
     println!("old: {old}");
     println!("new: {new}");
     let old_file = std::fs::File::open(old)?;
@@ -256,8 +249,8 @@ fn debug_regressions(old: &String, new: &String) -> io::Result<()> {
         if old_line == new_line {
             continue;
         }
-        let old_parts: Vec<&str> = old_line.split(" ").collect();
-        let new_parts: Vec<&str> = new_line.split(" ").collect();
+        let old_parts: Vec<&str> = old_line.split(' ').collect();
+        let new_parts: Vec<&str> = new_line.split(' ').collect();
         if new_parts[1] != "Finished" {
             continue;
         }
@@ -273,19 +266,19 @@ fn debug_regressions(old: &String, new: &String) -> io::Result<()> {
                 new_parts[3],
                 new_parts[5],
             );
-            let mut old_replay = old_parts[5][31..].split(",");
-            let mut new_replay = new_parts[5][31..].split(",");
-            let old_deck = old_replay.nth(0).unwrap();
-            let new_deck = new_replay.nth(0).unwrap();
-            let old_actions = old_replay.nth(0).unwrap();
-            let new_actions = new_replay.nth(0).unwrap();
-            let old_options = old_replay.nth(0).unwrap();
-            let new_options = new_replay.nth(0).unwrap();
+            let mut old_replay = old_parts[5][31..].split(',');
+            let mut new_replay = new_parts[5][31..].split(',');
+            let old_deck = old_replay.next().unwrap();
+            let new_deck = new_replay.next().unwrap();
+            let old_actions = old_replay.next().unwrap();
+            let new_actions = new_replay.next().unwrap();
+            let old_options = old_replay.next().unwrap();
+            let new_options = new_replay.next().unwrap();
             assert_eq!(old_deck, new_deck);
             assert_ne!(old_actions, new_actions);
             let num_players = new_deck
                 .chars()
-                .nth(0)
+                .next()
                 .expect("deck should be non-empty")
                 .to_digit(10)
                 .expect("player count must be a number") as u8;
@@ -294,20 +287,14 @@ fn debug_regressions(old: &String, new: &String) -> io::Result<()> {
             let mut old_h2 = hyphenated::HyphenatedPlayer::new(false);
             let mut old_h3 = hyphenated::HyphenatedPlayer::new(false);
             let mut old_h4 = hyphenated::HyphenatedPlayer::new(false);
-            let mut old_players: Vec<&mut dyn hanabi::game::PlayerStrategy> = Vec::new();
-            old_players.push(&mut old_h1);
-            old_players.push(&mut old_h2);
-            old_players.push(&mut old_h3);
-            old_players.push(&mut old_h4);
+            let mut old_players: Vec<&mut dyn hanabi::game::PlayerStrategy> =
+                vec![&mut old_h1, &mut old_h2, &mut old_h3, &mut old_h4];
             let mut new_h1 = hyphenated::HyphenatedPlayer::new(false);
             let mut new_h2 = hyphenated::HyphenatedPlayer::new(false);
             let mut new_h3 = hyphenated::HyphenatedPlayer::new(false);
             let mut new_h4 = hyphenated::HyphenatedPlayer::new(false);
-            let mut new_players: Vec<&mut dyn hanabi::game::PlayerStrategy> = Vec::new();
-            new_players.push(&mut new_h1);
-            new_players.push(&mut new_h2);
-            new_players.push(&mut new_h3);
-            new_players.push(&mut new_h4);
+            let mut new_players: Vec<&mut dyn hanabi::game::PlayerStrategy> =
+                vec![&mut new_h1, &mut new_h2, &mut new_h3, &mut new_h4];
 
             let mut unchanged = 0;
             for (old_action, new_action) in std::iter::zip(old_actions.chars(), new_actions.chars())

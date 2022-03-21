@@ -305,7 +305,7 @@ impl HanabClient {
                     }
                     websocket::OwnedMessage::Text(text) => {
                         let (command, json) = text
-                            .split_once(" ")
+                            .split_once(' ')
                             .expect("Websocket message must be 'command JSON'");
                         match self.process_message(command, json) {
                             Ok(_) => {}
@@ -626,7 +626,7 @@ impl HanabGame {
 
         Self {
             player_names: init.player_names.clone(),
-            hands: hands,
+            hands,
             own_player: init.our_player_index,
             player,
             variant: card_quantum::Variant {},
@@ -723,24 +723,22 @@ impl HanabGame {
                         clued: false,
                     });
                     self.player.own_drawn();
+                } else if *suit_index < 0 || *rank < 0 {
+                    eprintln!(
+                        "Drawn card of other player {:?} does has an identity",
+                        self.player_names[*player_index as usize],
+                    );
                 } else {
-                    if *suit_index < 0 || *rank < 0 {
-                        eprintln!(
-                            "Drawn card of other player {:?} does has an identity",
-                            self.player_names[*player_index as usize],
-                        );
-                    } else {
-                        let card = game::Card {
-                            suit: self.variant.suits()[*suit_index as usize],
-                            rank: *rank as u8,
-                        };
-                        self.hands[*player_index as usize].push_front(Slot {
-                            index: *order,
-                            clued: false,
-                        });
-                        self.player
-                            .drawn(self.resolve_index(*player_index) as usize, card);
-                    }
+                    let card = game::Card {
+                        suit: self.variant.suits()[*suit_index as usize],
+                        rank: *rank as u8,
+                    };
+                    self.hands[*player_index as usize].push_front(Slot {
+                        index: *order,
+                        clued: false,
+                    });
+                    self.player
+                        .drawn(self.resolve_index(*player_index) as usize, card);
                 }
             }
             GameAction::Status {

@@ -50,14 +50,14 @@ impl Suit {
     fn affected(&self, rank: u8, clue: Clue) -> bool {
         match clue {
             Clue::Rank(clue_rank) => rank == clue_rank,
-            Clue::Color(clue_color) => match (self, clue_color) {
-                (Self::Red(), ClueColor::Red()) => true,
-                (Self::Blue(), ClueColor::Blue()) => true,
-                (Self::Yellow(), ClueColor::Yellow()) => true,
-                (Self::Green(), ClueColor::Green()) => true,
-                (Self::Purple(), ClueColor::Purple()) => true,
-                _ => false,
-            },
+            Clue::Color(clue_color) => matches!(
+                (self, clue_color),
+                (Self::Red(), ClueColor::Red())
+                    | (Self::Blue(), ClueColor::Blue())
+                    | (Self::Yellow(), ClueColor::Yellow())
+                    | (Self::Green(), ClueColor::Green())
+                    | (Self::Purple(), ClueColor::Purple()),
+            ),
         }
     }
 
@@ -308,10 +308,7 @@ impl Game {
         for suit in suits.iter() {
             for rank in 1..=5 {
                 for _count in 0..suit.card_count(rank) {
-                    deck.push(Card {
-                        suit: suit.clone(),
-                        rank: rank,
-                    });
+                    deck.push(Card { suit: *suit, rank });
                 }
             }
         }
@@ -454,12 +451,12 @@ impl Game {
         let base62_chars = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
         let mut deck_chars = deck.chars();
         let num_players = deck_chars
-            .nth(0)
+            .next()
             .expect("deck should be non-empty")
             .to_digit(10)
             .expect("player count must be a number") as u8;
-        assert_eq!(deck_chars.nth(0), Some('1'));
-        assert_eq!(deck_chars.nth(0), Some('5'));
+        assert_eq!(deck_chars.next(), Some('1'));
+        assert_eq!(deck_chars.next(), Some('5'));
         let mut game = Self::empty(num_players);
         game.debug = true;
         for card_char in deck_chars {
@@ -496,12 +493,12 @@ impl Game {
         // 2 process actions:
         let mut action_chars = actions.chars();
         let min_action = action_chars
-            .nth(0)
+            .next()
             .expect("actions should be non-empty")
             .to_digit(10)
             .expect("action min must be a number") as usize;
         let max_action = action_chars
-            .nth(0)
+            .next()
             .expect("deck should be non-empty")
             .to_digit(10)
             .expect("action max must be a number") as usize;
@@ -509,7 +506,7 @@ impl Game {
         let mut active_player = 0;
         while current_turn < turn {
             let action_num = base62_chars
-                .find(action_chars.nth(0).expect("target value is missing"))
+                .find(action_chars.next().expect("target value is missing"))
                 .expect("Actions must only be valid 62 characters");
             let action = action_num % (max_action - min_action + 1) + min_action;
             let mut value = action_num / (max_action - min_action + 1);
@@ -517,7 +514,7 @@ impl Game {
                 value -= 1;
             }
             let target = base62_chars
-                .find(action_chars.nth(0).expect("target value is missing"))
+                .find(action_chars.next().expect("target value is missing"))
                 .expect("Actions must only be valid 62 characters");
             let mut target_pos = None;
             for (pos, slot) in game.hands[active_player as usize].iter().enumerate() {
@@ -581,7 +578,7 @@ impl Game {
         for (pos, suit) in self.suits.iter().enumerate() {
             print!(" {}={}", suit, self.played[pos]);
         }
-        println!("");
+        println!();
         println!("  discarded: {:?}", self.discarded);
 
         for (pos, hand) in self.hands.iter().enumerate() {
@@ -636,7 +633,7 @@ impl Game {
                 return self.played[pos];
             }
         }
-        return 0;
+        0
     }
 
     fn discard(&mut self, card: Card) {
@@ -658,7 +655,7 @@ impl Game {
     fn draw_card(&mut self, player: usize, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
         if let Some(card) = self.deck.pop_front() {
             self.hands[player].push_front(CardState::from_card(card, self.replay.deck.len() as u8));
-            if self.deck.len() == 0 {
+            if self.deck.is_empty() {
                 self.state = GameState::Final(self.hands.len() as u8);
             }
             for (notify_player, strategy) in strategies.iter_mut().enumerate() {
@@ -861,7 +858,7 @@ impl Game {
                     if card_state.clued {
                         previously_clued.add(pos as u8);
                     }
-                    if card_state.clue(clue.clone()) {
+                    if card_state.clue(clue) {
                         affected_cards += 1;
                         touched.add(pos as u8);
                     }

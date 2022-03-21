@@ -141,6 +141,6 @@ impl game::PlayerStrategy for HyphenatedPlayer {
                 }
             }
         }
-        return best_move;
+        best_move
     }
 }

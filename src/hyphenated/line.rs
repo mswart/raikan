@@ -9,7 +9,7 @@ use crate::{
 use super::card_states::CardStates;
 use super::slot::Slot;
 
-#[derive(PartialEq, Ord, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct LineScore {
     discard_risks: i8,
     score: u8,
@@ -237,12 +237,11 @@ impl<'a> DoubleEndedIterator for HandIterator<'a> {
         }
         let offset = self.player * self.hands.max_hand_size;
         self.back_pos -= 1;
-        let result = Some((
+        Some((
             self.back_pos,
             &self.hands.slots
                 [self.hands.hand_slots[offset as usize + self.back_pos as usize] as usize],
-        ));
-        result
+        ))
     }
 }
 
@@ -284,8 +283,7 @@ impl<'a> DoubleEndedIterator for HandMutIterator<'a> {
                 .as_mut_ptr()
                 .add(self.hand_slots[self.offset as usize + self.back_pos as usize] as usize);
             self.back_pos -= 1;
-            let result = Some((self.next_pos, &mut *ptr));
-            result
+            Some((self.next_pos, &mut *ptr))
         }
     }
 }
@@ -390,20 +388,18 @@ impl Line {
                                 errors += error;
                             }
                         }
-                    } else {
-                        if let Some(error) = match card_state.play {
-                            CardPlayState::Trash() => Some(2),
-                            CardPlayState::Dead() => Some(2),
-                            _ => None,
-                        } {
-                            if cfg!(debug_assertions) {
-                                println!(
-                                    "Error 2: clued card {:?} ({card_state:?}, {}) is trash",
-                                    slot.card, slot.quantum
-                                );
-                            }
-                            errors += error;
+                    } else if let Some(error) = match card_state.play {
+                        CardPlayState::Trash() => Some(2),
+                        CardPlayState::Dead() => Some(2),
+                        _ => None,
+                    } {
+                        if cfg!(debug_assertions) {
+                            println!(
+                                "Error 2: clued card {:?} ({card_state:?}, {}) is trash",
+                                slot.card, slot.quantum
+                            );
                         }
+                        errors += error;
                     }
                 } else if chop {
                     chop = false;
@@ -562,7 +558,7 @@ impl Line {
                 self.card_states[&self.hands.slots[slot_index as usize]
                     .quantum
                     .iter()
-                    .nth(0)
+                    .next()
                     .expect("asd")]
                     .clued = None;
             }
@@ -620,7 +616,7 @@ impl Line {
                 return pos as i8;
             }
         }
-        return -1;
+        -1
     }
 
     fn track_card(&mut self, card: game::Card, place: i8, old_place: i8) {
@@ -665,7 +661,7 @@ impl Line {
         for pos in 0..self.hands.hand_sizes[whom] {
             let slot = self.hands.slot_mut(whom as u8, pos);
             let old_size = slot.quantum.size();
-            let previsous_first_quantum_card = slot.quantum.iter().nth(0);
+            let previsous_first_quantum_card = slot.quantum.iter().next();
             match clue {
                 game::Clue::Rank(rank) => slot
                     .quantum
@@ -683,7 +679,7 @@ impl Line {
                 slot.fixed = true;
             }
             if old_size != 1 && slot.quantum.size() == 1 {
-                let card = slot.quantum.iter().nth(0).expect("we checked the size");
+                let card = slot.quantum.iter().next().expect("we checked the size");
                 if slot.clued || newly_clued.contains(pos as u8) {
                     if whom == 0 || slot.card == card {
                         self.card_states[&card].clued = Some(255);
@@ -870,7 +866,7 @@ impl Line {
                         .quantum
                         .clone()
                         .iter()
-                        .nth(0)
+                        .next()
                         .expect("We checked the size");
                     // for self mode
                     if whom == 0 || card == slot.card {
@@ -897,7 +893,7 @@ impl Line {
                 error += 5;
             }
             if whom != 0 {
-                let card = slot.card.clone();
+                let card = slot.card;
                 for player in 0..self.hands.num_players {
                     if player == who as u8 || player == whom as u8 {
                         continue;
