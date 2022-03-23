@@ -11,8 +11,6 @@ fn main() -> io::Result<()> {
         run_stats();
     } else if args.contains(&"debug_reg".to_string()) {
         debug_regressions(&args[2], &args[3])?;
-    } else if args.contains(&"webclient".to_string()) {
-        webclient::run();
     } else {
         let mut alice = hyphenated::HyphenatedPlayer::new(true);
         let mut bob = hyphenated::HyphenatedPlayer::new(true);

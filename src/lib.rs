@@ -3,7 +3,7 @@ pub mod game;
 
 mod card_quantum;
 pub use card_quantum::CardQuantum;
+pub use card_quantum::Variant;
 pub mod hyphenated;
 mod position_set;
 pub use position_set::PositionSet;
-pub mod webclient;

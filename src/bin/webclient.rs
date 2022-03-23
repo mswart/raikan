@@ -3,10 +3,10 @@ use std::collections::{BTreeMap, VecDeque};
 use serde::{Deserialize, Serialize};
 use websocket::sync::stream::NetworkStream;
 
-use crate::game;
-use crate::{card_quantum, game::PlayerStrategy, hyphenated, PositionSet};
+use hanabi::game;
+use hanabi::{game::PlayerStrategy, hyphenated, PositionSet, Variant};
 
-pub fn run() {
+fn main() {
     let session_id_env = std::env::var("HANABI_SID");
     let mut headers = websocket::header::Headers::new();
     match session_id_env {
@@ -609,7 +609,7 @@ struct HanabGame {
     own_player: u8,
     hands: Vec<VecDeque<Slot>>,
     player: hyphenated::HyphenatedPlayer,
-    variant: card_quantum::Variant,
+    variant: Variant,
     current_player_index: Option<u8>,
     status: game::GameStatus,
 }
@@ -629,7 +629,7 @@ impl HanabGame {
             hands,
             own_player: init.our_player_index,
             player,
-            variant: card_quantum::Variant {},
+            variant: Variant {},
             current_player_index: Some(0),
             status: game::GameStatus {
                 turn: 0,
