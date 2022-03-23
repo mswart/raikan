@@ -178,7 +178,7 @@ impl CardQuantum {
         set as u8
     }
 
-    pub fn soft_clear(&mut self) {
+    pub fn reset_soft(&mut self) {
         for suit_index in 0..self.variant.suits().len() {
             self.soft_cards[suit_index] = self.hard_cards[suit_index];
         }
@@ -186,6 +186,13 @@ impl CardQuantum {
         for suit_index in 0..self.variant.suits().len() {
             self.soft_size += self.soft_cards[suit_index].count_ones() as u8
         }
+    }
+
+    pub fn soft_clear(&mut self) {
+        for suit_index in 0..self.variant.suits().len() {
+            self.soft_cards[suit_index] = 0;
+        }
+        self.soft_size = 0;
     }
 
     pub fn superset(&self, set: Self) -> bool {

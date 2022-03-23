@@ -671,7 +671,7 @@ impl Line {
                     .limit_by_suit(&color.suit(), touched.contains(pos as u8)),
             }
             if old_size != 0 && slot.quantum.size() == 0 && slot.quantum.hard_size() == 1 {
-                slot.quantum.soft_clear();
+                slot.quantum.reset_soft();
                 if old_size == 1 {
                     self.card_states[&previsous_first_quantum_card.expect("size was tested")]
                         .clued = None;
@@ -763,7 +763,9 @@ impl Line {
                 }
             }
             if pos == focus {
-                if potential_safe {
+                if potential_safe
+                    && (whom == 0 || !(slot.card.rank == 5 && clue != game::Clue::Rank(5)))
+                {
                     for potential_card in slot.quantum.clone().iter() {
                         match self.card_states[&potential_card].play {
                             game::CardPlayState::Normal() => {
@@ -786,79 +788,7 @@ impl Line {
                     }
                 } else {
                     slot.play = true;
-                    for potential_card in self.hands.slot(whom as u8, pos).quantum.clone().iter() {
-                        match self.card_states[&potential_card].play {
-                            game::CardPlayState::Playable() => {}
-                            game::CardPlayState::CriticalPlayable() => {}
-                            game::CardPlayState::Trash() => self
-                                .hands
-                                .slot_mut(whom as u8, pos)
-                                .quantum
-                                .remove_card(&potential_card, true),
-                            game::CardPlayState::Dead() => self
-                                .hands
-                                .slot_mut(whom as u8, pos)
-                                .quantum
-                                .remove_card(&potential_card, true),
-                            _ => {
-                                let mut all_connecting_cards = true;
-                                for previous_rank in (1..potential_card.rank).rev() {
-                                    let previous_card = game::Card {
-                                        rank: previous_rank,
-                                        suit: potential_card.suit,
-                                    };
-                                    let previous_state = self.card_states[&previous_card];
-                                    match previous_state.play {
-                                        game::CardPlayState::Trash() => {}
-                                        game::CardPlayState::Dead() => {
-                                            all_connecting_cards = false;
-                                            break;
-                                        }
-                                        _ => {
-                                            if previous_state.clued.unwrap_or(whom as u8)
-                                                == whom as u8
-                                            {
-                                                let mut delayed = 0;
-                                                for (other_pos, other_slot) in
-                                                    self.hands.iter_hand(whom as u8)
-                                                {
-                                                    if other_pos == pos {
-                                                        continue;
-                                                    }
-                                                    if other_slot.clued
-                                                        && other_slot
-                                                            .quantum
-                                                            .contains(&previous_card)
-                                                    {
-                                                        self.callbacks.push_front(Callback {
-                                                            trigger_card: other_slot.turn,
-                                                            target_card: self
-                                                                .hands
-                                                                .slot(whom as u8, pos)
-                                                                .turn,
-                                                        });
-                                                        delayed += 1;
-                                                    }
-                                                }
-                                                if delayed > 0 {
-                                                    self.hands.slot_mut(whom as u8, pos).delayed +=
-                                                        delayed;
-                                                }
-                                                all_connecting_cards = false;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                                if !all_connecting_cards {
-                                    self.hands
-                                        .slot_mut(whom as u8, pos)
-                                        .quantum
-                                        .remove_card(&potential_card, true)
-                                }
-                            }
-                        }
-                    }
+                    error += self.resolve_play_clue(who, whom, pos);
                 }
                 let slot = self.hands.slot_mut(whom as u8, pos);
                 if slot.quantum.size() == 1 {
@@ -906,6 +836,548 @@ impl Line {
                 }
                 if self.card_states[&card].clued.is_none() {
                     self.card_states[&card].clued = Some(whom as u8);
+                }
+            }
+        }
+        error
+    }
+
+    fn resolve_play_clue(&mut self, who: usize, whom: usize, pos: u8) -> u8 {
+        let mut error = 0;
+        let mut play_quantum = self.hands.slot(whom as u8, pos).quantum;
+        // 0. update prompts based on actually clued card:
+        if whom > 0 {
+            // we figured out the identity => update prompts on other players
+            let card = self.hands.slot(whom as u8, pos).card;
+            match self.card_states[&card].play {
+                game::CardPlayState::Playable() => {}
+                game::CardPlayState::CriticalPlayable() => {}
+                game::CardPlayState::Trash() => {}
+                game::CardPlayState::Dead() => {}
+                _ => {
+                    for previous_rank in (1..card.rank).rev() {
+                        let previous_card = game::Card {
+                            rank: previous_rank,
+                            suit: card.suit,
+                        };
+                        let previous_state = self.card_states[&previous_card];
+                        match previous_state.play {
+                            game::CardPlayState::Trash() => {}
+                            game::CardPlayState::Dead() => {}
+                            _ => {
+                                let mut found = false;
+                                // we have to find the potential card
+                                if cfg!(debug_assertions) {
+                                    println!("PREP: {who} clued {whom}'s {card:?} as playable => looking for {previous_card:?} => clued {:?}", previous_state.clued);
+                                }
+                                if let Some(player) = previous_state.clued {
+                                    if player < 255 {
+                                        for (other_pos, slot) in self.hands.iter_hand_mut(player) {
+                                            if slot.clued
+                                                && slot.quantum.contains(&previous_card)
+                                                && (slot.play || slot.delayed > 0)
+                                            {
+                                                slot.quantum.soft_clear();
+                                                slot.quantum.add_card(&previous_card, true);
+                                                if cfg!(debug_assertions) {
+                                                    println!(
+                                                    "PREP: Found it in {player}'s hand at pos {other_pos}"
+                                                );
+                                                }
+                                                found = true;
+                                                break;
+                                            }
+                                        }
+                                        if !found {
+                                            for (other_pos, slot) in
+                                                self.hands.iter_hand_mut(player)
+                                            {
+                                                if slot.clued
+                                                    && slot.quantum.contains(&previous_card)
+                                                    && !slot.play
+                                                    && slot.delayed == 0
+                                                {
+                                                    slot.quantum.soft_clear();
+                                                    slot.quantum.add_card(&previous_card, true);
+                                                    if cfg!(debug_assertions) {
+                                                        println!(
+                                                    "PREP: Found it in {player}'s hand at pos {other_pos}"
+                                                );
+                                                    }
+                                                    found = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        found = true;
+                                    }
+                                } else if who == 0 {
+                                    // 1. look for existing (deplayed) play clued that could satisfy the prompt
+                                    for (_other_pos, slot) in self.hands.iter_hand_mut(0) {
+                                        if slot.quantum.size() == 1
+                                            && slot.quantum.contains(&previous_card)
+                                        {
+                                            found = true;
+                                        }
+                                    }
+                                } else {
+                                    // must be on our hand ...
+                                    // 1. look for existing (deplayed) play clued that could satisfy the prompt
+                                    for (other_pos, slot) in self.hands.iter_hand_mut(0) {
+                                        if slot.clued
+                                            && slot.quantum.contains(&previous_card)
+                                            && (slot.play || slot.delayed > 0)
+                                        {
+                                            slot.quantum.soft_clear();
+                                            slot.quantum.add_card(&previous_card, true);
+                                            self.card_states[&previous_card].clued = Some(255);
+                                            if cfg!(debug_assertions) {
+                                                println!(
+                                                    "PREP: Could be existing play clued at {other_pos}"
+                                                );
+                                            }
+                                            self.hands
+                                                .slot_mut(whom as u8, pos)
+                                                .quantum
+                                                .remove_card(&previous_card, true);
+                                            found = true;
+                                            break;
+                                        }
+                                    }
+                                    if !found {
+                                        // 2. look for normal prompts
+                                        for (other_pos, slot) in self.hands.iter_hand_mut(0) {
+                                            if slot.clued
+                                                && slot.quantum.contains(&previous_card)
+                                                && !slot.play
+                                                && slot.delayed == 0
+                                            {
+                                                slot.quantum.soft_clear();
+                                                slot.quantum.add_card(&previous_card, true);
+                                                if cfg!(debug_assertions) {
+                                                    println!(
+                                                        "PREP: Could be a real prompt clued at {other_pos}"
+                                                    );
+                                                }
+                                                self.hands
+                                                    .slot_mut(whom as u8, pos)
+                                                    .quantum
+                                                    .remove_card(&previous_card, true);
+                                                self.card_states[&previous_card].clued = Some(255);
+                                                found = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                if !found {
+                                    error = 2;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Evaluating play clue based on Occam's Razor https://hanabi.github.io/docs/level-10#clue-interpretation--occams-razor
+        // 1. direct and delayed plays
+        for potential_card in self.hands.slot(whom as u8, pos).quantum.clone().iter() {
+            match self.card_states[&potential_card].play {
+                game::CardPlayState::Playable() => {}
+                game::CardPlayState::CriticalPlayable() => {}
+                game::CardPlayState::Trash() => {
+                    self.hands
+                        .slot_mut(whom as u8, pos)
+                        .quantum
+                        .remove_card(&potential_card, true);
+                    play_quantum.remove_card(&potential_card, false);
+                }
+                game::CardPlayState::Dead() => {
+                    self.hands
+                        .slot_mut(whom as u8, pos)
+                        .quantum
+                        .remove_card(&potential_card, true);
+                    play_quantum.remove_card(&potential_card, false);
+                }
+                _ => {
+                    let mut all_connecting_cards = true;
+                    for previous_rank in (1..potential_card.rank).rev() {
+                        let previous_card = game::Card {
+                            rank: previous_rank,
+                            suit: potential_card.suit,
+                        };
+                        let previous_state = self.card_states[&previous_card];
+                        match previous_state.play {
+                            game::CardPlayState::Trash() => {}
+                            game::CardPlayState::Dead() => {
+                                all_connecting_cards = false;
+                                break;
+                            }
+                            _ => {
+                                if previous_state.clued.unwrap_or(whom as u8) == whom as u8 {
+                                    let mut delayed = 0;
+                                    for (other_pos, other_slot) in self.hands.iter_hand(whom as u8)
+                                    {
+                                        if other_pos == pos {
+                                            continue;
+                                        }
+                                        if other_slot.clued
+                                            && other_slot.quantum.contains(&previous_card)
+                                            && (other_slot.play || other_slot.delayed > 0)
+                                        {
+                                            self.callbacks.push_front(Callback {
+                                                trigger_card: other_slot.turn,
+                                                target_card: self.hands.slot(whom as u8, pos).turn,
+                                            });
+                                            delayed += 1;
+                                        }
+                                    }
+                                    if delayed > 0 {
+                                        self.hands.slot_mut(whom as u8, pos).delayed += delayed;
+                                    }
+                                    all_connecting_cards = false;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if !all_connecting_cards {
+                        self.hands
+                            .slot_mut(whom as u8, pos)
+                            .quantum
+                            .remove_card(&potential_card, true);
+                        play_quantum.remove_card(&potential_card, true);
+                    }
+                }
+            }
+        }
+
+        // 2. include play clues via prompts
+        if play_quantum.size() == 0 {
+            play_quantum.reset_soft();
+            for potential_card in play_quantum.clone().iter() {
+                match self.card_states[&potential_card].play {
+                    game::CardPlayState::Playable() => {}
+                    game::CardPlayState::CriticalPlayable() => {}
+                    game::CardPlayState::Trash() => {}
+                    game::CardPlayState::Dead() => {}
+                    _ => {
+                        let mut all_connecting_cards = true;
+                        for previous_rank in (1..potential_card.rank).rev() {
+                            let previous_card = game::Card {
+                                rank: previous_rank,
+                                suit: potential_card.suit,
+                            };
+                            let previous_state = self.card_states[&previous_card];
+                            if cfg!(debug_assertions) {
+                                println!("{who} clued {whom}: evaluating {potential_card:?} => looking for {previous_card:?} => {:?}", previous_state);
+                            }
+                            match previous_state.play {
+                                game::CardPlayState::Trash() => {}
+                                game::CardPlayState::Dead() => {
+                                    all_connecting_cards = false;
+                                    break;
+                                }
+                                _ => {
+                                    if whom > 0
+                                        && potential_card
+                                            == self.hands.slot_mut(whom as u8, pos).card
+                                    {
+                                        let mut found = false;
+                                        // we have to find the potential card
+                                        if cfg!(debug_assertions) {
+                                            println!("{who} clued {whom}'s {potential_card:?} as playable => looking for {previous_card:?} => clued {:?}", previous_state.clued);
+                                        }
+                                        if let Some(player) = previous_state.clued {
+                                            if player < 255 {
+                                                for (other_pos, slot) in
+                                                    self.hands.iter_hand_mut(player)
+                                                {
+                                                    if slot.clued
+                                                        && slot.quantum.contains(&previous_card)
+                                                        && (slot.play || slot.delayed > 0)
+                                                    {
+                                                        slot.quantum.soft_clear();
+                                                        slot.quantum.add_card(&previous_card, true);
+                                                        if cfg!(debug_assertions) {
+                                                            println!(
+                                                            "Found it in {player}'s hand at pos {other_pos}"
+                                                        );
+                                                        }
+                                                        found = true;
+                                                        break;
+                                                    }
+                                                }
+                                                if !found {
+                                                    for (other_pos, slot) in
+                                                        self.hands.iter_hand_mut(player)
+                                                    {
+                                                        if slot.clued
+                                                            && slot.quantum.contains(&previous_card)
+                                                            && !slot.play
+                                                            && slot.delayed == 0
+                                                        {
+                                                            slot.quantum.soft_clear();
+                                                            slot.quantum
+                                                                .add_card(&previous_card, true);
+                                                            if cfg!(debug_assertions) {
+                                                                println!(
+                                                                "Found it in {player}'s hand at pos {other_pos}"
+                                                            );
+                                                            }
+                                                            found = true;
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                found = true;
+                                            }
+                                        } else if who == 0 {
+                                            // 1. look for existing (deplayed) play clued that could satisfy the prompt
+                                            for (_other_pos, slot) in self.hands.iter_hand_mut(0) {
+                                                if slot.quantum.size() == 1
+                                                    && slot.quantum.contains(&previous_card)
+                                                {
+                                                    found = true;
+                                                }
+                                            }
+                                        } else {
+                                            // 1. look for existing (deplayed) play clued that could satisfy the prompt
+                                            for (other_pos, slot) in self.hands.iter_hand_mut(0) {
+                                                if slot.clued
+                                                    && slot.quantum.contains(&previous_card)
+                                                    && (slot.play || slot.delayed > 0)
+                                                {
+                                                    slot.quantum.soft_clear();
+                                                    slot.quantum.add_card(&previous_card, true);
+                                                    if cfg!(debug_assertions) {
+                                                        println!(
+                                                        "Could be existing play clued at {other_pos}"
+                                                    );
+                                                    }
+                                                    found = true;
+                                                    break;
+                                                }
+                                            }
+                                            // 2. look for normal prompts
+                                            if !found {
+                                                for (other_pos, slot) in self.hands.iter_hand_mut(0)
+                                                {
+                                                    if slot.clued
+                                                        && slot.quantum.contains(&previous_card)
+                                                        && !slot.play
+                                                        && slot.delayed == 0
+                                                    {
+                                                        slot.quantum.soft_clear();
+                                                        slot.quantum.add_card(&previous_card, true);
+                                                        if cfg!(debug_assertions) {
+                                                            println!(
+                                                            "Could be a real prompt clued at {other_pos}"
+                                                        );
+                                                        }
+                                                        found = true;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if !found {
+                                            if cfg!(debug_assertions) {
+                                                println!(
+                                                "Unable to find previous card: {previous_card:?}"
+                                            );
+                                            }
+                                            error = 2;
+                                        }
+                                    } else if previous_state.clued.unwrap_or(whom as u8)
+                                        == whom as u8
+                                    {
+                                        let mut delayed = 0;
+                                        for other_pos in 0..self.hands.hand_sizes[whom] {
+                                            if other_pos == pos {
+                                                continue;
+                                            }
+                                            let other_slot =
+                                                self.hands.slot_mut(whom as u8, other_pos);
+                                            if other_slot.clued
+                                                && other_slot.quantum.contains(&previous_card)
+                                            {
+                                                other_slot.quantum.soft_clear();
+                                                other_slot.quantum.add_card(&previous_card, true);
+                                                self.callbacks.push_front(Callback {
+                                                    trigger_card: other_slot.turn,
+                                                    target_card: self
+                                                        .hands
+                                                        .slot(whom as u8, pos)
+                                                        .turn,
+                                                });
+                                                if cfg!(debug_assertions) {
+                                                    println!(
+                                                    "Could be a real prompt clued at {other_pos}"
+                                                );
+                                                }
+                                                delayed += 1;
+                                            }
+                                        }
+                                        if delayed > 0 {
+                                            self.hands.slot_mut(whom as u8, pos).delayed += delayed;
+                                        }
+                                        // else {
+                                        all_connecting_cards = false;
+                                        break;
+                                        // }
+                                    }
+                                }
+                            }
+                        }
+                        if all_connecting_cards {
+                            self.hands
+                                .slot_mut(whom as u8, pos)
+                                .quantum
+                                .add_card(&potential_card, true);
+                        } else {
+                            self.hands
+                                .slot_mut(whom as u8, pos)
+                                .quantum
+                                .remove_card(&potential_card, true);
+                            play_quantum.remove_card(&potential_card, true);
+                        }
+                    }
+                }
+            }
+        }
+
+        if whom == 0 && self.hands.slot(whom as u8, pos).quantum.size() == 1 {
+            // we figured out the identity => update prompts on other players
+            let card = self
+                .hands
+                .slot(whom as u8, pos)
+                .quantum
+                .iter()
+                .next()
+                .expect("We check the size");
+            if cfg!(debug_assertions) {
+                println!("{who} clued {whom}: expecting play clue on {card:?}");
+            }
+            match self.card_states[&card].play {
+                game::CardPlayState::Playable() => {}
+                game::CardPlayState::CriticalPlayable() => {}
+                game::CardPlayState::Trash() => {}
+                game::CardPlayState::Dead() => {}
+                _ => {
+                    for previous_rank in (1..card.rank).rev() {
+                        let previous_card = game::Card {
+                            rank: previous_rank,
+                            suit: card.suit,
+                        };
+                        let previous_state = self.card_states[&previous_card];
+                        if cfg!(debug_assertions) {
+                            println!("{who} clued {whom}: evaluating {card:?} => looking for {previous_card:?} => {:?}", previous_state);
+                        }
+                        match previous_state.play {
+                            game::CardPlayState::Trash() => {}
+                            game::CardPlayState::Dead() => {}
+                            _ => {
+                                let mut found = false;
+                                // we have to find the potential card
+                                if cfg!(debug_assertions) {
+                                    println!("{who} clued {whom}'s {card:?} as playable => looking for {previous_card:?} => clued {:?}", previous_state.clued);
+                                }
+                                if let Some(player) = previous_state.clued {
+                                    if player < 255 {
+                                        for (other_pos, slot) in self.hands.iter_hand_mut(player) {
+                                            if slot.clued
+                                                && slot.quantum.contains(&previous_card)
+                                                && (slot.play || slot.delayed > 0)
+                                            {
+                                                slot.quantum.soft_clear();
+                                                slot.quantum.add_card(&previous_card, true);
+                                                if cfg!(debug_assertions) {
+                                                    println!(
+                                                    "Found it in {player}'s hand at pos {other_pos}"
+                                                );
+                                                }
+                                                found = true;
+                                                break;
+                                            }
+                                        }
+                                        if !found {
+                                            for (other_pos, slot) in
+                                                self.hands.iter_hand_mut(player)
+                                            {
+                                                if slot.clued
+                                                    && slot.quantum.contains(&previous_card)
+                                                    && !slot.play
+                                                    && slot.delayed == 0
+                                                {
+                                                    slot.quantum.soft_clear();
+                                                    slot.quantum.add_card(&previous_card, true);
+                                                    if cfg!(debug_assertions) {
+                                                        println!(
+                                                    "Found it in {player}'s hand at pos {other_pos}"
+                                                );
+                                                    }
+                                                    found = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // must be on our hand ...
+                                    let mut slots = [0; 5];
+                                    let mut assigned_slots = 0;
+                                    // 1. look for existing (deplayed) play clued that could satisfy the prompt
+                                    for (other_pos, slot) in self.hands.iter_hand_mut(0) {
+                                        if slot.clued
+                                            && slot.quantum.contains(&previous_card)
+                                            && (slot.play || slot.delayed > 0)
+                                        {
+                                            // slot.quantum.soft_clear();
+                                            // slot.quantum.add_card(&previous_card, true);
+                                            if cfg!(debug_assertions) {
+                                                println!(
+                                                    "Could be existing play clued at {other_pos}"
+                                                );
+                                            }
+                                            slots[assigned_slots] = slot.turn;
+                                            assigned_slots += 1;
+                                        }
+                                    }
+                                    // 2. look for normal prompts
+                                    for (other_pos, slot) in self.hands.iter_hand_mut(0) {
+                                        if slot.clued
+                                            && slot.quantum.contains(&previous_card)
+                                            && !slot.play
+                                            && slot.delayed == 0
+                                        {
+                                            // slot.quantum.soft_clear();
+                                            // slot.quantum.add_card(&previous_card, true);
+                                            if cfg!(debug_assertions) {
+                                                println!(
+                                                    "Could be a real prompt clued at {other_pos}"
+                                                );
+                                            }
+                                            slots[assigned_slots] = slot.turn;
+                                            assigned_slots += 1;
+                                        }
+                                    }
+                                    if assigned_slots > 0 {
+                                        if cfg!(debug_assertions) {
+                                            println!("Search order {:?}", slots);
+                                        }
+                                        found = true;
+                                    }
+                                }
+                                if !found {
+                                    error = 2;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

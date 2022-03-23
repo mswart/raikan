@@ -1002,3 +1002,191 @@ fn good_touch_principal() {
         );
     }
 }
+
+// prompts
+#[test]
+fn prompt_via_color_5_safe() {
+    // id 36
+    let replay = &replay_game(
+        31,
+        "415asbffugnxpehrufwdxiqktyvhnakgrmpmsvlpcaklbqcudwioj",
+        "05pbafia0caaaeajob0cagatpb1dau7aamabbh1abnayDcavobacasbibovdbq6baxDbbzvbb0uba9blapibaBb2b6ara4b57cbdawaJb8odbLbCaNqa",
+        "0",
+    );
+    let p2_slots = replay.slot_perspectives(3, 2);
+    println!("p2_slots: {:?}", p2_slots);
+    for (player, slot) in p2_slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 2,
+                suit: game::Suit::Purple()
+            }],
+            "Player {player} missed the prompt; p2 is promised"
+        );
+    }
+    let p3_slots = replay.slot_perspectives(3, 3);
+    println!("p3_slots: {:?}", p3_slots);
+    for (player, slot) in p3_slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 3,
+                suit: game::Suit::Purple()
+            }],
+            "Player {player} missed the prompt; p3 is promised"
+        );
+    }
+    let p4_slots = replay.slot_perspectives(0, 2);
+    println!("p4_slots: {:?}", p4_slots);
+    for (player, slot) in p4_slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 4,
+                suit: game::Suit::Purple()
+            }],
+            "Player {player} missed the prompt; p4 is promised"
+        );
+    }
+    let p5_slots = replay.slot_perspectives(1, 3);
+    println!("p5_slots: {:?}", p5_slots);
+    for (player, slot) in p5_slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 5,
+                suit: game::Suit::Purple()
+            }],
+            "Player {player} missed the prompt; p5 is promised"
+        );
+    }
+}
+
+// todo:
+// multi cards prompts
+// clear card identiy based on prompt cards being played
+//   - like r4 critical, red on chop clued;
+//   - other player plays previously clued r2
+//   => must be r3 on chop not r4)
+
+#[test]
+fn dont_prompt_own_cards_if_they_are_ambigious() {
+    // id 56145
+    let mut line = replay_game(
+        19,
+        "415ckxnvsrmujuaqcognqupdpdaistegbmffkbvhayfwhkpilwlxr",
+        "05pcpaal6babDcak6cpcaepb0abaatbsbmar1dDd7abcbf1banbzagiaibbua3obbpb2a5oaocbybvbjbxb4b01bobb7aEbib1DdbAubpbadaJbq6cudahaMbIbKbNqc",
+        "0",
+    ).line;
+    assert!(
+        line.clue(1, game::Clue::Rank(4)).expect("").has_errors(),
+        "the 3 could be different cards"
+    );
+}
+
+#[test]
+fn self_prompt() {
+    let replay = replay_game(
+            11,
+            "415uwcsgfqvfwbpdbhkgxevorthxuylkimrjqpncismaaupkdlnfa",
+            "05pc6aal0baaagaivcud7aatapar1d0aavadbe7abmayuabjoca1bfaqDcaw7ab2aoa3oab5uba6a4uabna9paau1caEbhaAwc",
+            "0",
+    );
+    let p3_slots = replay.slot_perspectives(0, 3);
+    println!("p3_slots: {:?}", p3_slots);
+    for (player, slot) in p3_slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 3,
+                suit: game::Suit::Purple()
+            }],
+            "Player {player} missed the prompt; p3 is promised"
+        );
+    }
+}
+
+#[test]
+#[ignore]
+fn self_prompt2() {
+    let line = replay_game(
+            52,
+            "415uwcsgfqvfwbpdbhkgxevorthxuylkimrjqpncismaaupkdlnfa",
+            "05pc6aal0baaagaivcud7aatapab1d0aavarbebj6caduaa0oca1bfaqDcaw1db2axodbh1bbouba4b5obbcaBoabma6a9auDbpd1db7aFvdbHbkbKbGbEbCb8qa",
+            "0",
+    ).line;
+    assert!(
+        clue(&line, 2, game::Clue::Color(game::ClueColor::Red()))
+            > clue(&line, 3, game::Clue::Rank(2))
+    );
+}
+
+#[test]
+fn no_self_prompt_if_easier_alternative() {
+    // seed 205
+    let replay = replay_game(
+        13,
+        "415nkifgwinraekpdfqvhlyumwsudcaacxftjoqmpuxbshbrgkvlp",
+        "05pdpcalaoobaeajamubasodarubav0dap0cbfai7bbaaxubbnicahakbu0dagbqa6ucpda8ay6cb2atobbba71diaaEb4a0b3b1azb5vbbcaL6daw6cqb",
+        "0",
+    );
+    let g3_slots = replay.slot_perspectives(1, 0);
+    println!("g3_slots: {:?}", g3_slots);
+    for (player, slot) in g3_slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 3,
+                suit: game::Suit::Green()
+            }],
+            "Player {player} must assume new card is simply g3"
+        );
+    }
+    let not_g3_slots = replay.slot_perspectives(1, 1);
+    println!("not_g3_slots: {:?}", not_g3_slots);
+    for (player, slot) in not_g3_slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![
+                game::Card {
+                    rank: 3,
+                    suit: game::Suit::Green()
+                },
+                game::Card {
+                    rank: 4,
+                    suit: game::Suit::Green()
+                },
+                game::Card {
+                    rank: 5,
+                    suit: game::Suit::Green()
+                }
+            ],
+            "Player {player} reasoned too much about non-focused card"
+        );
+    }
+}
+
+#[test]
+fn no_self_prompt_if_easier_alternative2() {
+    // Seed 2
+    let replay = replay_game(
+            23,
+            "415jqgbuywktfifdpraklukmhrpsaxnvlgvehdcncfpmxauoqsiwb",
+            "05pcDaal6bpdaeajapucoaaqanacva1davadbhubbmabar6baobwocakbtaaucau7aaybz1abxa9ica8b00cbAaivca1Dda5a6ucbFaI1bb7agbLbJbMbNqc",
+            "0",
+    );
+    let p2_slots = replay.slot_perspectives(1, 0);
+    println!("p2_slots: {:?}", p2_slots);
+    for (player, slot) in p2_slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 2,
+                suit: game::Suit::Purple()
+            }],
+            "Player {player} missed the prompt; p3 is promised"
+        );
+        assert_eq!(slot.delayed, 0);
+    }
+}
