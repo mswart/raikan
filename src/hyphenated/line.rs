@@ -82,7 +82,7 @@ pub struct Line {
     pub card_states: CardStates,
     score: u8,
     own_player: u8,
-    callbacks: VecDeque<Callback>,
+    pub callbacks: VecDeque<Callback>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -158,7 +158,7 @@ impl Hands {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
-struct Callback {
+pub struct Callback {
     trigger_card: i8,
     target_card: i8,
 }

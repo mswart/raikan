@@ -58,7 +58,12 @@ pub struct CardStates {
 
 impl std::fmt::Debug for CardStates {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_map().entries(self.iter()).finish()
+        f.debug_map()
+            .entries(
+                self.iter()
+                    .filter(|(_card, state)| state.play != game::CardPlayState::Trash()),
+            )
+            .finish()
     }
 }
 

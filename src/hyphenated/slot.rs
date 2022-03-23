@@ -57,6 +57,9 @@ impl std::fmt::Debug for Slot {
         }
         if self.trash {
             f.write_str("kt")?;
+        } else if self.delayed > 0 {
+            f.write_str("+")?;
+            std::fmt::Display::fmt(&self.delayed, f)?;
         } else if self.play {
             f.write_str("! ")?;
         } else {

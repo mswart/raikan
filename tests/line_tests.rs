@@ -93,13 +93,18 @@ fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> Replay {
                 lines[j]
                     .hands
                     .iter_hand(((4 + player - j) % 4) as u8)
-                    .collect::<Vec<(u8, &Slot)>>()
+                    .map(|(_pos, slot)| slot)
+                    .collect::<Vec<&Slot>>()
             );
         }
     }
     println!("Clued cards:");
     for line in lines.iter() {
         println!(" - {:?}", line.card_states);
+    }
+    println!("Callbacks:");
+    for line in lines.iter() {
+        println!(" - {:?}", line.callbacks);
     }
     Replay {
         line: line.clone(),
