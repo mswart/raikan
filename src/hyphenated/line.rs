@@ -88,7 +88,7 @@ pub struct Line {
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Hands {
     pub num_players: u8,
-    hand_sizes: [u8; 6],
+    pub hand_sizes: [u8; 6],
     max_hand_size: u8,
     hand_slots: [u8; 20],
     slots: [Slot; 20],

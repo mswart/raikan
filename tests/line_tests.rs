@@ -57,6 +57,7 @@ macro_rules! hand {
 }
 
 struct Replay {
+    pub target_player: u8,
     pub line: hyphenated::Line,
     pub lines: [hyphenated::Line; 4],
 }
@@ -82,34 +83,17 @@ fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> Replay {
 
     let target_player = (turn) % num_players;
     println!("target player: {target_player}");
+
     let lines = [h1.line(), h2.line(), h3.line(), h4.line()];
     let line = &lines[target_player as usize];
-    println!("Start lines:\n---");
-    for player in 0..4 {
-        println!("Player {player}");
-        for j in 0..4 {
-            println!(
-                "- P{j} {:?}",
-                lines[j]
-                    .hands
-                    .iter_hand(((4 + player - j) % 4) as u8)
-                    .map(|(_pos, slot)| slot)
-                    .collect::<Vec<&Slot>>()
-            );
-        }
-    }
-    println!("Clued cards:");
-    for line in lines.iter() {
-        println!(" - {:?}", line.card_states);
-    }
-    println!("Callbacks:");
-    for line in lines.iter() {
-        println!(" - {:?}", line.callbacks);
-    }
-    Replay {
+
+    let replay = Replay {
         line: line.clone(),
         lines,
-    }
+        target_player,
+    };
+    replay.print();
+    replay
 }
 
 impl Replay {
@@ -123,6 +107,73 @@ impl Replay {
             );
         }
         slots
+    }
+
+    fn print(&self) {
+        println!("Start lines:\n---");
+        for player in 0..4 {
+            println!("Player {player}");
+            for j in 0..4 {
+                println!(
+                    "- P{j} {:?}",
+                    self.lines[j]
+                        .hands
+                        .iter_hand(((4 + player - j) % 4) as u8)
+                        .map(|(_pos, slot)| slot)
+                        .collect::<Vec<&Slot>>()
+                );
+            }
+        }
+        println!("Clued cards:");
+        for line in self.lines.iter() {
+            println!(" - {:?}", line.card_states);
+        }
+        println!("Callbacks:");
+        for line in self.lines.iter() {
+            println!(" - {:?}", line.callbacks);
+        }
+    }
+
+    fn clue_is_bad(&mut self, player: u8, clue: game::Clue) -> bool {
+        let score = self.line.clue(player as usize, clue);
+        self.clue(player, clue);
+        println!("Clued {player} {clue:?}");
+        self.print();
+        if let Some(score) = score {
+            score.has_errors()
+        } else {
+            true
+        }
+    }
+
+    fn clue(&mut self, player: u8, clue: game::Clue) {
+        let mut touched = PositionSet::new(self.lines[0].hands.hand_sizes[player as usize]);
+        let mut previously_clued =
+            PositionSet::new(self.lines[0].hands.hand_sizes[player as usize]);
+        for (pos, slot) in self.line.hands.iter_hand(player) {
+            if slot.clued {
+                previously_clued.add(pos);
+            }
+        }
+        for (pos, slot) in self.lines[self.target_player as usize]
+            .hands
+            .iter_hand(player)
+        {
+            if slot.card.affected(clue) {
+                touched.add(pos);
+            }
+        }
+        let num_players = self.lines.len() as u8;
+        for (current_player, line) in self.lines.iter_mut().enumerate() {
+            line.clued(
+                ((num_players + self.target_player - current_player as u8) % num_players) as usize,
+                ((num_players + self.target_player + player - current_player as u8) % num_players)
+                    as usize,
+                clue,
+                touched,
+                previously_clued,
+            );
+        }
     }
 }
 
@@ -1006,6 +1057,22 @@ fn good_touch_principal() {
             "Player {player} missed a clue on green; only g4 is left"
         );
     }
+}
+
+#[test]
+#[ignore]
+fn good_touch_principal2() {
+    // id 56145
+    let mut replay = replay_game(
+        0,
+        "415ckxnvsrmujuaqcognqupdpdaistegbmffkbvhayfwhkpilwlxr",
+        "05pcpaal6babDcak6cpcaepb0abaatbsbmar1dDdbpbcbf0bpbbdagib7c0da3biazpcbva5an7cbhawoaa2a11bbx1db70aaEa0bD1b1bbuaFuab6aJaIajubbya4qc",
+        "0",
+    );
+    assert!(
+        replay.clue_is_bad(2, game::Clue::Rank(1)),
+        "p1 is double clued"
+    );
 }
 
 // prompts
