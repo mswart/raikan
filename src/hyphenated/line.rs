@@ -1438,7 +1438,7 @@ impl Line {
             if slot.clued {
                 slot.update_slot_attributes(&self.card_states);
             }
-            if slot.play {
+            if slot.play && slot.delayed == 0 {
                 return Some(game::Move::Play(pos as u8));
             }
         }
