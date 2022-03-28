@@ -1,7 +1,8 @@
+use colored::*;
 use hanabi::{
     self,
     game::{self, ClueColor, Game},
-    hyphenated::{self, HyphenatedPlayer, Slot},
+    hyphenated::{self, HyphenatedPlayer, LineScore, Slot},
     PositionSet,
 };
 
@@ -56,6 +57,7 @@ macro_rules! hand {
     };
 }
 
+#[derive(Clone)]
 struct Replay {
     pub target_player: u8,
     pub line: hyphenated::Line,
@@ -92,6 +94,7 @@ fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> Replay {
         lines,
         target_player,
     };
+    println!("{}", "Start situation".to_string().bold().underline());
     replay.print();
     replay
 }
@@ -110,7 +113,6 @@ impl Replay {
     }
 
     fn print(&self) {
-        println!("Start lines:\n---");
         for player in 0..4 {
             println!("Player {player}");
             for j in 0..4 {
@@ -130,15 +132,13 @@ impl Replay {
         }
         println!("Callbacks:");
         for line in self.lines.iter() {
-            println!(" - {:?}", line.callbacks);
+            line.print_callbacks(" - ");
+            // println!(" - {:?}", line.callbacks);
         }
     }
 
     fn clue_is_bad(&mut self, player: u8, clue: game::Clue) -> bool {
-        let score = self.line.clue(player as usize, clue);
-        self.clue(player, clue);
-        println!("Clued {player} {clue:?}");
-        self.print();
+        let score = self.clue(player, clue);
         if let Some(score) = score {
             score.has_errors()
         } else {
@@ -146,34 +146,41 @@ impl Replay {
         }
     }
 
-    fn clue(&mut self, player: u8, clue: game::Clue) {
+    fn clue(&mut self, player: u8, clue: game::Clue) -> Option<LineScore> {
+        println!("");
+        println!("{}", format!("Clued {player} {clue:?}").bold().underline());
+        let num_players = self.lines.len() as u8;
+        let clued_player = (num_players + player - self.target_player as u8) % num_players;
+        let score = self.line.clue(clued_player as usize, clue);
         let mut touched = PositionSet::new(self.lines[0].hands.hand_sizes[player as usize]);
         let mut previously_clued =
             PositionSet::new(self.lines[0].hands.hand_sizes[player as usize]);
-        for (pos, slot) in self.line.hands.iter_hand(player) {
+        for (pos, slot) in self.lines[self.target_player as usize].hands.iter_hand(0) {
             if slot.clued {
                 previously_clued.add(pos);
             }
         }
         for (pos, slot) in self.lines[self.target_player as usize]
             .hands
-            .iter_hand(player)
+            .iter_hand(clued_player)
         {
             if slot.card.affected(clue) {
                 touched.add(pos);
             }
         }
-        let num_players = self.lines.len() as u8;
         for (current_player, line) in self.lines.iter_mut().enumerate() {
+            println!("{current_player}");
             line.clued(
                 ((num_players + self.target_player - current_player as u8) % num_players) as usize,
-                ((num_players + self.target_player + player - current_player as u8) % num_players)
-                    as usize,
+                ((num_players + player - current_player as u8) % num_players) as usize,
                 clue,
                 touched,
                 previously_clued,
             );
         }
+        self.print();
+        println!("Score: {score:?}");
+        score
     }
 }
 
@@ -1261,4 +1268,127 @@ fn no_self_prompt_if_easier_alternative2() {
         );
         assert_eq!(slot.delayed, 0);
     }
+}
+
+#[test]
+fn always_consider_foreign_prompts() {
+    // seed 9756824915852424369
+    let replay = replay_game(
+        28,
+        "415tdcbfjvfmhuixnglskwuqigaahmnlsyapqoxudrekvpfwkprcb",
+        "05pbahDa6codaeakaoubar6b6cudagasapbb1caibmDbbqidaxbcvabl7bada1bwpbbya6uabna80a6bbt0ba9bz6cb5aua47aDbbGajobbFav0daCa3afidaMaBqb",
+        "0",
+    );
+
+    let focus_slots = replay.slot_perspectives(1, 0);
+    assert_eq!(
+        focus_slots[1].delayed, 1,
+        "Player 1 must wait a round to give 2 a change to initiate a prompt (if y4 focused)"
+    );
+}
+#[test]
+fn always_consider_foreign_prompts2() {
+    // seed 9756824915852424369
+    let replay = replay_game(
+            27,
+            "415tdcbfjvfmhuixnglskwuqigaahmnlsyapqoxudrekvpfwkprcb",
+            "05pbahDa6codaeakaoubar6b6cudagasapbb1caibmDbbqidaxbcvabl7bada1bwpbbya6uabna80a6bbt0ba9bz6cb5aua47aDbbGajobbFav0daCa3afidaMaBqb",
+            "0",
+        );
+    assert!(
+        replay
+            .clone()
+            .clue(1, game::Clue::Color(game::ClueColor::Yellow()))
+            > replay.clone().clue(1, game::Clue::Rank(4))
+    );
+}
+
+#[test]
+fn no_wait_if_not_possible() {
+    // seed 0
+    let replay = replay_game(
+            11,
+            "415uxxrhphtwqkdbgvksgqfneysiufmwjomkilfaalvcnbpcrpadu",
+            "05uc6aakpbaaaf0b0a7cas6d6cadbeaqobbrahpb6cbuatDbbmodbybjanDcagb3bpodb0uba7bxa8iaubaAa5b6b17dudbEaFvcb2aGa41baIalvbbzaDbJbKbCqb",
+            "0",
+        );
+    let slots = replay.slot_perspectives(3, 1);
+    for (player, slot) in slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 2,
+                suit: game::Suit::Purple()
+            }],
+            "Player {player} misinterpreted the simply play clue"
+        );
+        assert_eq!(
+            slot.delayed, 0,
+            "Player {player} incorrectly saw a potential prompt"
+        );
+    }
+}
+
+#[test]
+fn unambiguous_prompt_clue_by_rank() {
+    // seed 0
+    let replay = replay_game(
+            8,
+            "415fkhmpbsvcdaxxjyinlawuuqwlfqapihorknrsevfkbgtcupgmd",
+            "050baepapcabuaak7barbfpbvbadau0bbmaaaw6d7cbcDdbibpbtbzobb2udbq0bb5bva67ab7a8ag6bbAbybCibbDvdaFDbaGidaHbsaIoba4ajiaaBb9b1qd",
+            "0",
+        );
+    let slots = replay.slot_perspectives(0, 0);
+    for (player, slot) in slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 2,
+                suit: game::Suit::Green()
+            }],
+            "Player {player} misinterpreted the direct play clue"
+        );
+    }
+    let slots = replay.slot_perspectives(0, 1);
+    for (player, slot) in slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 3,
+                suit: game::Suit::Green()
+            }],
+            "Player {player} misinterpreted the prompt"
+        );
+    }
+    let slots = replay.slot_perspectives(1, 0);
+    for (player, slot) in slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 4,
+                suit: game::Suit::Green()
+            }],
+            "Player {player} misinterpreted the prompt"
+        );
+    }
+}
+
+#[test]
+fn ambigious_delayed_play_clue() {
+    // seed 0
+    let replay = replay_game(
+            12,
+            "415fkhmpbsvcdaxxjyinlawuuqwlfqapihorknrsevfkbgtcupgmd",
+            "050baepapcabuaak7barbfpbvbadau0bbmaaaw6d7cbcDdbibpbtbzobb2udbq0bb5bva67ab7a8ag6bbAbybCibbDvdaFDbaGidaHbsaIoba4ajiaaBb9b1qd",
+            "0",
+        );
+    let slots = replay.slot_perspectives(1, 2);
+    assert_eq!(
+        slots[0].delayed, 1,
+        "Alice knows the play is not delayed by her one (to be fixed later)"
+    );
+    assert_eq!(
+        slots[1].delayed, 2,
+        "Bob must wait for the too already clued ones to be played"
+    );
 }
