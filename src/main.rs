@@ -47,6 +47,8 @@ struct Stats {
     finished_dist: [usize; 26],
     finished_max_dist: [usize; 26],
     won_games: usize,
+    blind_plays: usize,
+    strikes: usize,
 }
 
 impl Stats {
@@ -65,6 +67,8 @@ impl Stats {
             finished_dist: [0; 26],
             finished_max_dist: [0; 26],
             won_games: 0,
+            blind_plays: 0,
+            strikes: 0,
         }
     }
 
@@ -110,6 +114,8 @@ impl AddAssign for Stats {
             self.finished_dist[i] += other.finished_dist[i];
             self.finished_max_dist[i] += other.finished_max_dist[i];
         }
+        self.blind_plays += other.blind_plays;
+        self.strikes += other.strikes;
     }
 }
 
@@ -146,7 +152,14 @@ fn run_stats() {
                         results.lost_games += 1;
                         results.lost_scores += game.status.score as usize;
                         results.lost_max_scores += game.status.max_score as usize;
-                        println!("{i} Lost 0 0 {} {}", game.status.turn, game.replay_url());
+                        results.strikes += game.status.num_strikes as usize;
+                        results.blind_plays += game.status.blind_plays as usize;
+                        println!(
+                            "{i} Lost 0 0 {} {} {}",
+                            game.status.turn,
+                            game.status.blind_plays,
+                            game.replay_url()
+                        );
                     }
                     game::GameState::Finished() => {
                         results.finished_games += 1;
@@ -155,11 +168,14 @@ fn run_stats() {
                         results.finished_score_intergrals += game.score_integral as usize;
                         results.finished_max_scores += game.status.max_score as usize;
                         results.finished_max_dist[game.status.max_score as usize] += 1;
+                        results.strikes += game.status.num_strikes as usize;
+                        results.blind_plays += game.status.blind_plays as usize;
                         println!(
-                            "{i} Finished {} {} {} {}",
+                            "{i} Finished {} {} {} {} {}",
                             game.status.score,
                             game.status.max_score,
                             game.status.turn,
+                            game.status.blind_plays,
                             game.replay_url()
                         );
                     }
@@ -169,13 +185,25 @@ fn run_stats() {
                         results.finished_max_scores += game.status.max_score as usize;
                         results.finished_dist[game.status.score as usize] += 1;
                         results.finished_max_dist[game.status.max_score as usize] += 1;
-                        println!("{i} Won 25 25 {} {}", game.status.turn, game.replay_url());
+                        results.strikes += game.status.num_strikes as usize;
+                        results.blind_plays += game.status.blind_plays as usize;
+                        println!(
+                            "{i} Won 25 25 {} {} {}",
+                            game.status.turn,
+                            game.status.blind_plays,
+                            game.replay_url()
+                        );
                     }
                     game::GameState::Invalid() => {
                         results.invalid_games += 1;
                         results.invalid_scores += game.status.score as usize;
                         results.invalid_max_scores += game.status.max_score as usize;
-                        println!("{i} Invalid 0 0 {} {}", game.status.turn, game.replay_url());
+                        println!(
+                            "{i} Invalid 0 0 {} {} {}",
+                            game.status.turn,
+                            game.status.blind_plays,
+                            game.replay_url()
+                        );
                     }
                     _ => unimplemented!("Should not happen as final game score"),
                 }
@@ -225,11 +253,13 @@ fn run_stats() {
         totals.won_games
     );
     eprintln!(
-        "Overall {} games with ~{:.2} score",
+        "Overall {} games with ~{:.2} score ({} blind_plays, {} strikes)",
         totals.invalid_games + totals.lost_games + totals.finished_games + totals.won_games,
         totals.finished_scores as f64
             / (totals.invalid_games + totals.lost_games + totals.finished_games + totals.won_games)
-                as f64
+                as f64,
+        totals.blind_plays,
+        totals.strikes
     );
 }
 
@@ -262,10 +292,10 @@ fn debug_regressions(old: &str, new: &str) -> io::Result<()> {
                 new_parts[1],
                 new_parts[2],
                 new_parts[3],
-                new_parts[5],
+                new_parts.last().expect("expected format"),
             );
-            let mut old_replay = old_parts[5][31..].split(',');
-            let mut new_replay = new_parts[5][31..].split(',');
+            let mut old_replay = old_parts.last().expect("expected format")[31..].split(',');
+            let mut new_replay = new_parts.last().expect("expected format")[31..].split(',');
             let old_deck = old_replay.next().unwrap();
             let new_deck = new_replay.next().unwrap();
             let old_actions = old_replay.next().unwrap();

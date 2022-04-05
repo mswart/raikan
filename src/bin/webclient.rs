@@ -637,6 +637,7 @@ impl HanabGame {
                 max_score: 25,
                 num_strikes: 0,
                 clues: 8,
+                blind_plays: 0,
             },
         }
     }
@@ -657,6 +658,7 @@ impl HanabGame {
             max_score: 25,
             num_strikes: 0,
             clues: 8,
+            blind_plays: 0,
         };
     }
 

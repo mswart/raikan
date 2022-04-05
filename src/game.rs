@@ -237,6 +237,7 @@ pub struct GameStatus {
     pub max_score: u8,
     pub num_strikes: u8,
     pub clues: u8,
+    pub blind_plays: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -350,6 +351,7 @@ impl Game {
                 score: 0,
                 max_score: 5 * suits.len() as u8,
                 turn: 0,
+                blind_plays: 0,
             },
             suits,
             active_player: 0,
@@ -418,6 +420,7 @@ impl Game {
                 score: 0,
                 max_score: 5 * suits.len() as u8,
                 turn: 0,
+                blind_plays: 0,
             },
             score_integral: 0,
             deck: VecDeque::new(),
@@ -786,6 +789,9 @@ impl Game {
                     self.status.score += 1;
                     if card.card.rank == 5 && self.status.clues < 8 {
                         self.status.clues += 1;
+                    }
+                    if !card.clued {
+                        self.status.blind_plays += 1;
                     }
                     if self.status.score as usize == self.suits.len() * 5 {
                         self.state = GameState::Won();
