@@ -61,7 +61,7 @@ impl std::fmt::Debug for Slot {
             f.write_str("+")?;
             std::fmt::Display::fmt(&self.delayed, f)?;
         } else if self.play {
-            f.write_str("! ")?;
+            f.write_str("▶ ")?;
         } else {
             f.write_str("  ")?;
         }

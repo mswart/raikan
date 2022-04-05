@@ -29,8 +29,8 @@ impl std::fmt::Debug for CardState {
             CardPlayState::Trash() => return f.write_str("✓"),
             CardPlayState::Dead() => f.write_str("🗑")?,
             CardPlayState::Critical() => f.write_str("⚠ ")?,
-            CardPlayState::CriticalPlayable() => f.write_str("⚠ ")?,
-            CardPlayState::Playable() => f.write_str("!")?,
+            CardPlayState::CriticalPlayable() => f.write_str("⚠▶")?,
+            CardPlayState::Playable() => f.write_str("▶ ")?,
             CardPlayState::Normal() => (),
         }
         if let Some(clued) = self.clued {
