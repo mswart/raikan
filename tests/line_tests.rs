@@ -1084,6 +1084,35 @@ fn good_touch_principal2() {
 
 // prompts
 #[test]
+fn dont_wait_for_potential_self_prompts_of_the_clue_giver() {
+    // id 36
+    let replay = &replay_game(
+        13,
+        "415asbffugnxpehrufwdxiqktyvhnakgrmpmsvlpcaklbqcudwioj",
+        "05pbafia0caaaeajob0cagatpb1dau7aamabbh1abnayDcavobacasbibovdbq6baxDbbzvbb0uba9blapibaBb2b6ara4b57cbdawaJb8odbLbCaNqa",
+        "0",
+    );
+    let slots = replay.slot_perspectives(3, 3);
+    println!("3er_slots: {:?}", slots);
+    for (player, slot) in slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![
+                game::Card {
+                    rank: 3,
+                    suit: game::Suit::Yellow()
+                },
+                game::Card {
+                    rank: 3,
+                    suit: game::Suit::Blue()
+                }
+            ],
+            "Player {player} missed the prompt; p2 is promised"
+        );
+    }
+}
+
+#[test]
 fn prompt_via_color_5_safe() {
     // id 36
     let replay = &replay_game(
@@ -1168,11 +1197,97 @@ fn dont_prompt_own_cards_if_they_are_ambigious() {
 fn self_prompt() {
     let replay = replay_game(
             11,
+            "415uwcsgfqvfcbpdbikgxevorthxuylkhmrjqpnwismaaupkdlnfa",
+            "05pc6aal0baaagaivcud7aatapar1d0aavadbe7abmayuabjoca1bfaqDcaw7ab2aoa3oab5uba6a4uabna9paau1caEbhaAwc",
+            "0",
+    );
+    let p3_slots = replay.slot_perspectives(0, 3);
+    println!("p3_slots: {:?}", p3_slots);
+    for (player, slot) in p3_slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 3,
+                suit: game::Suit::Purple()
+            }],
+            "Player {player} missed the prompt; p3 is promised"
+        );
+    }
+    let p4_slots = replay.slot_perspectives(0, 0);
+    println!("p4_slots: {:?}", p4_slots);
+    for (player, slot) in p4_slots.iter().enumerate() {
+        if player == 0 {
+            assert_eq!(
+                slot.quantum.iter().collect::<Vec<game::Card>>(),
+                vec![game::Card {
+                    rank: 4,
+                    suit: game::Suit::Purple()
+                }],
+                "Player {player} missed the prompt; p4 is promised"
+            );
+        } else {
+            assert_eq!(
+                slot.delayed, 1,
+                "Player {player} missed the prompt; p4 is promised"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore]
+// tests needs to be adapted.
+fn self_prompt_after_potential_finess() {
+    let replay = replay_game(
+            11,
             "415uwcsgfqvfwbpdbikgxevorthxuylkhmrjqpncismaaupkdlnfa",
             "05pc6aal0baaagaivcud7aatapar1d0aavadbe7abmayuabjoca1bfaqDcaw7ab2aoa3oab5uba6a4uabna9paau1caEbhaAwc",
             "0",
     );
     let p3_slots = replay.slot_perspectives(0, 3);
+    println!("p3_slots: {:?}", p3_slots);
+    for (player, slot) in p3_slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 3,
+                suit: game::Suit::Purple()
+            }],
+            "Player {player} missed the prompt; p3 is promised"
+        );
+    }
+    let p4_slots = replay.slot_perspectives(0, 0);
+    println!("p4_slots: {:?}", p4_slots);
+    for (player, slot) in p4_slots.iter().enumerate() {
+        if player == 0 {
+            assert_eq!(
+                slot.quantum.iter().collect::<Vec<game::Card>>(),
+                vec![game::Card {
+                    rank: 4,
+                    suit: game::Suit::Purple()
+                }],
+                "Player {player} missed the prompt; p4 is promised"
+            );
+        } else {
+            assert_eq!(
+                slot.delayed, 1,
+                "Player {player} missed the prompt; p4 is promised"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore]
+// tests needs to be adapted.
+fn self_finess_instead_of_prompt() {
+    let replay = replay_game(
+            11,
+            "415uycsgfqvfwbpdbikgxevorthxuwlkhmrjqpncismaaupkdlnfa",
+            "05pc6aal0baaagaivcud7aatapar1d0aavadbe7abmayuabjoca1bfaqDcaw7ab2aoa3oab5uba6a4uabna9paau1caEbhaAwc",
+            "0",
+    );
+    let p3_slots = replay.slot_perspectives(2, 3);
     println!("p3_slots: {:?}", p3_slots);
     for (player, slot) in p3_slots.iter().enumerate() {
         assert_eq!(
@@ -1342,6 +1457,18 @@ fn always_consider_foreign_prompts2() {
             .clue(1, game::Clue::Color(game::ClueColor::Yellow()))
             > replay.clone().clue(1, game::Clue::Rank(4))
     );
+}
+
+#[test]
+fn dont_self_prompt_yourself() {
+    // seed 1204237994774607731
+    let mut replay = replay_game(
+        10,
+        "415fjpkhpkaaiyuuwbbsnsincduoxmaepqvrqtkdcwvhrxgllffmg",
+        "05pbahidap6cagaloaaaaf1dibauavakarwd",
+        "0",
+    );
+    assert!(replay.clue_is_bad(3, game::Clue::Rank(3)));
 }
 
 #[test]
@@ -1569,3 +1696,50 @@ fn play_or_prompt_starting_with_self_finess() {
 // 46 => really good self-finess, but not understood
 // 49 give 2 blue instead of y4 (both 1-for-1, but allow blue to play
 // 54 clue b2 instead of b4 (b2 is no longer on finess and it is clearly missed)
+
+// 1204237994774607731
+// https://hanab.live/replay-json/415fjpkhpkaaiyuuwbbsnsincduoxmaepqvrqtkdcwvhrxgllffmg,05pbahidap6cagaloaaaafibbm7davbiawbcbebjDc7cbqa27b0cbxa40c6ba5a60c6dasa8an6cb1bAazbdb3akocod7caHaEucoaaIbobu1aatuca0bGbNqd,0
+
+// turn 3: don't bad clue r2 twice
+
+// turn 29: finess
+
+#[test]
+// finess p2, p3 via p4 instead of cluing p2 directly (p1 already played)
+fn prefer_finess_over_direct_play_clue() {
+    // id 1204237994774607731
+    let replay = replay_game(
+        28,
+        "415fjpkhpkaaiyuuwbbsnsincduoxmaepqvrqtkdcwvhrxgllffmg",
+        "05pbahidap6cagaloaaaafibbm7davbiawbcbebjDc7cbqa27b0cbxa40c6ba5a60c6dasa8an6cb1bAazbdb3akocod7caHaEucoaaIbobu1aatuca0bGbNqd",
+        "0",
+    );
+    assert!(
+        replay.clone().clue(3, game::Clue::Rank(4))
+            > replay
+                .clone()
+                .clue(1, game::Clue::Color(game::ClueColor::Purple()))
+    );
+}
+
+#[test]
+// finess p2, p3 via p4 instead of cluing p2 directly (p1 already played)
+fn assume_good_touch_from_finesses() {
+    // id 1204237994774607731
+    let replay = replay_game(
+        35,
+        "415fjpkhpkaaiyuuwbbsnsincduoxmaepqvrqtkdcwvhrxgllffmg",
+        "05pbahidap6cagaloaaaafibbm7davbiawbcbebjDc7cbqa27b0cbxa40c6da5a6an0casa8bo6c7dbBazbdb1akocod7caHaEucoaaIb9bu1aatuca0bGbNqd",
+        "0",
+    );
+    for (player, slot) in replay.slot_perspectives(3, 1).iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 4,
+                suit: game::Suit::Purple()
+            },],
+            "Player {player} should assume p4 via good touch principal"
+        );
+    }
+}

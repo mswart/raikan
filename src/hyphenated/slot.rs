@@ -14,6 +14,7 @@ pub struct Slot {
     pub turn: i8,
     pub delayed: u8,
     pub callbacks: bool,
+    pub promised: Option<i8>,
 }
 
 impl Slot {
@@ -62,6 +63,11 @@ impl std::fmt::Debug for Slot {
             std::fmt::Display::fmt(&self.delayed, f)?;
         } else if self.play {
             f.write_str("▶ ")?;
+        } else {
+            f.write_str("  ")?;
+        }
+        if self.promised.is_some() {
+            f.write_str("🔍")?;
         } else {
             f.write_str("  ")?;
         }
