@@ -1168,7 +1168,7 @@ fn dont_prompt_own_cards_if_they_are_ambigious() {
 fn self_prompt() {
     let replay = replay_game(
             11,
-            "415uwcsgfqvfwbpdbhkgxevorthxuylkimrjqpncismaaupkdlnfa",
+            "415uwcsgfqvfwbpdbikgxevorthxuylkhmrjqpncismaaupkdlnfa",
             "05pc6aal0baaagaivcud7aatapar1d0aavadbe7abmayuabjoca1bfaqDcaw7ab2aoa3oab5uba6a4uabna9paau1caEbhaAwc",
             "0",
     );
@@ -1182,6 +1182,47 @@ fn self_prompt() {
                 suit: game::Suit::Purple()
             }],
             "Player {player} missed the prompt; p3 is promised"
+        );
+    }
+    let p4_slots = replay.slot_perspectives(0, 0);
+    println!("p4_slots: {:?}", p4_slots);
+    for (player, slot) in p4_slots.iter().enumerate() {
+        if player == 0 {
+            assert_eq!(
+                slot.quantum.iter().collect::<Vec<game::Card>>(),
+                vec![game::Card {
+                    rank: 4,
+                    suit: game::Suit::Purple()
+                }],
+                "Player {player} missed the prompt; p4 is promised"
+            );
+        } else {
+            assert_eq!(
+                slot.delayed, 1,
+                "Player {player} missed the prompt; p4 is promised"
+            );
+        }
+    }
+}
+
+#[test]
+/// If if cards are still in the process of being played to resolve (self)-prompts
+/// they are still clued
+/// Don't see finesses if a play-clue is added upton
+/// in this case p4 was self-prompted upon p3; while they are still to-be-played
+/// p5 is clued (while p4 would lay on finess on a different player)
+fn no_finess_if_cards_are_already_clued() {
+    let replay = replay_game(
+        20,
+        "415uwcsgfqvfwbpdbhkgxevorthxuylkimrjqpncismaaupkdlnfa",
+        "03lcwaalsbaaagaipcodxaatapbcsabjavadkcaqwcabbeaxkcarbfa3ta",
+        "0",
+    );
+    let slots = replay.slot_perspectives(3, 0);
+    for (player, slot) in slots.iter().enumerate() {
+        assert!(
+            !slot.play,
+            "Player {player} saw a finess of already clued cards: {slot:?}"
         );
     }
 }
@@ -1392,3 +1433,139 @@ fn ambigious_delayed_play_clue() {
         "Bob must wait for the too already clued ones to be played"
     );
 }
+
+// todo https://hanab.live/shared-replay-json/415uxxrhphtwqkdbgvks-gqfneysiufmwjomkilfa-alvcnbpcrpadu,03ocwa-aklbaaafsbsaxcaswdwc-adbeaqaokbahpdbpxbat-aianacagbjwcbbayaw,0
+
+// finess clues:
+
+#[test]
+#[ignore]
+/// a nice 5-for-1 finess starting with a self-finess (all in order)
+fn prefer_finess_over_delayed_play_clue() {
+    // id 31554
+    let replay = replay_game(
+        6,
+        "415tlxnrlfdxhwyrjckpmpkhifvvgckgmaunaisweausbpfoduqbq",
+        "05obagDapbudaquaapabbe1dbnbc6cbjbsbtvaobbvazau1bby6carib7aada46ab0a57abxb3a8bfblb7bwiabkiaaFidbiaouc7daIbJ0db2b9aL0db67bqd",
+        "0",
+    );
+    assert!(
+        replay.clone().clue(0, game::Clue::Rank(4))
+            > replay
+                .clone()
+                .clue(0, game::Clue::Color(game::ClueColor::Green()))
+    );
+}
+
+#[test]
+fn layed_finess() {
+    // https://hanab.live/replay-json/415gbbkuaxamlmfipdgchyaejwukhfvqlrpvnpkwsrfitcdqnusxo,05pbah0danocafalvavdae1dapaaoduaaradbgibamacaqbiavabwa,0
+    // e.g. on r3 to get g1, r2 to play
+    assert!(false);
+}
+
+#[test]
+#[ignore]
+/// a nice 5-for-1 finess starting with a self-finess (all in order)
+fn dont_force_players_into_chopping_critical_cards() {
+    // id 31554
+    let replay = replay_game(
+        20,
+        "415tdcbfjvfmhuixnglskwuqigaahmnlsyapqoxudrekvpfwkprcb",
+        "05pbahDa6codaeakaoubar6b6cudagasapbb1caibm7bbfajubbcocbzpaaybu7bbt0ba6bwan6cb8a9vaadbBa4bxvd0c7aa7b5bqaC0aa3bEibbHaaaMb2bNqa",
+        "0",
+    );
+    assert!(
+        replay.clone().clue_is_bad(1, game::Clue::Rank(4)),
+        "y5 is sacrifised"
+    );
+}
+
+#[test]
+fn fix_pending_misplay() {
+    // https://hanab.live/replay-json/415gbbkuaxamlmfipdgchyaejwukhfvqlrpvnpkwsrfitcdqnusxo,05pbah0danocafalvavdae1dapaaoduaaradbgibamacaqbiavabwa,0
+    // turn
+    assert!(false);
+}
+
+#[test]
+fn reclue_for_finess() {
+    let replay = replay_game(
+        41,
+        "415bjvhlakfiexaygtmfumnfoxrkakgvpudbcdicshlwpnqpurqws",
+        "03lbahkdan1dagkaxcadafai1cabpaoboaaaaeblbpwdasbzaratsdpaa3acbqgbb0gda7b2a5bwlaavb8wc",
+        "0",
+    );
+    let slots = replay.slot_perspectives(3, 0);
+    for (player, slot) in slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 3,
+                suit: game::Suit::Purple()
+            }],
+            "Player {player} missed a finess"
+        );
+    }
+}
+
+#[test]
+#[ignore]
+fn prompt_finess() {
+    // prompt converts to finess after successful play
+    let _replay = replay_game(
+        6,
+        "415xbpkdphugripkuqvmfsbaqtcvkecldlmfwgunajrwnsfyoaxih",
+        "05pdvdalan0cvcodapob0dbkaovcocajauba0datasbbpdbqazicbea1awudvdbva21dbfiba7bca3iaa5a07aby1bbx7ab4vbbdbh1bbrpcDda6bm6bbBobaLbDaIudobqa",
+        "0",
+    );
+}
+
+#[test]
+/// all 3s played except r3, g3;
+/// r1 and g2 next cards to play
+/// r2 clued as any two in a players hand
+/// another player gets 3 clued (aka r3 or g3)
+/// player sees the r1 is still missing (if it would be r3)
+/// nothing else in finess somewhere => starts with self-finess to figure out which finess it is
+fn play_or_prompt_starting_with_self_finess() {
+    let replay = replay_game(
+        28,
+        "415uwcsgfqvfwbpdbhkgxevorthxuylkimrjqpncismaaupkdlnfa",
+        "03lcwaalsbaaagaipcodxaatapbcsabjavadkcaqwcabbeaxkcarbfa3ta",
+        "0",
+    );
+    let slots = replay.slot_perspectives(0, 0);
+    for (player, slot) in slots.iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![
+                game::Card {
+                    rank: 3,
+                    suit: game::Suit::Red()
+                },
+                game::Card {
+                    rank: 3,
+                    suit: game::Suit::Green()
+                }
+            ],
+            "Player {player} missed a finess"
+        );
+    }
+}
+
+// end game:
+
+// example of pass clues around
+// => https://hanab.live/shared-replay-json/415bjvhlakfiexaygtmf-umnfoxrkakgvpudbcdic-shlwpnqpurqws,03lbah-kdan1dagkaxcadafai1c-abpaoboaaaaeblbpwdas-bzaratsdpaa3acbqgbb0-gda7b2a5bwlaavb8wcbu-ajaEpdsaakaHaxbyxdam-sdsdsdaBb4b1bAao,0
+
+// errors
+// https://hanab.live/replay-json/415ckkvxmlauqnhrpdngaqfigfpbwdtrviywfebkjxucmlousphsa,056cpaaiubacaguaucibah7d6aadafbjpbbbatvbbp6dayblaz6baebqpaaxavbwiaaaasb1ibbr1db4a27bb9iaaoa86ab7ama50aoabnaJ1abAucaLbEaHoaaBwa,0
+
+// https://hanab.live/replay-json/415kbauckvlorvqugibpamfxghwujrqxcdifmesnkhanytfdpsplw,05Dcpa6biaadag1b0aaq1cajvbacahbkpcabbfat6aaxaeblobaaavbwDcbs6ab27baua4b5iaa8ucbz1cb31aaCbm7bb96daF7dbrbEbn0daIwb,0
+// 11 don't give self-finess that must be interpreted as direct play clues
+// 13 clued 2 (g2) must wait for g1 to be played
+// 31. give 4 instead of purple => identity clear
+// 46 => really good self-finess, but not understood
+// 49 give 2 blue instead of y4 (both 1-for-1, but allow blue to play
+// 54 clue b2 instead of b4 (b2 is no longer on finess and it is clearly missed)

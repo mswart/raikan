@@ -296,6 +296,27 @@ impl<'a> DoubleEndedIterator for HandMutIterator<'a> {
     }
 }
 
+enum SearchOpts {
+    Normal(),
+    ForeignFiness(),
+    AllFiness(),
+}
+
+impl SearchOpts {
+    fn finess(&self) -> bool {
+        match self {
+            SearchOpts::Normal() => false,
+            _ => true,
+        }
+    }
+    fn self_finess(&self) -> bool {
+        match self {
+            SearchOpts::AllFiness() => true,
+            _ => false,
+        }
+    }
+}
+
 impl Line {
     pub fn new(num_players: u8, own_player: u8) -> Self {
         let variant = Variant {};
@@ -771,6 +792,7 @@ impl Line {
             }
             if !slot.fixed {
                 slot.play = true;
+                error += self.resolve_play_clue(who, whom, focus);
             }
             return error;
         }
@@ -897,29 +919,79 @@ impl Line {
         error
     }
 
-    fn search_card(&mut self, card: &game::Card, player: u8, mark: bool) -> Option<u8> {
-        for (other_pos, slot) in self.hands.iter_hand_mut(player) {
-            if slot.clued && slot.quantum.contains(card) && (slot.play || slot.delayed > 0) {
-                if mark {
-                    slot.quantum.soft_clear();
-                    slot.quantum.add_card(card, true);
+    fn search_card(
+        &mut self,
+        card: &game::Card,
+        player: u8,
+        mark: bool,
+        opts: SearchOpts,
+    ) -> Option<(u8, u8)> {
+        if player < 200 {
+            for (other_pos, slot) in self.hands.iter_hand_mut(player) {
+                if slot.clued && slot.quantum.contains(card) && (slot.play || slot.delayed > 0) {
+                    if mark {
+                        slot.quantum.soft_clear();
+                        slot.quantum.add_card(card, true);
+                    }
+                    if cfg!(debug_assertions) {
+                        println!("search_card: Found it in {player}'s hand at pos {other_pos}");
+                    }
+                    return Some((player, other_pos));
                 }
-                if cfg!(debug_assertions) {
-                    println!("search_card: Found it in {player}'s hand at pos {other_pos}");
+            }
+            for (other_pos, slot) in self.hands.iter_hand_mut(player) {
+                if slot.clued && slot.quantum.contains(card) && !slot.play && slot.delayed == 0 {
+                    if mark {
+                        slot.quantum.soft_clear();
+                        slot.quantum.add_card(card, true);
+                    }
+                    if cfg!(debug_assertions) {
+                        println!("search_card: Found it in {player}'s hand at pos {other_pos}");
+                    }
+                    return Some((player, other_pos));
                 }
-                return Some(other_pos);
             }
         }
-        for (other_pos, slot) in self.hands.iter_hand_mut(player) {
-            if slot.clued && slot.quantum.contains(card) && !slot.play && slot.delayed == 0 {
-                if mark {
-                    slot.quantum.soft_clear();
-                    slot.quantum.add_card(card, true);
+        if opts.finess() {
+            for finess_player in (1..self.hands.num_players).rev() {
+                for (other_pos, slot) in self.hands.iter_hand_mut(finess_player) {
+                    if slot.clued {
+                        continue;
+                    }
+                    if slot.card != *card {
+                        break;
+                    }
+                    if mark {
+                        slot.quantum.soft_clear();
+                        slot.quantum.add_card(card, true);
+                        slot.play = true;
+                    }
+                    if cfg!(debug_assertions) {
+                        println!(
+                            "search_card: Found on finess of {finess_player}'s hand ({other_pos})"
+                        );
+                    }
+                    return Some((finess_player, other_pos));
                 }
-                if cfg!(debug_assertions) {
-                    println!("search_card: Found it in {player}'s hand at pos {other_pos}");
+            }
+            if opts.self_finess() {
+                for (other_pos, slot) in self.hands.iter_hand_mut(0) {
+                    if slot.clued {
+                        continue;
+                    }
+                    if !slot.quantum.contains(card) {
+                        break;
+                    }
+                    if mark {
+                        slot.quantum.soft_clear();
+                        slot.quantum.add_card(card, true);
+                        slot.play = true;
+                    }
+                    if cfg!(debug_assertions) {
+                        println!("search_card: Expect on one finess position ({other_pos})");
+                    }
+                    return Some((0, other_pos));
                 }
-                return Some(other_pos);
             }
         }
         None
@@ -955,7 +1027,12 @@ impl Line {
                                 if let Some(player) = previous_state.clued {
                                     if player < 255 {
                                         found = self
-                                            .search_card(&previous_card, player, true)
+                                            .search_card(
+                                                &previous_card,
+                                                player,
+                                                true,
+                                                SearchOpts::AllFiness(),
+                                            )
                                             .is_some();
                                     } else {
                                         found = true;
@@ -969,7 +1046,34 @@ impl Line {
                                             found = true;
                                         }
                                     }
-                                } else if self.search_card(&previous_card, 0, true).is_some() {
+                                    if !found {
+                                        // search foreign finess position:
+                                        for finess_player in (1..self.hands.num_players).rev() {
+                                            for (other_pos, slot) in
+                                                self.hands.iter_hand_mut(finess_player)
+                                            {
+                                                if slot.clued {
+                                                    continue;
+                                                }
+                                                if slot.card != previous_card {
+                                                    break;
+                                                }
+                                                slot.quantum.soft_clear();
+                                                slot.quantum.add_card(&previous_card, true);
+                                                slot.play = true;
+                                                if cfg!(debug_assertions) {
+                                                    println!(
+                                                        "search_card: Found on finess of {finess_player}'s hand ({other_pos})"
+                                                    );
+                                                }
+                                                found = true;
+                                            }
+                                        }
+                                    }
+                                } else if self
+                                    .search_card(&previous_card, 0, true, SearchOpts::AllFiness())
+                                    .is_some()
+                                {
                                     self.card_states[&previous_card].clued = Some(255);
                                     self.hands
                                         .slot_mut(whom as u8, pos)
@@ -1064,11 +1168,13 @@ impl Line {
                                     println!("{who} clued {whom}: evaluating {potential_card:?} => looking for {previous_card:?} => found at {clued_player} callbacks!!! {:?}", previous_state);
                                 }
 
-                                if let Some(found_pos) =
-                                    self.search_card(&previous_card, clued_player, false)
-                                {
-                                    found_cards[previous_rank as usize - 1] =
-                                        (clued_player, found_pos);
+                                if let Some(found_place) = self.search_card(
+                                    &previous_card,
+                                    clued_player,
+                                    false,
+                                    SearchOpts::ForeignFiness(),
+                                ) {
+                                    found_cards[previous_rank as usize - 1] = found_place;
                                     pending_mark[previous_card.rank as usize - 1] = true;
                                 } else {
                                     if cfg!(debug_assertions) {
@@ -1078,6 +1184,14 @@ impl Line {
                                     break;
                                 }
                             }
+                        } else if let Some(found_place) = self.search_card(
+                            &previous_card,
+                            255,
+                            false,
+                            SearchOpts::ForeignFiness(),
+                        ) {
+                            found_cards[previous_rank as usize - 1] = found_place;
+                            pending_mark[previous_card.rank as usize - 1] = true;
                         } else {
                             all_connecting_cards = false;
                             break;
@@ -1134,9 +1248,12 @@ impl Line {
                                     if cfg!(debug_assertions) {
                                         println!("{who} clued {whom}: evaluating {potential_card:?} => looking for {previous_card:?} => found at {clued_player} callbacks!!! {:?}", previous_state);
                                     }
-                                    if let Some(_found_pos) =
-                                        self.search_card(&previous_card, clued_player, false)
-                                    {
+                                    if let Some(_found_pos) = self.search_card(
+                                        &previous_card,
+                                        clued_player,
+                                        false,
+                                        SearchOpts::ForeignFiness(),
+                                    ) {
                                         self.callbacks.push_front(Callback::PotentialPrompt {
                                             delayed_slot: self.hands.slot_index(whom as u8, pos),
                                             potential_player: clued_player,
@@ -1178,7 +1295,8 @@ impl Line {
                                     break;
                                 }
                                 _ => {
-                                    if whom > 0
+                                    if false
+                                        && whom > 0
                                         && potential_card
                                             == self.hands.slot_mut(whom as u8, pos).card
                                     {
@@ -1190,7 +1308,12 @@ impl Line {
                                         if let Some(player) = previous_state.clued {
                                             if player < 255 {
                                                 found = self
-                                                    .search_card(&previous_card, player, false)
+                                                    .search_card(
+                                                        &previous_card,
+                                                        player,
+                                                        false,
+                                                        SearchOpts::AllFiness(),
+                                                    )
                                                     .is_some();
                                             } else {
                                                 found = true;
@@ -1206,7 +1329,12 @@ impl Line {
                                             }
                                         } else {
                                             found = self
-                                                .search_card(&previous_card, 0, false)
+                                                .search_card(
+                                                    &previous_card,
+                                                    0,
+                                                    false,
+                                                    SearchOpts::AllFiness(),
+                                                )
                                                 .is_some();
                                         }
                                         if !found {
@@ -1306,20 +1434,28 @@ impl Line {
                                 if let Some(player) = previous_state.clued {
                                     if player < 255 {
                                         found = self
-                                            .search_card(&previous_card, player, true)
+                                            .search_card(
+                                                &previous_card,
+                                                player,
+                                                true,
+                                                SearchOpts::AllFiness(),
+                                            )
                                             .is_some();
                                     }
                                 } else {
-                                    if let Some(slot_index) =
-                                        self.search_card(&previous_card, 0, true)
-                                    {
+                                    if let Some((found_player, found_pos)) = self.search_card(
+                                        &previous_card,
+                                        0,
+                                        true,
+                                        SearchOpts::AllFiness(),
+                                    ) {
                                         if cfg!(debug_assertions) {
                                             println!("Figured out pos of {previous_card:?}");
                                         }
-                                        self.hands.slots[slot_index as usize].quantum.soft_clear();
-                                        self.hands.slots[slot_index as usize]
-                                            .quantum
-                                            .add_card(&previous_card, true);
+                                        let found_slot =
+                                            self.hands.slot_mut(found_player, found_pos);
+                                        found_slot.quantum.soft_clear();
+                                        found_slot.quantum.add_card(&previous_card, true);
                                         found = true;
                                     }
                                 }
