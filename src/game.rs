@@ -775,11 +775,21 @@ impl Game {
                     value: None,
                 });
                 let success = if self.played_rank(&card.card.suit) + 1 == card.card.rank {
-                    if self.debug {
-                        println!(
-                            "Player {} played successfully {:?} from pos {}",
-                            self.active_player, card, pos
-                        );
+                    if card.clued {
+                        if self.debug {
+                            println!(
+                                "Player {} played successfully {:?} from pos {}",
+                                self.active_player, card, pos
+                            );
+                        }
+                    } else {
+                        self.status.blind_plays += 1;
+                        if self.debug {
+                            println!(
+                                "Player {} played successfully blind-played {:?} from pos {}",
+                                self.active_player, card, pos
+                            );
+                        }
                     }
                     for (suit_pos, current_suit) in self.suits.iter().enumerate() {
                         if *current_suit == card.card.suit {
@@ -789,9 +799,6 @@ impl Game {
                     self.status.score += 1;
                     if card.card.rank == 5 && self.status.clues < 8 {
                         self.status.clues += 1;
-                    }
-                    if !card.clued {
-                        self.status.blind_plays += 1;
                     }
                     if self.status.score as usize == self.suits.len() * 5 {
                         self.state = GameState::Won();
