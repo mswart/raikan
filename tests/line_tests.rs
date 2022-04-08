@@ -191,6 +191,37 @@ impl Replay {
         println!("Score: {score:?}");
         score
     }
+
+    fn play(&mut self, pos: usize) {
+        println!("");
+        let num_players = self.lines.len() as u8;
+        let slot = self.lines[((self.target_player + 1) % num_players) as usize]
+            .hands
+            .slot(num_players - 1, pos as u8);
+        let card = slot.card;
+        let blind = !slot.clued;
+        println!(
+            "{}",
+            format!("Player {} plays {card:?}", self.target_player)
+                .bold()
+                .underline()
+        );
+        for (current_player, line) in self.lines.iter_mut().enumerate() {
+            println!("{current_player}");
+            line.played(
+                ((num_players + self.target_player - current_player as u8) % num_players) as usize,
+                pos,
+                card,
+                matches!(
+                    self.line.card_states[&card].play,
+                    game::CardPlayState::Playable() | game::CardPlayState::CriticalPlayable()
+                ),
+                blind,
+            );
+        }
+        self.target_player += 1;
+        self.print();
+    }
 }
 
 fn clue(line: &hyphenated::Line, player: usize, clue: game::Clue) -> hyphenated::LineScore {
@@ -997,16 +1028,17 @@ fn ambiguous_delayed_play_clue_by_rank() {
 /// delayed play clues on player themselves
 fn extend_delayed_play_after_first_plays() {
     // id 24141
-    let line = &replay_game(
-        6,
+    let mut replay = replay_game(
+        5,
         "415eptdwhpvmcirgmivulubndghkxykucpjlfaaxsnqwsqbffokar",
         "050bagDapbvbaqbibm1d6dbjbpbbbhia7abwuaubucayarbkan7cbeaubobzbfpbbtpda7bla86dbxiab20db0iaaDb6iabsibicb9aHibbGa3uabvaK0abJiaaNqb",
         "0",
-    ).lines[1];
-    println!("line: {:?}", line);
+    );
+    replay.play(0);
     assert_eq!(
-        line.hands
-            .slot(0, 1)
+        replay.lines[1]
+            .hands
+            .slot(0, 0)
             .quantum
             .iter()
             .collect::<Vec<game::Card>>(),
@@ -1225,21 +1257,21 @@ fn self_prompt() {
     let p4_slots = replay.slot_perspectives(0, 0);
     println!("p4_slots: {:?}", p4_slots);
     for (player, slot) in p4_slots.iter().enumerate() {
-        if player == 0 {
-            assert_eq!(
-                slot.quantum.iter().collect::<Vec<game::Card>>(),
-                vec![game::Card {
-                    rank: 4,
-                    suit: game::Suit::Purple()
-                }],
-                "Player {player} missed the prompt; p4 is promised"
-            );
-        } else {
-            assert_eq!(
-                slot.delayed, 1,
-                "Player {player} missed the prompt; p4 is promised"
-            );
-        }
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 4,
+                suit: game::Suit::Purple()
+            }],
+            "Player {player} missed the prompt; p4 is promised"
+        );
+        // if player == 0 {
+        // } else {
+        //     assert_eq!(
+        //         slot.delayed, 1,
+        //         "Player {player} missed the prompt; p4 is promised"
+        //     );
+        // }
     }
 }
 
@@ -1570,7 +1602,38 @@ fn ambigious_delayed_play_clue() {
     );
 }
 
+#[test]
+/// you can't clue purple touching [p3, p1, ...] (with p2 on finess elsewhere)
+fn self_prompts_cant_include_new_cards() {
+    // seed 0
+    let mut replay = replay_game(
+        0,
+        "415gtxvqcxvnduwadqfpkomfsislnwphrukkilyjfamercbhubagp",
+        "056cpdalapvb6aaqvaibafudarbbvd0daobv7abi0bbxucaybmubatbjuaazbg7dbu0cb2a36cb46aa0wc",
+        "0",
+    );
+    assert!(replay.clue_is_bad(2, game::Clue::Color(game::ClueColor::Purple())))
+}
+
+// try to act like in https://hanab.live/shared-replay-json/415gtxvqcxvnduwadqfp-komfsislnwphrukkilyj-famercbhubagp,03tcka-akapsbahaq1aldaealam-aaxabiarocodaybnackd-atsaa2bfa3azaxxcbvaw-ab1ca91bbdas1daAb4bg-1bbob8aHtab1aGbuajb7-gbaE,0
+
 // todo https://hanab.live/shared-replay-json/415uxxrhphtwqkdbgvks-gqfneysiufmwjomkilfa-alvcnbpcrpadu,03ocwa-aklbaaafsbsaxcaswdwc-adbeaqaokbahpdbpxbat-aianacagbjwcbbayaw,0
+
+#[test]
+fn wait_on_potential_prompts() {
+    // id 3
+    let replay = replay_game(
+        3,
+        "415pfcuklchpfmlvabnegnwfdrgaspqkswkxrtibaudvixohjuqym",
+        "05pcvdajamadidaianubaeibao1cag7dicbaavaqvbobaxbl7abbahuabrvba1b00cbcafa77bbyazakap1bbC6daEbsa4DabuobaFbt1bbBa6odaJa86aqc",
+        "0",
+    );
+    assert_ne!(
+        replay.slot_perspectives(3, 3)[3].delayed,
+        0,
+        "Donald must wait on more round (to allow p1 or b1 to play)"
+    );
+}
 
 // finess clues:
 
@@ -1594,6 +1657,7 @@ fn prefer_finess_over_delayed_play_clue() {
 }
 
 #[test]
+#[ignore]
 fn layed_finess() {
     // https://hanab.live/replay-json/415gbbkuaxamlmfipdgchyaejwukhfvqlrpvnpkwsrfitcdqnusxo,05pbah0danocafalvavdae1dapaaoduaaradbgibamacaqbiavabwa,0
     // e.g. on r3 to get g1, r2 to play
@@ -1618,6 +1682,7 @@ fn dont_force_players_into_chopping_critical_cards() {
 }
 
 #[test]
+#[ignore]
 fn fix_pending_misplay() {
     // https://hanab.live/replay-json/415gbbkuaxamlmfipdgchyaejwukhfvqlrpvnpkwsrfitcdqnusxo,05pbah0danocafalvavdae1dapaaoduaaradbgibamacaqbiavabwa,0
     // turn
@@ -1665,7 +1730,7 @@ fn prompt_finess() {
 /// player sees the r1 is still missing (if it would be r3)
 /// nothing else in finess somewhere => starts with self-finess to figure out which finess it is
 fn play_or_prompt_starting_with_self_finess() {
-    let replay = replay_game(
+    let mut replay = replay_game(
         28,
         "415uwcsgfqvfwbpdbhkgxevorthxuylkimrjqpncismaaupkdlnfa",
         "03lcwaalsbaaagaipcodxaatapbcsabjavadkcaqwcabbeaxkcarbfa3ta",
@@ -1673,19 +1738,39 @@ fn play_or_prompt_starting_with_self_finess() {
     );
     let slots = replay.slot_perspectives(0, 0);
     for (player, slot) in slots.iter().enumerate() {
+        assert!(slot.play, "Player {player} missed a finess");
+    }
+    // check intermediate state
+    replay.play(1);
+    let slots = replay.slot_perspectives(0, 0);
+    for (player, slot) in slots.iter().enumerate() {
         assert_eq!(
             slot.quantum.iter().collect::<Vec<game::Card>>(),
-            vec![
-                game::Card {
-                    rank: 3,
-                    suit: game::Suit::Red()
-                },
-                game::Card {
-                    rank: 3,
-                    suit: game::Suit::Green()
-                }
-            ],
+            vec![game::Card {
+                rank: 3,
+                suit: game::Suit::Green()
+            }],
             "Player {player} missed a finess"
+        );
+    }
+    for (player, slot) in replay.slot_perspectives(0, 0).iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 3,
+                suit: game::Suit::Green()
+            }],
+            "Player {player} don't update its state after the happened finess"
+        );
+    }
+    for (player, slot) in replay.slot_perspectives(2, 3).iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 2,
+                suit: game::Suit::Red()
+            }],
+            "Player {player} forgot to restore r2"
         );
     }
 }
