@@ -16,6 +16,7 @@ pub struct LineScore {
     discard_risks: i8,
     score: u8,
     clued: u8,
+    finess: u8,
     play: u8,
     errors: u8,
     bonus: u8,
@@ -31,12 +32,14 @@ impl PartialOrd for LineScore {
         match (self.discard_risks as i32
             + self.play as i32
             + self.clued as i32 * 2
+            + self.finess as i32 * 2
             + self.bonus as i32
             - self.errors as i32 * 10)
             .cmp(
                 &(other.discard_risks as i32
                     + other.play as i32
                     + other.clued as i32 * 2
+                    + other.finess as i32 * 2
                     + other.bonus as i32
                     - other.errors as i32 * 10),
             ) {
@@ -53,6 +56,7 @@ impl LineScore {
         Self {
             score: 0,
             clued: 0,
+            finess: 0,
             play: 0,
             discard_risks: 0,
             errors: 0,
@@ -68,6 +72,7 @@ impl LineScore {
         Self {
             score: 0,
             clued: 0,
+            finess: 0,
             play: 0,
             discard_risks: 0,
             errors: 20,
@@ -517,6 +522,35 @@ impl PlayEvaluation {
                             }
                             return Err(false);
                         }
+                        if clued_player == self.whom as u8
+                            && allowed_self_search == FirstAction::NonSelf()
+                        {
+                            if let Some((found_pos, slot)) = line
+                                .hands
+                                .iter_hand_mut(clued_player)
+                                .filter(|(other_pos, slot)| {
+                                    !self.marked_cards[clued_player as usize].contains(*other_pos)
+                                        && slot.clued
+                                        && slot.quantum.contains(&previous_card)
+                                        && slot.quantum.size() == 1
+                                        && !slot.play
+                                        && slot.delayed == 0
+                                })
+                                .next()
+                            {
+                                slog::debug!(
+                                    self.logger,
+                                    "Looking for {:?}: clued on {clued_player}'s hand ({found_pos}): {slot:?}",
+                                    previous_card
+                                );
+                                self.marked_cards[clued_player as usize].add(found_pos);
+                                self.places[previous_rank as usize - 1] =
+                                    (clued_player, found_pos, PlayRelation::Prompt());
+                                self.pending_marks = true;
+                                continue;
+                            }
+                            return Err(false);
+                        }
                         if let Some((found_pos, slot)) = line
                             .hands
                             .iter_hand_mut(clued_player)
@@ -610,6 +644,7 @@ impl PlayEvaluation {
                             self.places[previous_rank as usize - 1] =
                                 (finess_player, other_pos, PlayRelation::Finess());
                             self.pending_marks = true;
+                            // allowed_self_search = FirstAction::SelfFiness();
                             continue 'rank_loop;
                         }
                     }
@@ -734,8 +769,10 @@ impl PlayEvaluation {
                 }
                 PlayRelation::Prompt() => match certainty {
                     MarkCertainty::Prep() => {
-                        found_slot.quantum.soft_clear();
-                        found_slot.quantum.add_card(&previous_card, true);
+                        if player != self.whom as u8 {
+                            found_slot.quantum.soft_clear();
+                            found_slot.quantum.add_card(&previous_card, true);
+                        }
                         found_slot.update_slot_attributes(&line.card_states);
                         if self.whom == 0 {
                             line.callbacks.push_front(Callback::WaitingPlay {
@@ -744,8 +781,10 @@ impl PlayEvaluation {
                             });
                             line.hands.slot_mut(next_player as u8, next_pos).delayed += 1;
                         }
-                        let focused_slot = line.hands.slot_mut(self.whom as u8, self.pos);
-                        focused_slot.quantum.remove_card(&previous_card, true);
+                        if player != self.whom as u8 {
+                            let focused_slot = line.hands.slot_mut(self.whom as u8, self.pos);
+                            focused_slot.quantum.remove_card(&previous_card, true);
+                        }
                     }
 
                     MarkCertainty::Unambigious() => {
@@ -859,6 +898,7 @@ impl Line {
     pub fn score(&self, extra_error: u8) -> LineScore {
         let mut discard_risks = 0;
         let mut clued = 0;
+        let mut finess = 0;
         let mut play = 0;
         let mut errors = extra_error;
         if cfg!(debug_assertions) && extra_error > 0 {
@@ -937,6 +977,7 @@ impl Line {
                         }
                     }
                     if slot.promised.is_some() {
+                        finess += 1;
                         if !slot.quantum.contains(&slot.card) {
                             if cfg!(debug_assertions) {
                                 println!(
@@ -999,6 +1040,7 @@ impl Line {
         LineScore {
             score: self.score,
             clued,
+            finess,
             play,
             discard_risks,
             errors,

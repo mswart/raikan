@@ -491,17 +491,19 @@ fn clue_multiple_ones1() {
 }
 
 #[test]
+#[ignore]
 fn clue_multiple_ones2() {
     // seed 278
-    let line = replay_game(
+    let replay = replay_game(
         1,
         "415isapgyqxplkqmbsktuwhivnexfncwdgvrajfpahfurdlmcboku",
         "05uc0cakiaacidaianvc6aalDcar6aajbmav6casbo6bahbuibbaa1iabpa3af1aoca6beazbtDdDdbwaxudbgvbb5bba4b21cocb7aIa0udb9aCaLbdbEbqqd",
         "0",
-    ).line;
+    );
 
     assert!(
-        clue(&line, 3, game::Clue::Rank(1)) > clue(&line, 1, game::Clue::Color(ClueColor::Blue()))
+        replay.clone().clue(0, game::Clue::Rank(1))
+            > replay.clone().clue(2, game::Clue::Color(ClueColor::Blue()))
     );
 }
 
@@ -1847,6 +1849,54 @@ fn assume_good_touch_from_finesses() {
                 suit: game::Suit::Purple()
             },],
             "Player {player} should assume p4 via good touch principal"
+        );
+    }
+}
+
+#[test]
+/// with all ones played and nothing else clued,
+/// and a hand of [y2, xx, y3', xx]
+/// use self-finess to get two cards to play instead of one with yellow only
+fn prefer_self_finess_over_normal_play_clue() {
+    // id 685
+    let replay = replay_game(
+        9,
+        "415auulkldpfphycrnxwrfghivmocfqenaqwdambupkjskstbixgv",
+        "05pbahpaocacaeai6aaaocatuaadocav6aawbfoabm6baqbj1abb0aa2a0wd",
+        "0",
+    );
+    assert!(
+        replay.clone().clue(2, game::Clue::Rank(3))
+            > replay
+                .clone()
+                .clue(2, game::Clue::Color(game::ClueColor::Yellow()))
+    );
+}
+
+#[test]
+/// with all ones played and nothing else clued,
+/// and a hand of [y2, xx, y3', xx]
+/// use self-finess to get two cards to play instead of one with yellow only
+fn dont_assume_self_prompt() {
+    // id 685
+    let replay = replay_game(
+        13,
+        "415auulkldpfphycrnxwrfghivmocfqenaqwdambupkjskstbixgv",
+        "05pbahpaocacaeai6aaaocatuaadocav6aawbfoabm6baqbj1abb0aa2a0wd",
+        "0",
+    );
+    let clue_4 = replay.clone().clue(2, game::Clue::Rank(4));
+    let mut yellow_replay = replay.clone();
+    let yellow_clue = yellow_replay.clue(2, game::Clue::Color(game::ClueColor::Yellow()));
+    assert!(clue_4 > yellow_clue);
+    for (player, slot) in yellow_replay.slot_perspectives(2, 0).iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![game::Card {
+                rank: 3,
+                suit: game::Suit::Yellow()
+            },],
+            "Player {player} assumpted something to complex"
         );
     }
 }
