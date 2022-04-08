@@ -555,6 +555,7 @@ impl PlayEvaluation {
                             !self.marked_cards[0 as usize].contains(*other_pos)
                                 && slot.clued
                                 && slot.quantum.contains(&previous_card)
+                                && (self.who != 0 || slot.quantum.size() == 1)
                                 && (slot.play || slot.delayed > 0)
                         })
                         .next()
@@ -1231,7 +1232,52 @@ impl Line {
                         self.callbacks.remove(i);
                     }
                 }
-                _ => {}
+                Callback::WaitingPlay {
+                    delayed_slot,
+                    pending_slot,
+                } => {
+                    if delayed_slot as usize == slot_index {
+                        self.callbacks.remove(i);
+                    } else if pending_slot as usize == slot_index {
+                        let mut slot = &mut self.hands.slots[delayed_slot as usize];
+                        slot.delayed -= 1;
+                        if slot.delayed == 0 {
+                            slot.update_slot_attributes(&self.card_states);
+                        }
+                        self.callbacks.remove(i);
+                    }
+                }
+                Callback::PotentialFiness {
+                    delayed_slot,
+                    pending_slot,
+                    expected_card: _,
+                } => {
+                    if delayed_slot as usize == slot_index {
+                        self.callbacks.remove(i);
+                    } else if pending_slot as usize == slot_index {
+                        let mut slot = &mut self.hands.slots[delayed_slot as usize];
+                        slot.delayed -= 1;
+                        if slot.delayed == 0 {
+                            slot.update_slot_attributes(&self.card_states);
+                        }
+                        self.callbacks.remove(i);
+                    }
+                }
+                Callback::Finess {
+                    delayed_slot,
+                    pending_slot,
+                } => {
+                    if delayed_slot as usize == slot_index {
+                        self.callbacks.remove(i);
+                    } else if pending_slot as usize == slot_index {
+                        let mut slot = &mut self.hands.slots[delayed_slot as usize];
+                        slot.delayed -= 1;
+                        if slot.delayed == 0 {
+                            slot.update_slot_attributes(&self.card_states);
+                        }
+                        self.callbacks.remove(i);
+                    }
+                }
             };
         }
     }

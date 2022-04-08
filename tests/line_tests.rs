@@ -1513,6 +1513,19 @@ fn dont_self_prompt_yourself() {
 }
 
 #[test]
+// waitplay callbacks must be removed if that card is chopped
+fn dont_self_prompt_yourself2() {
+    // id 184
+    let mut replay = replay_game(
+        12,
+        "415rdumafqudgvpbaufxglhhynqsmfiwkivcsarbekxnotlkpjcpw",
+        "05pbahvdvc0bafal6cocagak1a6baqauapwd",
+        "0",
+    );
+    assert!(replay.clue_is_bad(1, game::Clue::Color(game::ClueColor::Purple())));
+}
+
+#[test]
 fn no_wait_if_not_possible() {
     // seed 0
     let replay = replay_game(
@@ -1834,6 +1847,24 @@ fn assume_good_touch_from_finesses() {
                 suit: game::Suit::Purple()
             },],
             "Player {player} should assume p4 via good touch principal"
+        );
+    }
+}
+
+#[test]
+// waitplay callbacks must be removed if that card is chopped
+fn flush_delay_waits_upon_discard() {
+    // id 17001580704262382651
+    let replay = replay_game(
+        27,
+        "415pqhrfftgbgjokakuablnusrvadxppdclwvimxsmqyekuihnfwc",
+        "05pd0apbapaaaevaaoabpdvbaqicas1abnadah0davbuvdbjaxarvcbiDcby1ab20ba6ag7dbma4a9oaa3b16db5aAucbw6ab0aEicaFoaac7caKata8bHalbNqa",
+        "0",
+    );
+    for (player, slot) in replay.slot_perspectives(0, 3).iter().enumerate() {
+        assert_eq!(
+            slot.delayed, 0,
+            "Player {player} forgot to clear a delay note somewhere"
         );
     }
 }
