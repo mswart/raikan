@@ -6,6 +6,9 @@ use hanabi::{
     PositionSet,
 };
 
+extern crate slog;
+extern crate slog_term;
+
 mod tester;
 
 macro_rules! card {
@@ -63,18 +66,24 @@ struct Replay {
     pub line: hyphenated::Line,
     pub lines: [hyphenated::Line; 4],
 }
+use slog::*;
 
 fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> Replay {
+    let decorator = slog_term::TermDecorator::new().build();
+    let drain = slog_term::CompactFormat::new(decorator).build().fuse();
+    let drain = std::sync::Mutex::new(drain).fuse();
+    let log = slog::Logger::root(drain, o!());
+
     let num_players = deck
         .chars()
         .nth(0)
         .expect("deck should be non-empty")
         .to_digit(10)
         .expect("player count must be a number") as u8;
-    let mut h1 = HyphenatedPlayer::new(false);
-    let mut h2 = HyphenatedPlayer::new(false);
-    let mut h3 = HyphenatedPlayer::new(false);
-    let mut h4 = HyphenatedPlayer::new(false);
+    let mut h1 = HyphenatedPlayer::with_logger(log.new(o!("player" => "Alice")));
+    let mut h2 = HyphenatedPlayer::with_logger(log.new(o!("player" => "Bob")));
+    let mut h3 = HyphenatedPlayer::with_logger(log.new(o!("player" => "Cathy")));
+    let mut h4 = HyphenatedPlayer::with_logger(log.new(o!("player" => "Donald")));
     let mut players: Vec<&mut dyn hanabi::game::PlayerStrategy> = Vec::new();
     players.push(&mut h1);
     players.push(&mut h2);

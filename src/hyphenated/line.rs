@@ -9,6 +9,8 @@ use crate::{
 use super::card_states::CardStates;
 use super::slot::Slot;
 
+use slog;
+
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct LineScore {
     discard_risks: i8,
@@ -74,7 +76,7 @@ impl LineScore {
     }
 }
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(Clone)]
 pub struct Line {
     pub hands: Hands,
     turn: i8,
@@ -83,7 +85,21 @@ pub struct Line {
     score: u8,
     own_player: u8,
     pub callbacks: VecDeque<Callback>,
+    logger: slog::Logger,
 }
+
+impl PartialEq for Line {
+    fn eq(&self, other: &Self) -> bool {
+        self.hands == other.hands
+            && self.turn == other.turn
+            && self.variant == other.variant
+            && self.card_states == other.card_states
+            && self.score == other.score
+            && self.own_player == other.own_player
+            && self.callbacks == other.callbacks
+    }
+}
+impl Eq for Line {}
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Hands {
@@ -321,10 +337,11 @@ struct PlayEvaluation {
     pending_marks: bool,
     played_rank: u8,
     marked_cards: [PositionSet; 6],
+    logger: slog::Logger,
 }
 
 impl PlayEvaluation {
-    fn prep(line: &mut Line, who: usize, whom: usize, pos: u8) -> u8 {
+    fn prep(line: &mut Line, who: usize, whom: usize, pos: u8, logger: slog::Logger) -> u8 {
         let mut evaluation = Self {
             who,
             whom,
@@ -334,6 +351,7 @@ impl PlayEvaluation {
             pending_marks: false,
             played_rank: 0,
             marked_cards: [PositionSet::new(6); 6],
+            logger,
         };
         match evaluation.resolve(line, true) {
             Ok(()) => {
@@ -351,6 +369,7 @@ impl PlayEvaluation {
         whom: usize,
         pos: u8,
         allow_first_action: bool,
+        logger: slog::Logger,
     ) -> Result<Self, bool> {
         let mut evaluation = Self {
             who,
@@ -361,6 +380,7 @@ impl PlayEvaluation {
             pending_marks: false,
             played_rank: 0,
             marked_cards: [PositionSet::new(6); 6],
+            logger,
         };
         match evaluation.resolve(line, allow_first_action) {
             Ok(_) => Ok(evaluation),
@@ -381,6 +401,7 @@ impl PlayEvaluation {
             pending_marks: false,
             played_rank: 0,
             marked_cards: [PositionSet::new(6); 6],
+            logger: slog::Logger::root(slog::Discard, slog::o!()),
         }
     }
 
@@ -407,21 +428,10 @@ impl PlayEvaluation {
                         self.played_rank = previous_rank;
                         continue;
                     }
-                    if cfg!(debug_assertions) {
-                        println!(
-                            "{} clued {}: evaluating {:?} => looking for {previous_card:?} => {:?}",
-                            self.who, self.whom, self.card, previous_state
-                        );
-                    }
-
                     // obvious place: everybody knows where it is
                     if previous_state.clued == Some(255) {
                         // known place for everybody
                         // need to add notify?
-                        if cfg!(debug_assertions) {
-                            println!("{} clued {}: evaluating {:?} => looking for {previous_card:?} => callback!!! {:?}",
-                            self.who, self.whom, self.card, previous_state);
-                        }
                         let (player, turn) = previous_state
                             .locked
                             .expect("clued = Some(255) should also lock the slot, or?");
@@ -429,6 +439,11 @@ impl PlayEvaluation {
                             if slot.turn == turn {
                                 self.places[previous_rank as usize - 1] =
                                     (player, pos, PlayRelation::Prompt());
+                                slog::debug!(
+                                    self.logger,
+                                    "Looking for {:?}: clued on {player}'s hand: {slot:?}",
+                                    previous_card
+                                );
                             }
                         }
                         self.pending_marks = true;
@@ -437,7 +452,7 @@ impl PlayEvaluation {
 
                     // card is clued (but player doesn't know for sure):
                     if let Some(clued_player) = previous_state.clued {
-                        if let Some((found_pos, _slot)) = line
+                        if let Some((found_pos, slot)) = line
                             .hands
                             .iter_hand_mut(clued_player)
                             .filter(|(other_pos, slot)| {
@@ -448,11 +463,11 @@ impl PlayEvaluation {
                             })
                             .next()
                         {
-                            if cfg!(debug_assertions) {
-                                println!(
-                                "search_card: Found it in play clued of {clued_player}'s hand at pos {found_pos}"
+                            slog::debug!(
+                                self.logger,
+                                "Looking for {:?}: queued on {clued_player}'s hand: {slot:?}",
+                                previous_card
                             );
-                            }
                             self.marked_cards[clued_player as usize].add(found_pos);
                             self.places[previous_rank as usize - 1] =
                                 (clued_player, found_pos, PlayRelation::WaitingPlay());
@@ -460,7 +475,7 @@ impl PlayEvaluation {
                             continue;
                         }
                         if clued_player == self.who as u8 {
-                            if let Some((found_pos, _slot)) = line
+                            if let Some((found_pos, slot)) = line
                                 .hands
                                 .iter_hand_mut(clued_player)
                                 .filter(|(other_pos, slot)| {
@@ -473,11 +488,11 @@ impl PlayEvaluation {
                                 })
                                 .next()
                             {
-                                if cfg!(debug_assertions) {
-                                    println!(
-                                    "search_card: Found it in {clued_player}'s hand at pos {found_pos}"
+                                slog::debug!(
+                                    self.logger,
+                                    "Looking for {:?}: clued on {clued_player}'s hand ({found_pos}): {slot:?}",
+                                    previous_card
                                 );
-                                }
                                 self.marked_cards[clued_player as usize].add(found_pos);
                                 self.places[previous_rank as usize - 1] =
                                     (clued_player, found_pos, PlayRelation::Prompt());
@@ -486,7 +501,7 @@ impl PlayEvaluation {
                             }
                             return Err(false);
                         }
-                        if let Some((found_pos, _slot)) = line
+                        if let Some((found_pos, slot)) = line
                             .hands
                             .iter_hand_mut(clued_player)
                             .filter(|(other_pos, slot)| {
@@ -498,21 +513,26 @@ impl PlayEvaluation {
                             })
                             .next()
                         {
-                            if cfg!(debug_assertions) {
-                                println!(
-                                    "search_card: Found it in {clued_player}'s hand at pos {found_pos}"
-                                );
-                            }
+                            slog::debug!(
+                                self.logger,
+                                "Looking for {:?}: clued on {clued_player}'s hand ({found_pos}): {slot:?}",
+                                previous_card
+                            );
                             self.marked_cards[clued_player as usize].add(found_pos);
                             self.places[previous_rank as usize - 1] =
                                 (clued_player, found_pos, PlayRelation::Prompt());
                             self.pending_marks = true;
                             continue;
                         }
+                        slog::debug!(
+                            self.logger,
+                            "Looking for {:?}: clued somewhere but not found",
+                            previous_card
+                        );
                         return Err(false); // card not found but was marked as "clued" (probably clued card doubled used).
                     }
 
-                    if let Some((found_pos, _slot)) = line
+                    if let Some((found_pos, slot)) = line
                         .hands
                         .iter_hand_mut(0)
                         .filter(|(other_pos, slot)| {
@@ -523,11 +543,11 @@ impl PlayEvaluation {
                         })
                         .next()
                     {
-                        if cfg!(debug_assertions) {
-                            println!(
-                            "search_card: Found it in play clued of 0's hand at pos {found_pos}"
+                        slog::debug!(
+                            self.logger,
+                            "Looking for {:?}: queued in our hand ({found_pos}): {slot:?}",
+                            previous_card
                         );
-                        }
                         self.marked_cards[0 as usize].add(found_pos);
                         self.places[previous_rank as usize - 1] =
                             (0, found_pos, PlayRelation::WaitingPlay());
@@ -605,11 +625,11 @@ impl PlayEvaluation {
                             if slot.card != previous_card {
                                 break;
                             }
-                            if cfg!(debug_assertions) {
-                                println!(
-                                    "search_card: Found on finess of {finess_player}'s hand ({other_pos})"
-                                );
-                            }
+                            slog::debug!(
+                                self.logger,
+                                "Looking for {:?}: found on {finess_player}'s finess position ({other_pos}): {slot:?}",
+                                previous_card
+                            );
                             self.marked_cards[finess_player as usize].add(other_pos);
                             self.places[previous_rank as usize - 1] =
                                 (finess_player, other_pos, PlayRelation::Finess());
@@ -625,11 +645,11 @@ impl PlayEvaluation {
                             if !slot.quantum.contains(&previous_card) {
                                 break;
                             }
-                            if cfg!(debug_assertions) {
-                                println!(
-                                    "search_card: Expect on one finess position ({other_pos})"
-                                );
-                            }
+                            slog::debug!(
+                                self.logger,
+                                "Looking for {:?}: found on own finess position ({other_pos}): {slot:?}",
+                                previous_card
+                            );
                             self.marked_cards[0 as usize].add(other_pos);
                             self.places[previous_rank as usize - 1] =
                                 (0, other_pos, PlayRelation::Finess());
@@ -637,6 +657,7 @@ impl PlayEvaluation {
                             continue 'rank_loop;
                         }
                     }
+                    slog::debug!(self.logger, "Looking for {:?}: not found", previous_card);
                     all_connecting_cards = false;
                     break;
                 }
@@ -653,9 +674,7 @@ impl PlayEvaluation {
         if !self.pending_marks {
             return;
         }
-        if cfg!(debug_assertions) {
-            println!("mark({certainty:?}: {self:?}");
-        }
+        slog::debug!(self.logger, "mark: {self:?}");
         for previous_rank in (self.played_rank + 1)..self.card.rank {
             let previous_card = game::Card {
                 rank: previous_rank,
@@ -738,7 +757,7 @@ impl PlayEvaluation {
 }
 
 impl Line {
-    pub fn new(num_players: u8, own_player: u8) -> Self {
+    pub fn with_logger(num_players: u8, own_player: u8, logger: slog::Logger) -> Self {
         let variant = Variant {};
         let empty_slot = Slot {
             quantum: CardQuantum::new(variant),
@@ -780,7 +799,16 @@ impl Line {
             score: 0,
             own_player,
             callbacks: VecDeque::new(),
+            logger,
         }
+    }
+
+    pub fn new(num_players: u8, own_player: u8) -> Self {
+        Self::with_logger(
+            num_players,
+            own_player,
+            slog::Logger::root(slog::Discard, slog::o!()),
+        )
     }
 
     pub fn score(&self, extra_error: u8) -> LineScore {
@@ -1362,18 +1390,40 @@ impl Line {
 
     fn resolve_play_clue(&mut self, who: usize, whom: usize, pos: u8) -> u8 {
         let mut error = 0;
-        let mut evaluations: [PlayEvaluation; 5] = [PlayEvaluation::empty(); 5];
+        let mut evaluations: [PlayEvaluation; 5] = [
+            PlayEvaluation::empty(),
+            PlayEvaluation::empty(),
+            PlayEvaluation::empty(),
+            PlayEvaluation::empty(),
+            PlayEvaluation::empty(),
+        ];
         let mut num_evaluations = 0;
         // 0. update prompt based on actually clued card:
         if whom > 0 {
-            error += PlayEvaluation::prep(self, who, whom, pos);
+            error += PlayEvaluation::prep(
+                self,
+                who,
+                whom,
+                pos,
+                self.logger.new(slog::o!("eval" => "prep")),
+            );
         }
         let mut play_quantum = self.hands.slot(whom as u8, pos).quantum;
 
         // Evaluating play clue based on Occam's Razor https://hanabi.github.io/docs/level-10#clue-interpretation--occams-razor
         // 1. direct and delayed plays (or prompts of other hands)
         for potential_card in self.hands.slot(whom as u8, pos).quantum.clone().iter() {
-            match PlayEvaluation::test(self, potential_card, who, whom, pos, false) {
+            match PlayEvaluation::test(
+                self,
+                potential_card,
+                who,
+                whom,
+                pos,
+                false,
+                self.logger.new(
+                    slog::o!("eval" => "non-self", "card?" => format!("{:?}", potential_card)),
+                ),
+            ) {
                 Ok(evaluation) => {
                     evaluations[num_evaluations] = evaluation;
                     num_evaluations += 1;
@@ -1392,7 +1442,17 @@ impl Line {
         if play_quantum.size() == 0 {
             play_quantum.reset_soft();
             for potential_card in play_quantum.clone().iter() {
-                match PlayEvaluation::test(self, potential_card, who, whom, pos, true) {
+                match PlayEvaluation::test(
+                    self,
+                    potential_card,
+                    who,
+                    whom,
+                    pos,
+                    true,
+                    self.logger.new(
+                        slog::o!("eval" => "self", "card?" => format!("{:?}", potential_card)),
+                    ),
+                ) {
                     Ok(evaluation) => {
                         evaluations[num_evaluations] = evaluation;
                         num_evaluations += 1;
@@ -1411,6 +1471,11 @@ impl Line {
         match play_quantum.size() {
             0 => error += 2,
             1 => {
+                slog::debug!(
+                    self.logger,
+                    "Play evaluation left only: {:?}",
+                    evaluations[0].card
+                );
                 assert_eq!(num_evaluations, 1);
                 self.hands
                     .slot_mut(whom as u8, pos)
@@ -1419,6 +1484,10 @@ impl Line {
                 evaluations[0].mark(self, MarkCertainty::Unambigious());
             }
             _ => {
+                slog::debug!(
+                    self.logger,
+                    "Play evaluation left multiple-options: {play_quantum}",
+                );
                 for i in 0..num_evaluations {
                     evaluations[i].mark(self, MarkCertainty::Ambigious());
                 }

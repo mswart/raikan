@@ -5,6 +5,8 @@ mod slot;
 use crate::card_quantum::Variant;
 use crate::game;
 
+use slog;
+
 pub use line::Line;
 pub use line::LineScore;
 pub use slot::Slot;
@@ -37,16 +39,26 @@ pub struct HyphenatedPlayer {
     variant: Variant,
     turn: u8,
     line: line::Line,
+    logger: slog::Logger,
 }
 
 impl HyphenatedPlayer {
     pub fn new(debug: bool) -> Self {
+        Self::_new(debug, slog::Logger::root(slog::Discard, slog::o!()))
+    }
+
+    fn _new(debug: bool, logger: slog::Logger) -> Self {
         Self {
             debug,
             variant: Variant {},
             turn: 0,
             line: line::Line::new(4, 0),
+            logger,
         }
+    }
+
+    pub fn with_logger(logger: slog::Logger) -> Self {
+        Self::_new(false, logger)
     }
 
     pub fn line(&self) -> line::Line {
@@ -58,7 +70,11 @@ impl game::PlayerStrategy for HyphenatedPlayer {
     fn init(&mut self, num_players: u8, own_player: u8) {
         self.variant = Variant {};
         self.turn = 0;
-        self.line = line::Line::new(num_players, own_player);
+        self.line = line::Line::with_logger(
+            num_players,
+            own_player,
+            self.logger.new(slog::o!("turn" => "0")),
+        );
     }
 
     fn drawn(&mut self, player: usize, card: game::Card) {
