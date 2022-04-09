@@ -69,7 +69,7 @@ struct Replay {
 use slog::*;
 
 fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> Replay {
-    let decorator = slog_term::TermDecorator::new().build();
+    let decorator = slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter);
     let drain = slog_term::CompactFormat::new(decorator).build().fuse();
     let drain = std::sync::Mutex::new(drain).fuse();
     let log = slog::Logger::root(drain, o!());
@@ -1917,4 +1917,118 @@ fn flush_delay_waits_upon_discard() {
             "Player {player} forgot to clear a delay note somewhere"
         );
     }
+}
+
+#[test]
+// waitplay callbacks must be removed if that card is chopped
+fn clear_alternative_finess_after_first_play() {
+    // id 431
+    let mut replay = replay_game(
+        1,
+        "415jqfgllkfugiwmiapvenxcdsbnfuatpqbwaxmpcushrodykhvkr",
+        "05vcahva6cvbpdaiapadaeajaoabia1bicaxauavbmubagarDabcafbk6a7da5wb",
+        "0",
+    );
+    replay.play(0);
+    let y2 = game::Card {
+        rank: 2,
+        suit: game::Suit::Yellow(),
+    };
+    for (player, slot) in replay.slot_perspectives(2, 2).iter().enumerate() {
+        assert_eq!(
+            slot.quantum.iter().collect::<Vec<game::Card>>(),
+            vec![y2],
+            "Player {player} missed that the played finess clears the card identity"
+        );
+        assert_eq!(
+            slot.delayed, 0,
+            "Player {player} forgot to clear a delay note somewhere"
+        );
+    }
+    for (player, line) in replay.lines.iter().enumerate() {
+        assert!(
+            line.card_states[&y2].locked.is_some() || line.card_states[&y2].clued.is_some(),
+            "Player {player} missed the clearing finess play"
+        );
+    }
+}
+
+#[test]
+// waitplay callbacks must be removed if that card is chopped
+fn good_touch_principal3() {
+    // id 431
+    let mut replay = replay_game(
+        2,
+        "415jqfgllkfugiwmiapvenxcdsbnfuatpqbwaxmpcushrodykhvkr",
+        "05vcahva6cvbpdaiapadaeajaoabia1bicaxauavbmubagarDabcafbk6a7da5wb",
+        "0",
+    );
+    assert!(replay.clue_is_bad(0, game::Clue::Rank(2)));
+}
+
+#[test]
+// play clue promises g1 and g2 (finess). the player has multiple ones it could be any of them
+// g2 must only be played if g1 is found
+fn move_promised_card_to_next_clued_card() {
+    // id 6
+    let replay = replay_game(
+        4,
+        "415tmxfdcqukafnuihnlbduplvafympcewopgrkvbjsihqkrsgxwa",
+        "05pcDaak1a6bahaj1b7c7daqucbc0aaibmauucavboab6dbtapvbbrvdawbdaguab2a5afoda71dbe0aa4a8b3aswc",
+        "0",
+    );
+    let slot = replay.slot_perspectives(2, 2)[2];
+    assert_eq!(
+        slot.quantum.iter().collect::<Vec<game::Card>>(),
+        vec![game::Card {
+            rank: 1,
+            suit: game::Suit::Green(),
+        }],
+        "Player 2 missed that the finess promised g1 somewhere"
+    );
+    assert_eq!(
+        slot.promised,
+        Some(4),
+        "Player 2 missed that they must continue to search for g1"
+    );
+
+    // play r1 thinking it is g1:
+    let replay = replay_game(
+        7,
+        "415tmxfdcqukafnuihnlbduplvafympcewopgrkvbjsihqkrsgxwa",
+        "05pcDaak1a6bahaj1b7c7daqucbc0aaibmauucavboab6dbtapvbbrvdawbdaguab2a5afoda71dbe0aa4a8b3aswc",
+        "0",
+    );
+    let slot = replay.slot_perspectives(2, 3)[2];
+    assert_eq!(
+        slot.quantum.iter().collect::<Vec<game::Card>>(),
+        vec![game::Card {
+            rank: 1,
+            suit: game::Suit::Green(),
+        }],
+        "Player 2 missed that the finess promised g1 somewhere"
+    );
+    assert_eq!(
+        slot.promised,
+        Some(4),
+        "Player 2 missed that they must continue to search for g1"
+    );
+}
+
+#[test]
+// get [p3 xx p3 xx] to play by recluing p4 in other hand to initiate a finess
+// otherwise it would be a bad touch clue.
+fn finess_over_direct_clue_with_bad_touch() {
+    // id 17
+    let replay = replay_game(
+        21,
+        "415xvpskfqgqixmgddhawafusoplmnwfchrcprbltubjeiayunkvk",
+        "05vbafpbpaacaq1d0bocahbiappcagauvabaaeaj7cab1ablDba1bsak6aayawbx1cbrida8bma90cb51aa6bt0davb3oab2aBaE6caIaoibaFuaaMaKwa",
+        "0",
+    );
+    let p4_play = replay
+        .clone()
+        .clue(2, game::Clue::Color(game::ClueColor::Purple()));
+    let p3_clue = replay.clone().clue(0, game::Clue::Rank(3));
+    assert!(p4_play > p3_clue);
 }
