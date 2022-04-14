@@ -156,6 +156,12 @@ impl CardQuantum {
         self.soft_cards[index] & rank_bit > 0
     }
 
+    pub fn contains_hard(&self, card: &game::Card) -> bool {
+        let index = self.variant.suit_index(&card.suit);
+        let rank_bit = 1 << (card.rank - 1);
+        self.hard_cards[index] & rank_bit > 0
+    }
+
     pub fn is_rank(&self, rank: u8) -> bool {
         let bit_test = !(1 << (rank - 1));
         for suit_index in 0..self.variant.suits().len() {
@@ -222,6 +228,10 @@ impl CardQuantum {
             }
         }
         false
+    }
+
+    pub fn to_vec(&self) -> Vec<game::Card> {
+        self.iter().collect()
     }
 }
 

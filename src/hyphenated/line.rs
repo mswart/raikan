@@ -376,7 +376,7 @@ impl PlayEvaluation {
         };
         match evaluation.resolve(line, FirstAction::SelfFiness()) {
             Ok(()) => {
-                evaluation.mark(line, MarkCertainty::Prep());
+                evaluation.mark(line, MarkCertainty::Prep(), true);
                 0
             }
             Err(_) => 2,
@@ -605,6 +605,62 @@ impl PlayEvaluation {
                         }
                     }
 
+                    // check finess positions:
+                    for finess_player in (1..line.hands.num_players).rev() {
+                        if finess_player == self.who as u8 {
+                            // a clue giver does not know their own hand => they can't target their finess cards
+                            continue;
+                        }
+                        if finess_player == self.whom as u8
+                            && allowed_self_search != FirstAction::SelfFiness()
+                        {
+                            continue;
+                        }
+                        if let Some(_) = line
+                            .hands
+                            .iter_hand_mut(finess_player)
+                            .filter(|(other_pos, slot)| {
+                                !self.marked_cards[finess_player as usize].contains(*other_pos)
+                                    && slot.clued
+                                    && slot.quantum.contains(&previous_card)
+                                    && !matches!(
+                                        line.card_states[&slot.card].play,
+                                        CardPlayState::Playable()
+                                            | CardPlayState::CriticalPlayable()
+                                    )
+                            })
+                            .next()
+                        {
+                            // clued card would play first
+                            continue;
+                        }
+                        // ensure how clued card would be played earlier:
+                        for (other_pos, slot) in line.hands.iter_hand_mut(finess_player) {
+                            if slot.clued
+                                || self.marked_cards[finess_player as usize].contains(other_pos)
+                            {
+                                continue;
+                            }
+                            if slot.card != previous_card {
+                                if false && line.card_states.play_quantum.contains(&slot.card) {
+                                    continue;
+                                } else {
+                                    break;
+                                }
+                            }
+                            slog::debug!(
+                                self.logger,
+                                "Looking for {:?}: found on {finess_player}'s finess position ({other_pos}): {slot:?}",
+                                previous_card
+                            );
+                            self.marked_cards[finess_player as usize].add(other_pos);
+                            self.places[previous_rank as usize - 1] =
+                                (finess_player, other_pos, PlayRelation::Finess());
+                            self.pending_marks = true;
+                            allowed_self_search = FirstAction::SelfFiness();
+                            continue 'rank_loop;
+                        }
+                    }
                     if let Some((found_pos, slot)) = line
                         .hands
                         .iter_hand_mut(0)
@@ -629,48 +685,6 @@ impl PlayEvaluation {
                         continue;
                     }
 
-                    // check finess positions:
-                    for finess_player in (1..line.hands.num_players).rev() {
-                        if finess_player == self.who as u8 {
-                            // a clue giver does not know their own hand => they can't target their finess cards
-                            continue;
-                        }
-                        if let Some(_) = line
-                            .hands
-                            .iter_hand_mut(finess_player)
-                            .filter(|(other_pos, slot)| {
-                                !self.marked_cards[finess_player as usize].contains(*other_pos)
-                                    && slot.clued
-                                    && slot.quantum.contains(&previous_card)
-                            })
-                            .next()
-                        {
-                            // clued card would play first
-                            continue;
-                        }
-                        // ensure how clued card would be played earlier:
-                        for (other_pos, slot) in line.hands.iter_hand_mut(finess_player) {
-                            if slot.clued
-                                || self.marked_cards[finess_player as usize].contains(other_pos)
-                            {
-                                continue;
-                            }
-                            if slot.card != previous_card {
-                                break;
-                            }
-                            slog::debug!(
-                                self.logger,
-                                "Looking for {:?}: found on {finess_player}'s finess position ({other_pos}): {slot:?}",
-                                previous_card
-                            );
-                            self.marked_cards[finess_player as usize].add(other_pos);
-                            self.places[previous_rank as usize - 1] =
-                                (finess_player, other_pos, PlayRelation::Finess());
-                            self.pending_marks = true;
-                            // allowed_self_search = FirstAction::SelfFiness();
-                            continue 'rank_loop;
-                        }
-                    }
                     if allowed_self_search != FirstAction::NonSelf() {
                         for (other_pos, slot) in line.hands.iter_hand_mut(0) {
                             if self.who == 0 && slot.quantum.size() != 1 {
@@ -757,7 +771,7 @@ impl PlayEvaluation {
         }
     }
 
-    fn mark(&self, line: &mut Line, certainty: MarkCertainty) {
+    fn mark(&self, line: &mut Line, certainty: MarkCertainty, correct: bool) {
         if !self.pending_marks {
             return;
         }
@@ -845,6 +859,21 @@ impl PlayEvaluation {
                 },
                 PlayRelation::Finess() => match certainty {
                     MarkCertainty::Prep() => {
+                        if player != self.whom as u8 {
+                            found_slot.quantum.soft_clear();
+                            found_slot.quantum.add_card(&previous_card, true);
+                            found_slot.update_slot_attributes(&line.card_states);
+                            found_slot.promised = Some(line.turn);
+                            found_slot.play = true;
+                            line.callbacks.push_front(Callback::PotentialFiness {
+                                delayed_slot: line.hands.slot_index(next_player as u8, next_pos),
+                                pending_slot: line.hands.slot_index(player as u8, pos),
+                                expected_card: previous_card,
+                            });
+                            line.hands.slot_mut(next_player as u8, next_pos).delayed += 1;
+                        }
+                    }
+                    MarkCertainty::Unambigious() => {
                         found_slot.quantum.soft_clear();
                         found_slot.quantum.add_card(&previous_card, true);
                         found_slot.update_slot_attributes(&line.card_states);
@@ -857,23 +886,8 @@ impl PlayEvaluation {
                         });
                         line.hands.slot_mut(next_player as u8, next_pos).delayed += 1;
                     }
-                    MarkCertainty::Unambigious() => {
-                        found_slot.quantum.soft_clear();
-                        found_slot.quantum.add_card(&previous_card, true);
-                        found_slot.update_slot_attributes(&line.card_states);
-                        found_slot.promised = Some(line.turn);
-                        found_slot.play = true;
-                        if self.whom == 0 {
-                            line.callbacks.push_front(Callback::PotentialFiness {
-                                delayed_slot: line.hands.slot_index(next_player as u8, next_pos),
-                                pending_slot: line.hands.slot_index(player as u8, pos),
-                                expected_card: previous_card,
-                            });
-                            line.hands.slot_mut(next_player as u8, next_pos).delayed += 1;
-                        }
-                    }
                     MarkCertainty::Ambigious() => {
-                        if self.whom == 0 {
+                        if self.whom == 0 || correct {
                             if found_slot.promised.is_none() {
                                 found_slot.promised = Some(line.turn);
                                 found_slot.quantum.soft_clear();
@@ -1162,6 +1176,34 @@ impl Line {
         self.hands.insert_slot(0, hand);
     }
 
+    fn stop_finess_due_to_misplay(&mut self, _player: usize) {
+        let mut cleared = false;
+        for (_pos, slot) in self.hands.iter_hand_mut(0) {
+            if !slot.clued && slot.promised.is_some() {
+                slot.promised = None;
+                slot.quantum.reset_soft();
+                slot.play = false;
+                slot.update_slot_attributes(&self.card_states);
+                // clear up callbacks?
+                cleared = true;
+            }
+        }
+        if cleared {
+            return;
+        }
+        for (_pos, slot) in self.hands.iter_hand_mut(0) {
+            if slot.clued && slot.quantum.interset(self.card_states.play_quantum) {
+                slot.promised = None;
+                slot.quantum.reset_soft();
+                slot.play = false;
+                slot.update_slot_attributes(&self.card_states);
+                // clear up callbacks?
+                return;
+            }
+        }
+        // fix also other hands?
+    }
+
     pub fn played(
         &mut self,
         player: usize,
@@ -1181,6 +1223,7 @@ impl Line {
         } else {
             self.track_card(card, -1, player as i8);
         }
+        let mut moved_promise = None;
         if successful {
             self.score += 1;
             self.card_states[&card].clued = Some(255);
@@ -1193,49 +1236,74 @@ impl Line {
                     slot.quantum.remove_card(&card, true);
                 }
             }
+            if let Some(turn) = slot.promised {
+                // we are promised a card
+                if slot.quantum.size() > 0 && !slot.quantum.contains(&card) && player == 0 {
+                    // but we didn't play the promised card
+                    let mut moved = false;
+                    // first search for clued cards
+                    if let Some((found_pos, next_slot)) = self
+                        .hands
+                        .iter_hand_mut(player as u8)
+                        .filter(|(_other_pos, next_slot)| {
+                            next_slot.turn <= turn
+                                && next_slot.clued
+                                && next_slot.quantum.interset(slot.quantum)
+                        })
+                        .next()
+                    {
+                        slog::debug!(
+                            self.logger,
+                            "Promised {} but played {card:?}: expect card now at {found_pos} => {next_slot:?}",
+                            slot.quantum,
+                        );
+                        next_slot.promised = Some(turn);
+                        next_slot.quantum.soft_limit(slot.quantum);
+                        moved = true;
+                        moved_promise = Some(self.hands.slot_index(player as u8, found_pos));
+                    }
+                    if let Some((found_pos, next_slot)) = self
+                        .hands
+                        .iter_hand_mut(player as u8)
+                        .filter(|(_other_pos, next_slot)| {
+                            next_slot.turn <= turn
+                                && !next_slot.clued
+                                && next_slot.quantum.interset(slot.quantum)
+                        })
+                        .next()
+                    {
+                        slog::debug!(
+                            self.logger,
+                            "Promised {} but played {card:?}: expect card now at {found_pos} => {next_slot:?}",
+                            slot.quantum,
+                        );
+                        next_slot.promised = Some(turn);
+                        next_slot.quantum.soft_limit(slot.quantum);
+                        moved = true;
+                        moved_promise = Some(self.hands.slot_index(player as u8, found_pos));
+                    }
+                    if !moved {
+                        slog::warn!(
+                            self.logger,
+                            "Promised {} but played {card:?}: card can't even be one finess!!!",
+                            slot.quantum,
+                        );
+                    }
+                }
+            }
         } else {
             if slot.quantum.size() == 1 {
                 self.card_states[&slot.quantum.iter().next().expect("asd")].clued = None;
             }
             self.card_states[&card].clued = None;
             self.card_states.discarded(&card);
-        }
-        let mut moved_promise = None;
-        if let Some(turn) = slot.promised {
-            // we are promised a card
-            if slot.quantum.size() > 0 && !slot.quantum.contains(&card) && player == 0 {
-                // but we didn't play the promised card
-                let mut moved = false;
-                // first search for clued cards
-                if let Some((found_pos, next_slot)) = self
-                    .hands
-                    .iter_hand_mut(player as u8)
-                    .filter(|(other_pos, next_slot)| {
-                        next_slot.turn <= turn
-                            && next_slot.clued
-                            && next_slot.quantum.interset(slot.quantum)
-                    })
-                    .next()
-                {
-                    slog::debug!(
-                        self.logger,
-                        "Promised {} but played {card:?}: expect card now at {found_pos} => {next_slot:?}",
-                        slot.quantum,
-                    );
-                    next_slot.promised = Some(turn);
-                    next_slot.quantum.soft_limit(slot.quantum);
-                    moved = true;
-                    moved_promise = Some(self.hands.slot_index(player as u8, found_pos));
-                }
-                if !moved {
-                    slog::warn!(
-                        self.logger,
-                        "Promised {} but played {card:?}: need to search card on finess, to be implemented",
-                        slot.quantum,
-                    );
-                }
+            // TODO: if prompt is misplayed, continue with finess
+            // if let Some(turn) = slot.promised { }
+            if !slot.clued && pos == 0 {
+                self.stop_finess_due_to_misplay(player);
             }
         }
+
         let mut i = 0;
         while i < self.callbacks.len() {
             i += 1;
@@ -1256,14 +1324,12 @@ impl Line {
                         } else {
                             let mut slot = &mut self.hands.slots[delayed_slot as usize];
                             slot.delayed -= 1;
-                            if card.rank < 5 {
-                                slot.quantum.add_card(
-                                    &game::Card {
-                                        rank: card.rank + 1,
-                                        suit: card.suit,
-                                    },
-                                    true,
-                                );
+                            let next_card = game::Card {
+                                rank: card.rank + 1,
+                                suit: card.suit,
+                            };
+                            if slot.quantum.contains_hard(&next_card) {
+                                slot.quantum.add_card(&next_card, true);
                             }
                             if slot.delayed == 0 {
                                 slot.quantum.soft_limit(self.card_states.play_quantum);
@@ -1302,13 +1368,13 @@ impl Line {
                         let mut slot = &mut self.hands.slots[delayed_slot as usize];
                         if card == expected_card {
                             slot.delayed -= 1;
-                            if card.rank < 5 {
+                            let next_card = game::Card {
+                                rank: card.rank + 1,
+                                suit: card.suit,
+                            };
+                            if slot.quantum.contains_hard(&next_card) && card.rank < 5 {
                                 slot.delayed = 0;
                                 slot.update_slot_attributes(&self.card_states);
-                                let next_card = game::Card {
-                                    rank: card.rank + 1,
-                                    suit: card.suit,
-                                };
                                 slot.quantum.soft_clear();
                                 slot.quantum.add_card(&next_card, true);
                                 if self.card_states[&next_card].clued.is_none() {
@@ -1324,10 +1390,10 @@ impl Line {
                                             ..
                                         } => {
                                             if delayed_slot == delayed_slot2 {
+                                                j -= 1;
                                                 if j < i {
                                                     i -= 1;
                                                 }
-                                                j -= 1;
                                                 self.callbacks.remove(j);
                                             };
                                         }
@@ -1337,6 +1403,9 @@ impl Line {
                                         } => {
                                             if delayed_slot == delayed_slot2 {
                                                 j -= 1;
+                                                if j < i {
+                                                    i -= 1;
+                                                }
                                                 self.callbacks.remove(j);
                                             };
                                         }
@@ -1346,10 +1415,10 @@ impl Line {
                                             ..
                                         } => {
                                             if delayed_slot == delayed_slot2 {
+                                                j -= 1;
                                                 if j < i {
                                                     i -= 1;
                                                 }
-                                                j -= 1;
                                                 self.callbacks.remove(j);
                                                 let pending_slot = &mut self.hands.slots
                                                     [pending_slot_index2 as usize];
@@ -1366,10 +1435,10 @@ impl Line {
                                             ..
                                         } => {
                                             if delayed_slot == delayed_slot2 {
+                                                j -= 1;
                                                 if j < i {
                                                     i -= 1;
                                                 }
-                                                j -= 1;
                                                 self.callbacks.remove(j);
                                             };
                                         }
@@ -1431,7 +1500,9 @@ impl Line {
                     delayed_slot,
                     potential_player,
                 } => {
-                    if potential_player == player as u8 {
+                    if delayed_slot as usize == slot_index {
+                        self.callbacks.remove(i);
+                    } else if potential_player == player as u8 {
                         let mut slot = &mut self.hands.slots[delayed_slot as usize];
                         slot.delayed -= 1;
                         self.callbacks.remove(i);
@@ -1873,7 +1944,7 @@ impl Line {
                     .slot_mut(whom as u8, pos)
                     .quantum
                     .add_card(&evaluations[0].card, true);
-                evaluations[0].mark(self, MarkCertainty::Unambigious());
+                evaluations[0].mark(self, MarkCertainty::Unambigious(), true);
             }
             _ => {
                 slog::debug!(
@@ -1881,7 +1952,11 @@ impl Line {
                     "Play evaluation left multiple-options: {play_quantum}",
                 );
                 for i in 0..num_evaluations {
-                    evaluations[i].mark(self, MarkCertainty::Ambigious());
+                    evaluations[i].mark(
+                        self,
+                        MarkCertainty::Ambigious(),
+                        whom > 0 && evaluations[i].card == self.hands.slot(whom as u8, pos).card,
+                    );
                 }
             }
         }
