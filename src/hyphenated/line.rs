@@ -1835,6 +1835,18 @@ impl Line {
         premarked: PositionSet,
     ) -> u8 {
         let mut error = 0;
+        if who == 0 {
+            let clued_card = self.hands.slot(whom as u8, pos).card;
+            for (_pos, slot) in self.hands.iter_hand(0) {
+                if slot.clued && slot.quantum.contains(&clued_card) {
+                    slog::debug!(
+                        self.logger,
+                        "Potential double clue of {clued_card:?} (already on our slot {slot:?}"
+                    );
+                    error += 1;
+                }
+            }
+        }
         let mut evaluations: [PlayEvaluation; 5] = [
             PlayEvaluation::empty(),
             PlayEvaluation::empty(),
