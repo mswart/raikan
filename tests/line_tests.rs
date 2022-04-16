@@ -162,13 +162,7 @@ impl Replay {
         let clued_player = (num_players + player - self.target_player as u8) % num_players;
         let score = self.line.clue(clued_player as usize, clue);
         let mut touched = PositionSet::new(self.lines[0].hands.hand_sizes[player as usize]);
-        let mut previously_clued =
-            PositionSet::new(self.lines[0].hands.hand_sizes[player as usize]);
-        for (pos, slot) in self.lines[self.target_player as usize].hands.iter_hand(0) {
-            if slot.clued {
-                previously_clued.add(pos);
-            }
-        }
+
         for (pos, slot) in self.lines[self.target_player as usize]
             .hands
             .iter_hand(clued_player)
@@ -183,7 +177,6 @@ impl Replay {
                 ((num_players + player - current_player as u8) % num_players) as usize,
                 clue,
                 touched,
-                previously_clued,
             );
         }
         self.print();
@@ -199,7 +192,6 @@ impl Replay {
             .hands
             .slot(num_players - 1, pos as u8);
         let card = slot.card;
-        let blind = !slot.clued;
         println!(
             "{}",
             format!("Player {} plays {card:?}", self.target_player)
@@ -217,7 +209,6 @@ impl Replay {
                     self.line.card_states[&card].play,
                     game::CardPlayState::Playable() | game::CardPlayState::CriticalPlayable()
                 ),
-                blind,
             );
             if let Some(card) = next_card {
                 if rel_player == 0 {
@@ -368,13 +359,7 @@ fn dont_bad_touch_same_card1() {
     hand!(line 1: [r 3, r 4, y 1, b 1]);
     hand!(line 2: [y 3, y 3, y 4, y 4]);
     hand!(line 3: [g 4, g 4, y 1, r 1]);
-    line.clued(
-        2,
-        3,
-        game::Clue::Rank(1),
-        PositionSet::create(4, 0b1100),
-        PositionSet::new(4),
-    );
+    line.clued(2, 3, game::Clue::Rank(1), PositionSet::create(4, 0b1100));
 
     println!("clued: {:?}", PositionSet::create(4, 0b1100));
     println!("line: {:?}", line);
@@ -932,7 +917,6 @@ fn unambiguous_delayed_play_clue_by_color() {
             suit: game::Suit::Blue(),
         },
         true,
-        false,
     );
 
     println!("line: {:?}", line);
@@ -942,7 +926,6 @@ fn unambiguous_delayed_play_clue_by_color() {
         0,
         game::Clue::Color(game::ClueColor::Red()),
         PositionSet::create(4, 0100),
-        PositionSet::new(4),
     );
 
     println!("line: {:?}", line);
@@ -986,18 +969,11 @@ fn ambiguous_delayed_play_clue_by_rank() {
             suit: game::Suit::Blue(),
         },
         true,
-        false,
     );
 
     println!("line: {:?}", line);
 
-    line.clued(
-        2,
-        0,
-        game::Clue::Rank(2),
-        PositionSet::create(4, 0100),
-        PositionSet::new(4),
-    );
+    line.clued(2, 0, game::Clue::Rank(2), PositionSet::create(4, 0100));
 
     println!("line: {:?}", line);
 

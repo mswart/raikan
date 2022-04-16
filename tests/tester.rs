@@ -44,25 +44,10 @@ impl game::PlayerStrategy for InstructedPlayer {
     fn init(&mut self, _num_players: u8, _own_index: u8) {}
     fn drawn(&mut self, _player: usize, _card: game::Card) {}
     fn own_drawn(&mut self) {}
-    fn played(
-        &mut self,
-        _player: usize,
-        _pos: usize,
-        _card: game::Card,
-        _successful: bool,
-        _blind: bool,
-    ) {
-    }
+    fn played(&mut self, _player: usize, _pos: usize, _card: game::Card, _successful: bool) {}
 
     fn discarded(&mut self, _player: usize, _pos: usize, _card: game::Card) {}
-    fn clued(
-        &mut self,
-        _who: usize,
-        _whom: usize,
-        _clue: game::Clue,
-        _touched: game::PositionSet,
-        _previously_clued: game::PositionSet,
-    ) {
+    fn clued(&mut self, _who: usize, _whom: usize, _clue: game::Clue, _touched: game::PositionSet) {
     }
 
     fn act(&mut self, _status: &game::GameStatus) -> game::Move {

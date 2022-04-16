@@ -24,14 +24,7 @@ impl game::PlayerStrategy for DiscardPlayer {
         self.num_hand_cards -= 1;
     }
 
-    fn played(
-        &mut self,
-        player: usize,
-        _pos: usize,
-        _card: game::Card,
-        _successful: bool,
-        _blind: bool,
-    ) {
+    fn played(&mut self, player: usize, _pos: usize, _card: game::Card, _successful: bool) {
         if player == 0 {
             self.num_hand_cards -= 1;
         }
@@ -42,14 +35,7 @@ impl game::PlayerStrategy for DiscardPlayer {
             self.num_hand_cards -= 1;
         }
     }
-    fn clued(
-        &mut self,
-        _who: usize,
-        _whom: usize,
-        _clue: game::Clue,
-        _touched: game::PositionSet,
-        _previously_clued: game::PositionSet,
-    ) {
+    fn clued(&mut self, _who: usize, _whom: usize, _clue: game::Clue, _touched: game::PositionSet) {
     }
 }
 
@@ -70,14 +56,7 @@ impl game::PlayerStrategy for PlayPlayer {
     fn own_drawn(&mut self) {
         self.num_hand_cards += 1;
     }
-    fn played(
-        &mut self,
-        player: usize,
-        _pos: usize,
-        _card: game::Card,
-        _successful: bool,
-        _blind: bool,
-    ) {
+    fn played(&mut self, player: usize, _pos: usize, _card: game::Card, _successful: bool) {
         if player == 0 {
             self.num_hand_cards -= 1;
         }
@@ -88,14 +67,7 @@ impl game::PlayerStrategy for PlayPlayer {
             self.num_hand_cards -= 1;
         }
     }
-    fn clued(
-        &mut self,
-        _who: usize,
-        _whom: usize,
-        _clue: game::Clue,
-        _touched: game::PositionSet,
-        _previously_clued: game::PositionSet,
-    ) {
+    fn clued(&mut self, _who: usize, _whom: usize, _clue: game::Clue, _touched: game::PositionSet) {
     }
 
     fn act(&mut self, _status: &game::GameStatus) -> game::Move {
@@ -116,25 +88,10 @@ impl game::PlayerStrategy for RandCluePlayer {
     fn drawn(&mut self, _player: usize, _card: game::Card) {}
     fn own_drawn(&mut self) {}
 
-    fn played(
-        &mut self,
-        _player: usize,
-        _pos: usize,
-        _card: game::Card,
-        _successful: bool,
-        _blind: bool,
-    ) {
-    }
+    fn played(&mut self, _player: usize, _pos: usize, _card: game::Card, _successful: bool) {}
 
     fn discarded(&mut self, _player: usize, _pos: usize, _card: game::Card) {}
-    fn clued(
-        &mut self,
-        _who: usize,
-        _whom: usize,
-        _clue: game::Clue,
-        _touched: game::PositionSet,
-        _previously_clued: game::PositionSet,
-    ) {
+    fn clued(&mut self, _who: usize, _whom: usize, _clue: game::Clue, _touched: game::PositionSet) {
     }
 
     fn act(&mut self, _status: &game::GameStatus) -> game::Move {

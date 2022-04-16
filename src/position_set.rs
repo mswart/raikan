@@ -61,6 +61,34 @@ impl PositionSet {
         self.bits |= 1 << position
     }
 
+    /// Ensures a given position field is unset.
+    /// Idempotent operation: previous value is not checked.
+    ///
+    /// ```
+    /// use hanabi::PositionSet;
+    /// let mut a = PositionSet::new(5);
+    /// a.add(3);
+    /// a.remove(3);
+    /// assert_eq!(a, PositionSet::new(5));
+    /// a.remove(3);
+    /// assert_eq!(a, PositionSet::new(5));
+    /// a.add(1);
+    /// a.add(3);
+    /// a.remove(3);
+    /// let mut b = PositionSet::new(5);
+    /// b.add(1);
+    /// assert_eq!(a, b);
+    /// ```
+    pub fn remove(&mut self, position: u8) {
+        assert!(
+            position < self.max,
+            "Position {} out-of-bounds (0..{})",
+            position,
+            self.max,
+        );
+        self.bits &= !(1 << position);
+    }
+
     pub fn contains(&self, position: u8) -> bool {
         assert!(
             position < self.max,

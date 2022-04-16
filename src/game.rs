@@ -281,17 +281,10 @@ pub trait PlayerStrategy: std::fmt::Debug {
     fn drawn(&mut self, player: usize, card: Card);
     fn own_drawn(&mut self);
 
-    fn played(&mut self, player: usize, pos: usize, card: Card, successful: bool, blind: bool);
+    fn played(&mut self, player: usize, pos: usize, card: Card, successful: bool);
 
     fn discarded(&mut self, player: usize, pos: usize, card: Card);
-    fn clued(
-        &mut self,
-        who: usize,
-        whom: usize,
-        clue: Clue,
-        touched: PositionSet,
-        previously_clued: PositionSet,
-    );
+    fn clued(&mut self, who: usize, whom: usize, clue: Clue, touched: PositionSet);
 }
 
 impl Game {
@@ -840,7 +833,6 @@ impl Game {
                         pos as usize,
                         card.card,
                         success,
-                        !card.clued,
                     );
                 }
                 self.draw_card(self.active_player, strategies);
@@ -864,13 +856,9 @@ impl Game {
                 }
                 let player_index = (self.active_player + player as usize) % self.hands.len();
                 let mut affected_cards = 0;
-                let mut previously_clued = PositionSet::new(self.hands[player_index].len() as u8);
                 let mut touched = PositionSet::new(self.hands[player_index].len() as u8);
 
                 for (pos, card_state) in self.hands[player_index].iter_mut().enumerate() {
-                    if card_state.clued {
-                        previously_clued.add(pos as u8);
-                    }
                     if card_state.clue(clue) {
                         affected_cards += 1;
                         touched.add(pos as u8);
@@ -906,7 +894,6 @@ impl Game {
                         self.relative_player_index(player_index, notify_player),
                         clue,
                         touched,
-                        previously_clued,
                     );
                 }
                 self.status.clues -= 1;

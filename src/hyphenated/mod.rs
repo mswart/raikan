@@ -85,15 +85,8 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         self.line.own_drawn();
     }
 
-    fn played(
-        &mut self,
-        player: usize,
-        pos: usize,
-        card: game::Card,
-        successful: bool,
-        blind: bool,
-    ) {
-        self.line.played(player, pos, card, successful, blind);
+    fn played(&mut self, player: usize, pos: usize, card: game::Card, successful: bool) {
+        self.line.played(player, pos, card, successful);
         self.turn += 1;
     }
 
@@ -102,15 +95,8 @@ impl game::PlayerStrategy for HyphenatedPlayer {
         self.turn += 1;
     }
 
-    fn clued(
-        &mut self,
-        who: usize,
-        whom: usize,
-        clue: game::Clue,
-        touched: game::PositionSet,
-        previously_clued: game::PositionSet,
-    ) {
-        self.line.clued(who, whom, clue, touched, previously_clued);
+    fn clued(&mut self, who: usize, whom: usize, clue: game::Clue, touched: game::PositionSet) {
+        self.line.clued(who, whom, clue, touched);
         self.turn += 1;
     }
 

@@ -1204,14 +1204,7 @@ impl Line {
         // fix also other hands?
     }
 
-    pub fn played(
-        &mut self,
-        player: usize,
-        pos: usize,
-        card: game::Card,
-        successful: bool,
-        _blind: bool,
-    ) {
+    pub fn played(&mut self, player: usize, pos: usize, card: game::Card, successful: bool) {
         self.turn += 1;
         let slot_index = self.hands.remove_slot(player, pos as u8);
         let slot = self.hands.slots[slot_index as usize];
@@ -1601,7 +1594,6 @@ impl Line {
         whom: usize,
         clue: game::Clue,
         touched: game::PositionSet,
-        previously_clued: game::PositionSet,
     ) -> u8 {
         self.turn += 1;
         for i in (0..self.callbacks.len()).rev() {
@@ -1623,9 +1615,12 @@ impl Line {
         let old_chop = self.foreign_chop(whom);
 
         let mut error = 0;
-        let newly_clued = touched - previously_clued;
+        let mut newly_clued = touched;
         for pos in 0..self.hands.hand_sizes[whom] {
             let slot = self.hands.slot_mut(whom as u8, pos);
+            if slot.clued {
+                newly_clued.remove(pos);
+            }
             let old_size = slot.quantum.size();
             let previsous_first_quantum_card = slot.quantum.iter().next();
             match clue {
@@ -1720,7 +1715,7 @@ impl Line {
         };
 
         // somebody else was clued -> remember which cards are clued
-        for pos in (touched - previously_clued).iter_first(focus) {
+        for pos in newly_clued.iter_first(focus) {
             let slot = self.hands.slot_mut(whom as u8, pos);
             if !slot.locked {
                 for (card, state) in self.card_states.iter_clued() {
@@ -1966,19 +1961,15 @@ impl Line {
 
     pub fn clue(&mut self, whom: usize, clue: game::Clue) -> Option<LineScore> {
         let mut touched = PositionSet::new(self.hands.hand_sizes[whom]);
-        let mut previously_clued = PositionSet::new(self.hands.hand_sizes[whom]);
         for (pos, slot) in self.hands.iter_hand_mut(whom as u8) {
             if slot.card.affected(clue) {
                 touched.add(pos as u8);
-            }
-            if slot.clued {
-                previously_clued.add(pos as u8);
             }
         }
         if touched.is_empty() {
             return None;
         }
-        let error = self.clued(0, whom, clue, touched, previously_clued);
+        let error = self.clued(0, whom, clue, touched);
         Some(self.score(error))
     }
 
