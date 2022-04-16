@@ -374,7 +374,11 @@ impl PlayEvaluation {
             marked_cards: [PositionSet::new(6); 6],
             logger,
         };
-        match evaluation.resolve(line, FirstAction::SelfFiness()) {
+        match evaluation.resolve(
+            line,
+            PositionSet::new(line.hands.hand_sizes[whom]),
+            FirstAction::SelfFiness(),
+        ) {
             Ok(()) => {
                 evaluation.mark(line, MarkCertainty::Prep(), true);
                 0
@@ -389,6 +393,7 @@ impl PlayEvaluation {
         who: usize,
         whom: usize,
         pos: u8,
+        premarked: PositionSet,
         first_action: FirstAction,
         logger: slog::Logger,
     ) -> Result<Self, bool> {
@@ -403,7 +408,7 @@ impl PlayEvaluation {
             marked_cards: [PositionSet::new(6); 6],
             logger,
         };
-        match evaluation.resolve(line, first_action) {
+        match evaluation.resolve(line, premarked, first_action) {
             Ok(_) => Ok(evaluation),
             Err(hard) => Err(!hard),
         }
@@ -546,7 +551,13 @@ impl PlayEvaluation {
         return Some(false);
     }
 
-    fn resolve(&mut self, line: &mut Line, first_action: FirstAction) -> Result<(), bool> {
+    fn resolve(
+        &mut self,
+        line: &mut Line,
+        premarked: PositionSet,
+        first_action: FirstAction,
+    ) -> Result<(), bool> {
+        self.marked_cards[self.whom as usize] = premarked;
         self.marked_cards[self.whom as usize].add(self.pos);
         self.places[self.card.rank as usize - 1] =
             (self.whom as u8, self.pos, PlayRelation::Normal());
@@ -1680,7 +1691,7 @@ impl Line {
             }
             if !slot.fixed {
                 slot.play = true;
-                error += self.resolve_play_clue(who, whom, focus);
+                error += self.resolve_play_clue(who, whom, focus, touched);
             }
             return error;
         }
@@ -1750,7 +1761,7 @@ impl Line {
                     }
                 } else {
                     slot.play = true;
-                    error += self.resolve_play_clue(who, whom, pos);
+                    error += self.resolve_play_clue(who, whom, pos, touched);
                 }
                 let slot = self.hands.slot_mut(whom as u8, pos);
                 if slot.quantum.size() == 1 {
@@ -1816,7 +1827,13 @@ impl Line {
         error
     }
 
-    fn resolve_play_clue(&mut self, who: usize, whom: usize, pos: u8) -> u8 {
+    fn resolve_play_clue(
+        &mut self,
+        who: usize,
+        whom: usize,
+        pos: u8,
+        premarked: PositionSet,
+    ) -> u8 {
         let mut error = 0;
         let mut evaluations: [PlayEvaluation; 5] = [
             PlayEvaluation::empty(),
@@ -1847,6 +1864,7 @@ impl Line {
                 who,
                 whom,
                 pos,
+                premarked,
                 FirstAction::NonSelf(),
                 self.logger.new(
                     slog::o!("eval" => "non-self", "card?" => format!("{:?}", potential_card)),
@@ -1876,6 +1894,7 @@ impl Line {
                     who,
                     whom,
                     pos,
+                    PositionSet::new(self.hands.hand_sizes[whom]),
                     FirstAction::SelfPrompt(),
                     self.logger.new(
                         slog::o!("eval" => "self-prompt", "card?" => format!("{:?}", potential_card)),
@@ -1906,6 +1925,7 @@ impl Line {
                     who,
                     whom,
                     pos,
+                    PositionSet::new(self.hands.hand_sizes[whom]),
                     FirstAction::SelfFiness(),
                     self.logger.new(
                         slog::o!("eval" => "self-finess", "card?" => format!("{:?}", potential_card)),

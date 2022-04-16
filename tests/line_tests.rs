@@ -2237,3 +2237,33 @@ fn considered_common_finess_cards_clued() {
         "r1 already finessed; bad clue recluing it"
     );
 }
+
+#[test]
+/// A color clue can never be a self-prompt upon other newly touched cards
+/// After p1, p2 are already clued,
+/// a purple clue touching two cards must be p3 (it cannot be p4 with self-prompt of p3)
+fn no_self_prompt_with_new_cards() {
+    // seed 2920016185230301177
+    let replay = replay_game(
+        3,
+        "415clcawxjbnbruvmugdwfrneukqpxsfkhkidomasfvqyglpthaip",
+        "05vdvc6baoad6aajamodidasapacid6baqbraf0dav6dazbiatayaepbb00ca5akbn0ba1blucbauab2Dbabbh1abxa41dbBa90db7auaJ7doda8aMbHagbNqd",
+        "0",
+    );
+    for (player, slot) in replay.slot_perspectives(1, 3).iter().enumerate() {
+        assert_eq!(
+            slot.quantum.to_vec(),
+            vec![
+                game::Card {
+                    rank: 1,
+                    suit: game::Suit::Purple(),
+                },
+                game::Card {
+                    rank: 3,
+                    suit: game::Suit::Purple(),
+                }
+            ],
+            "Player {player} should assume finess"
+        );
+    }
+}
