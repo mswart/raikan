@@ -1715,6 +1715,11 @@ impl Line {
                     game::CardPlayState::Trash() => {
                         chop_slot.quantum.remove_card(&potential_card, true);
                     }
+                    game::CardPlayState::Normal() => {
+                        if potential_card.rank == 2 && clue == game::Clue::Rank(2) {
+                            potential_safe = true;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -1742,7 +1747,22 @@ impl Line {
                     for potential_card in slot.quantum.clone().iter() {
                         match self.card_states[&potential_card].play {
                             game::CardPlayState::Normal() => {
-                                slot.quantum.remove_card(&potential_card, true)
+                                if potential_card.rank == 2 && clue == game::Clue::Rank(2) {
+                                    let mut second_copy_visible_by_both = false;
+                                    for i in 0..self.card_states[&potential_card].tracked_count {
+                                        let place = self.card_states[&potential_card]
+                                            .tracked_places
+                                            [i as usize];
+                                        if place != who as i8 && place != whom as i8 {
+                                            second_copy_visible_by_both = true;
+                                        }
+                                    }
+                                    if second_copy_visible_by_both {
+                                        slot.quantum.remove_card(&potential_card, true)
+                                    }
+                                } else {
+                                    slot.quantum.remove_card(&potential_card, true)
+                                }
                             }
                             game::CardPlayState::Dead() => {
                                 slot.quantum.remove_card(&potential_card, true);

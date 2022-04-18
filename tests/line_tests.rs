@@ -1,7 +1,7 @@
 use colored::*;
 use hanabi::{
     self,
-    game::{self, ClueColor, Game},
+    game::{self, ClueColor, Game, PlayerStrategy},
     hyphenated::{self, HyphenatedPlayer, LineScore, Slot},
     PositionSet,
 };
@@ -68,11 +68,65 @@ struct Replay {
 }
 use slog::*;
 
+fn replay_from_deck(deck: &str) -> Replay {
+    let log = get_logger();
+    let mut players = [
+        HyphenatedPlayer::with_logger(log.new(o!("player" => "Alice"))),
+        HyphenatedPlayer::with_logger(log.new(o!("player" => "Bob"))),
+        HyphenatedPlayer::with_logger(log.new(o!("player" => "Cathy"))),
+        HyphenatedPlayer::with_logger(log.new(o!("player" => "Donald"))),
+    ];
+    let compact_deck = deck.replace(" ", "");
+    let mut compact_chars = compact_deck.chars();
+    for drawing_player in 0..4 {
+        for _num_card in 0..4 {
+            let suit = match compact_chars
+                .next()
+                .expect("deck is too short for initial draws")
+            {
+                'r' => game::Suit::Red(),
+                'b' => game::Suit::Blue(),
+                'y' => game::Suit::Yellow(),
+                'g' => game::Suit::Green(),
+                'p' => game::Suit::Purple(),
+                _ => unimplemented!("Unknown suit color"),
+            };
+            let rank = compact_chars
+                .next()
+                .expect("deck is too short for initial draws")
+                .to_digit(10)
+                .expect("card rank must be a digit between 1 and 5") as u8;
+            let card = game::Card { rank, suit };
+            for notifying_player in 0..4 {
+                if notifying_player == drawing_player {
+                    players[notifying_player].own_drawn();
+                } else {
+                    players[notifying_player]
+                        .drawn((4 + drawing_player - notifying_player) % 4, card);
+                }
+            }
+        }
+    }
+    let lines = [
+        players[0].line(),
+        players[1].line(),
+        players[2].line(),
+        players[3].line(),
+    ];
+    let line = &lines[0];
+
+    let replay = Replay {
+        line: line.clone(),
+        lines,
+        target_player: 0,
+    };
+    println!("{}", "Start situation".to_string().bold().underline());
+    replay.print();
+    replay
+}
+
 fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> Replay {
-    let decorator = slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter);
-    let drain = slog_term::CompactFormat::new(decorator).build().fuse();
-    let drain = std::sync::Mutex::new(drain).fuse();
-    let log = slog::Logger::root(drain, o!());
+    let log = get_logger();
 
     let num_players = deck
         .chars()
@@ -106,6 +160,13 @@ fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> Replay {
     println!("{}", "Start situation".to_string().bold().underline());
     replay.print();
     replay
+}
+
+fn get_logger() -> Logger {
+    let decorator = slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter);
+    let drain = slog_term::CompactFormat::new(decorator).build().fuse();
+    let drain = std::sync::Mutex::new(drain).fuse();
+    slog::Logger::root(drain, o!())
 }
 
 impl Replay {
@@ -1584,12 +1645,13 @@ fn unambiguous_prompt_clue_by_rank() {
 #[test]
 fn ambigious_delayed_play_clue() {
     // seed 0
-    let replay = replay_game(
-            12,
+    let mut replay = replay_game(
+            11,
             "415fkhmpbsvcdaxxjyinlawuuqwlfqapihorknrsevfkbgtcupgmd",
             "050baepapcabuaak7barbfpbvbadau0bbmaaaw6d7cbcDdbibpbtbzobb2udbq0bb5bva67ab7a8ag6bbAbybCibbDvdaFDbaGidaHbsaIoba4ajiaaBb9b1qd",
             "0",
         );
+    replay.clue(1, game::Clue::Color(game::ClueColor::Purple()));
     let slots = replay.slot_perspectives(1, 2);
     assert_eq!(
         slots[0].delayed, 1,
@@ -1597,7 +1659,7 @@ fn ambigious_delayed_play_clue() {
     );
     assert_eq!(
         slots[1].delayed, 2,
-        "Bob must wait for the too already clued ones to be played"
+        "Bob must wait for the two already clued ones to be played"
     );
 }
 
@@ -1620,15 +1682,15 @@ fn self_prompts_cant_include_new_cards() {
 
 #[test]
 fn wait_on_potential_prompts() {
-    // id 3
+    // id 3 (switched p2 <=> g4)
     let replay = replay_game(
         3,
-        "415pfcuklchpfmlvabnegnwfdrgaspqkswkxrtibaudvixohjuqym",
+        "415pfcuklchpfmlnabvegnwfdrgaspqkswkxrtibaudvixohjuqym",
         "05pcvdajamadidaianubaeibao1cag7dicbaavaqvbobaxbl7abbahuabrvba1b00cbcafa77bbyazakap1bbC6daEbsa4DabuobaFbt1bbBa6odaJa86aqc",
         "0",
     );
     assert_ne!(
-        replay.slot_perspectives(3, 3)[3].delayed,
+        replay.slot_perspectives(3, 0)[3].delayed,
         0,
         "Donald must wait on more round (to allow p1 or b1 to play)"
     );
@@ -2283,5 +2345,55 @@ fn good_touch_with_own_cards() {
     assert!(
         replay.clue_is_bad(0, game::Clue::Color(game::ClueColor::Purple())),
         "r1 already finessed; bad clue recluing it"
+    );
+}
+
+#[test]
+/// A color clue can never be a self-prompt upon other newly touched cards
+/// After p1, p2 are already clued,
+/// a purple clue touching two cards must be p3 (it cannot be p4 with self-prompt of p3)
+fn early_2_safes() {
+    let mut replay = replay_from_deck("r1r5p2r1 g4r4b3y2 g3r2p3y3 b2r2p4p3");
+    replay.clue(3, game::Clue::Rank(2));
+    let slots = replay.slot_perspectives(3, 3);
+    let r2 = game::Card {
+        rank: 2,
+        suit: game::Suit::Red(),
+    };
+    let y2 = game::Card {
+        rank: 2,
+        suit: game::Suit::Yellow(),
+    };
+    let g2 = game::Card {
+        rank: 2,
+        suit: game::Suit::Green(),
+    };
+    let b2 = game::Card {
+        rank: 2,
+        suit: game::Suit::Blue(),
+    };
+    let p2 = game::Card {
+        rank: 2,
+        suit: game::Suit::Purple(),
+    };
+    assert_eq!(
+        slots[0].quantum.to_vec(),
+        vec![g2, b2, p2],
+        "Alice's safe can target y2 or r2 as it is seen elsewhere"
+    );
+    assert_eq!(
+        slots[1].quantum.to_vec(),
+        vec![y2, g2, b2, p2],
+        "Alice's safe could target y2 (but not r2) from Bob's viewpoint"
+    );
+    assert_eq!(
+        slots[2].quantum.to_vec(),
+        vec![r2, g2, b2, p2],
+        "Alice's safe could target r2 (but not y2) from Cathy's viewpoint"
+    );
+    assert_eq!(
+        slots[3].quantum.to_vec(),
+        vec![g2, b2, p2],
+        "Alice's safe can target y2 or r2 as it is seen elsewhere (from Donalds viewpoint)"
     );
 }
