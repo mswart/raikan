@@ -2397,3 +2397,28 @@ fn early_2_safes() {
         "Alice's safe can target y2 or r2 as it is seen elsewhere (from Donalds viewpoint)"
     );
 }
+
+#[test]
+/// A color clue can never be a self-prompt upon other newly touched cards
+/// After p1, p2 are already clued,
+/// a purple clue touching two cards must be p3 (it cannot be p4 with self-prompt of p3)
+fn good_touch_principal4() {
+    // seed 12944582079949674557
+    let replay = replay_game(
+        34,
+        "415gaqckukswljwartpvmdbqlcbhphgpvmuifsnfafxoidkyerxun",
+        "050did6bap6daf0aaqacidvaamat1dbianad6calbs0bahbjaoDcbepbuabbag1bbuavaroba7a8b4ubbxaaa91da0bya67daGb5idakaJ6bDabwaDaEaI",
+        "0",
+    );
+    let y3 = replay
+        .clone()
+        .clue(0, game::Clue::Color(game::ClueColor::Yellow()));
+    //  Some(LineScore { discard_risks: 0, score: 14, clued: 3, finess: 1, play: 1, errors: 0, bonus: 2 })
+
+    let y2_dub = replay
+        .clone()
+        .clue(1, game::Clue::Color(game::ClueColor::Yellow()));
+    //  Some(LineScore { discard_risks: 0, score: 14, clued: 4, finess: 1, play: 1, errors: 0, bonus: 2 })
+
+    assert!(y3 > y2_dub);
+}
