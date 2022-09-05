@@ -601,7 +601,6 @@ impl HanabClient {
 #[derive(Debug)]
 struct Slot {
     index: u8,
-    clued: bool,
 }
 
 struct HanabGame {
@@ -720,10 +719,7 @@ impl HanabGame {
                 rank,
             } => {
                 if *player_index == self.own_player {
-                    self.hands[*player_index as usize].push_front(Slot {
-                        index: *order,
-                        clued: false,
-                    });
+                    self.hands[*player_index as usize].push_front(Slot { index: *order });
                     self.player.own_drawn();
                 } else if *suit_index < 0 || *rank < 0 {
                     eprintln!(
@@ -735,10 +731,7 @@ impl HanabGame {
                         suit: self.variant.suits()[*suit_index as usize],
                         rank: *rank as u8,
                     };
-                    self.hands[*player_index as usize].push_front(Slot {
-                        index: *order,
-                        clued: false,
-                    });
+                    self.hands[*player_index as usize].push_front(Slot { index: *order });
                     self.player
                         .drawn(self.resolve_index(*player_index) as usize, card);
                 }
@@ -772,7 +765,6 @@ impl HanabGame {
                         slot_pos,
                         card,
                         true,
-                        !self.hands[*player_index as usize][slot_pos].clued,
                     );
                     self.hands[*player_index as usize].remove(slot_pos);
                     println!(
@@ -804,7 +796,6 @@ impl HanabGame {
                             slot_pos,
                             card,
                             false,
-                            !self.hands[*player_index as usize][slot_pos].clued,
                         );
                         println!(
                             "Player {} failed to played {card:?} from slot {slot_pos}",
@@ -834,12 +825,7 @@ impl HanabGame {
                 ..
             } => {
                 let mut touched = PositionSet::new(self.hands[*target as usize].len() as u8);
-                let mut previously_clued =
-                    PositionSet::new(self.hands[*target as usize].len() as u8);
                 for (pos, slot) in self.hands[*target as usize].iter().enumerate() {
-                    if slot.clued {
-                        previously_clued.add(pos as u8);
-                    }
                     if list.contains(&slot.index) {
                         touched.add(pos as u8);
                     }
@@ -871,7 +857,6 @@ impl HanabGame {
                     self.resolve_index(*target) as usize,
                     clue,
                     touched,
-                    previously_clued,
                 );
             }
             GameAction::Turn {
