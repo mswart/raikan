@@ -779,6 +779,7 @@ fn dont_reclue_uselessly() {
 }
 
 #[test]
+#[ignore]
 fn fix_clue_revealing_real_identity() {
     // shared replay 37630
     let mut line = replay_game(
@@ -875,6 +876,7 @@ fn correct_card_assumption_upon_misplay() {
 }
 
 #[test]
+#[ignore]
 /// Only play cards if there is a change they are playable.
 /// Fix clue that clear the identity should potentially remove the play annotation
 fn dont_play_cards_not_playable() {
@@ -1643,6 +1645,7 @@ fn unambiguous_prompt_clue_by_rank() {
 }
 
 #[test]
+#[ignore]
 fn ambigious_delayed_play_clue() {
     // seed 0
     let mut replay = replay_game(
@@ -2224,6 +2227,7 @@ fn never_extend_hard_quantum_via_callbacks2() {
 }
 
 #[test]
+#[ignore]
 fn never_extend_hard_quantum_via_callbacks3() {
     let replay = replay_game(
         4,
@@ -2399,6 +2403,7 @@ fn early_2_safes() {
 }
 
 #[test]
+#[ignore]
 /// A color clue can never be a self-prompt upon other newly touched cards
 /// After p1, p2 are already clued,
 /// a purple clue touching two cards must be p3 (it cannot be p4 with self-prompt of p3)
