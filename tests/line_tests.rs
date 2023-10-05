@@ -76,7 +76,7 @@ fn replay_from_deck(deck: &str) -> Replay {
         HyphenatedPlayer::with_logger(log.new(o!("player" => "Cathy"))),
         HyphenatedPlayer::with_logger(log.new(o!("player" => "Donald"))),
     ];
-    let compact_deck = deck.replace(" ", "");
+    let compact_deck = deck.replace(' ', "");
     let mut compact_chars = compact_deck.chars();
     for drawing_player in 0..4 {
         for _num_card in 0..4 {
@@ -130,7 +130,7 @@ fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> Replay {
 
     let num_players = deck
         .chars()
-        .nth(0)
+        .next()
         .expect("deck should be non-empty")
         .to_digit(10)
         .expect("player count must be a number") as u8;
@@ -174,9 +174,9 @@ impl Replay {
         let mut slots = Vec::new();
         for (current_player, line) in self.lines.iter().enumerate() {
             slots.push(
-                line.hands
-                    .slot((4 + player - current_player as u8) % 4, pos)
-                    .clone(),
+                *line
+                    .hands
+                    .slot((4 + player - current_player as u8) % 4, pos),
             );
         }
         slots
@@ -217,10 +217,10 @@ impl Replay {
     }
 
     fn clue(&mut self, player: u8, clue: game::Clue) -> Option<LineScore> {
-        println!("");
+        println!();
         println!("{}", format!("Clued {player} {clue:?}").bold().underline());
         let num_players = self.lines.len() as u8;
-        let clued_player = (num_players + player - self.target_player as u8) % num_players;
+        let clued_player = (num_players + player - self.target_player) % num_players;
         let score = self.line.clue(clued_player as usize, clue);
         let mut touched = PositionSet::new(self.lines[0].hands.hand_sizes[player as usize]);
 
@@ -247,7 +247,7 @@ impl Replay {
     }
 
     fn play(&mut self, pos: usize, next_card: Option<game::Card>) {
-        println!("");
+        println!();
         let num_players = self.lines.len() as u8;
         let slot = self.lines[((self.target_player + 1) % num_players) as usize]
             .hands
@@ -686,8 +686,8 @@ fn no_double_cluing2() {
     ).line;
     println!("line: {:?}", line);
     assert!(
-        clue(&line, 1, game::Clue::Rank(1))
-            > clue(&line, 2, game::Clue::Color(game::ClueColor::Yellow()))
+        clue(line, 1, game::Clue::Rank(1))
+            > clue(line, 2, game::Clue::Color(game::ClueColor::Yellow()))
     );
 }
 
@@ -793,7 +793,7 @@ fn fix_clue_revealing_real_identity() {
             .slot(3, 2)
             .quantum
             .iter()
-            .nth(0)
+            .next()
             .expect("size is 1"),
         game::Card {
             rank: 2,
@@ -1001,7 +1001,7 @@ fn unambiguous_delayed_play_clue_by_color() {
             .slot(0, 2)
             .quantum
             .iter()
-            .nth(0)
+            .next()
             .expect("check previously"),
         game::Card {
             rank: 2,
@@ -1108,8 +1108,8 @@ fn clue_color_instead_5_for_delayed_playable_5s() {
     ).line;
     println!("line: {:?}", line);
     assert!(
-        clue(&line, 2, game::Clue::Color(game::ClueColor::Purple()))
-            > clue(&line, 2, game::Clue::Rank(5))
+        clue(line, 2, game::Clue::Color(game::ClueColor::Purple()))
+            > clue(line, 2, game::Clue::Rank(5))
     );
 }
 
@@ -1125,8 +1125,8 @@ fn clear_up_doubled_card_in_one_card() {
     ).line;
     println!("line: {:?}", line);
     assert!(
-        clue(&line, 3, game::Clue::Color(game::ClueColor::Blue()))
-            > clue(&line, 3, game::Clue::Rank(2))
+        clue(line, 3, game::Clue::Color(game::ClueColor::Blue()))
+            > clue(line, 3, game::Clue::Rank(2))
     );
 }
 

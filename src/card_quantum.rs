@@ -4,6 +4,7 @@ use colored::*;
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Variant {}
 
+#[allow(clippy::len_without_is_empty)]
 impl Variant {
     pub fn len(&self) -> usize {
         5
