@@ -1,22 +1,24 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:best-practices",
-    ":automergePatch",
-    ":automergeRequireAllStatusChecks",
-    ":maintainLockFilesWeekly",
-    "mergeConfidence:all-badges",
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:best-practices',
+    ':automergePatch',
+    ':automergeRequireAllStatusChecks',
+    ':maintainLockFilesWeekly',
+    'mergeConfidence:all-badges',
   ],
-
-  "regexManagers": [
+  customManagers: [
     {
-      "description": "Update rust version in rust-toolchain.toml",
-      "fileMatch": [
-        "rust-toolchain.toml$",
+      customType: 'regex',
+      description: 'Update rust version in rust-toolchain.toml',
+      fileMatch: [
+        'rust-toolchain.toml$',
       ],
-      "depNameTemplate": "rust",
-      "datasourceTemplate": "docker",
-      "matchStrings": ["channel *= *\"(?<currentValue>1\\.[0-9]+(\\.[0-9]+)?)\""],
+      depNameTemplate: 'rust',
+      datasourceTemplate: 'docker',
+      matchStrings: [
+        'channel *= *"(?<currentValue>1\\.[0-9]+(\\.[0-9]+)?)"',
+      ],
     },
-  ]
+  ],
 }
