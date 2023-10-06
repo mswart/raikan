@@ -411,7 +411,7 @@ name = "hanabi"
 version = "0.2.0"
 dependencies = [
  "colored",
- "rand 0.8.3",
+ "rand 0.8.5",
  "rand_pcg 0.3.0",
  "reqwest",
  "serde",
@@ -953,7 +953,7 @@ dependencies = [
  "libc",
  "rand_chacha 0.1.1",
  "rand_core 0.4.2",
- "rand_hc 0.1.0",
+ "rand_hc",
  "rand_isaac",
  "rand_jitter",
  "rand_os",
@@ -964,14 +964,13 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.8.3"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ef9e7e66b4468674bfcb0c81af8b7fa0bb154fa9f28eb840da5c447baeb8d7e"
+checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
 dependencies = [
  "libc",
  "rand_chacha 0.3.0",
  "rand_core 0.6.2",
- "rand_hc 0.3.0",
 ]
 
 [[package]]
@@ -1025,15 +1024,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b40677c7be09ae76218dc623efbf7b18e34bced3f38883af07bb75630a21bc4"
 dependencies = [
  "rand_core 0.3.1",
-]
-
-[[package]]
-name = "rand_hc"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3190ef7066a446f2e7f42e239d161e905420ccab01eb967c9eb27d21b2322a73"
-dependencies = [
- "rand_core 0.6.2",
 ]
 
 [[package]]
