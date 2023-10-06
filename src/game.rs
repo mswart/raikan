@@ -288,7 +288,7 @@ pub trait PlayerStrategy: std::fmt::Debug {
 }
 
 impl Game {
-    pub fn new(players: &mut Vec<&mut dyn PlayerStrategy>, debug: bool, seed: u64) -> Self {
+    pub fn new(players: &mut [&mut dyn PlayerStrategy], debug: bool, seed: u64) -> Self {
         let suits = vec![
             Suit::Red(),
             Suit::Yellow(),
@@ -441,7 +441,7 @@ impl Game {
         deck: &str,
         actions: &str,
         options: &str,
-        players: &mut Vec<&mut dyn PlayerStrategy>,
+        players: &mut [&mut dyn PlayerStrategy],
     ) -> Self {
         assert_eq!(options, "0");
         let base62_chars = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -506,9 +506,7 @@ impl Game {
                 .expect("Actions must only be valid 62 characters");
             let action = action_num % (max_action - min_action + 1) + min_action;
             let mut value = action_num / (max_action - min_action + 1);
-            if value > 0 {
-                value -= 1;
-            }
+            value = value.saturating_sub(1);
             let target = base62_chars
                 .find(action_chars.next().expect("target value is missing"))
                 .expect("Actions must only be valid 62 characters");
@@ -557,7 +555,7 @@ impl Game {
         self.hands[(self.active_player + player) % self.hands.len()].len() as u8
     }
 
-    pub fn dump(&self, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
+    pub fn dump(&self, strategies: &mut [&mut dyn PlayerStrategy]) {
         println!("Game:");
         println!(
             "  suits={:?} turn={} score={}/{} (sum: {}) strikes={} clues={} state={:?}",
@@ -584,7 +582,7 @@ impl Game {
         println!("  deck: {:?}", self.deck);
     }
 
-    pub fn run(&mut self, strategies: &mut Vec<&mut dyn PlayerStrategy>) -> u8 {
+    pub fn run(&mut self, strategies: &mut [&mut dyn PlayerStrategy]) -> u8 {
         if self.debug {
             self.dump(strategies);
         }
@@ -648,7 +646,7 @@ impl Game {
         (self.hands.len() + player - receiver) % self.hands.len()
     }
 
-    fn draw_card(&mut self, player: usize, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
+    fn draw_card(&mut self, player: usize, strategies: &mut [&mut dyn PlayerStrategy]) {
         if let Some(card) = self.deck.pop_front() {
             self.hands[player].push_front(CardState::from_card(card, self.replay.deck.len() as u8));
             if self.deck.is_empty() {
@@ -690,12 +688,12 @@ impl Game {
         max
     }
 
-    fn play(&mut self, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
+    fn play(&mut self, strategies: &mut [&mut dyn PlayerStrategy]) {
         let action = strategies[self.active_player].act(&self.status);
         self.execute(action, strategies);
     }
 
-    fn execute(&mut self, action: Move, strategies: &mut Vec<&mut dyn PlayerStrategy>) {
+    fn execute(&mut self, action: Move, strategies: &mut [&mut dyn PlayerStrategy]) {
         self.status.turn += 1;
         match action {
             Move::Discard(pos) => {

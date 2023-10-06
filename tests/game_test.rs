@@ -1,5 +1,3 @@
-use hanabi;
-
 mod tester;
 
 #[test]
