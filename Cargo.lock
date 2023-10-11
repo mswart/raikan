@@ -1888,9 +1888,9 @@ dependencies = [
 
 [[package]]
 name = "websocket"
-version = "0.26.5"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92aacab060eea423e4036820ddd28f3f9003b2c4d8048cbda985e5a14e18038d"
+checksum = "2a1aba896516545a4cea196a12c04074854ab85d53bbaf22f9b79eddadde75a2"
 dependencies = [
  "bytes 0.4.12",
  "futures",
