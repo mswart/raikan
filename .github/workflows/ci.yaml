@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
-      - uses: actions-rust-lang/setup-rust-toolchain@d5fcac478a8270ade8a005df33017ae06891af79 # v1
+      - uses: actions-rust-lang/setup-rust-toolchain@b113a30d27a8e59c969077c0a0168cc13dab5ffc # v1
         with:
           components: clippy
           cache: false
@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
-      - uses: actions-rust-lang/setup-rust-toolchain@d5fcac478a8270ade8a005df33017ae06891af79 # v1
+      - uses: actions-rust-lang/setup-rust-toolchain@b113a30d27a8e59c969077c0a0168cc13dab5ffc # v1
         with:
           components: clippy
           cache: false
@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
-      - uses: actions-rust-lang/setup-rust-toolchain@d5fcac478a8270ade8a005df33017ae06891af79 # v1
+      - uses: actions-rust-lang/setup-rust-toolchain@b113a30d27a8e59c969077c0a0168cc13dab5ffc # v1
         with:
           components: rustfmt
           cache: false
