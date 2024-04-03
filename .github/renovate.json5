@@ -4,7 +4,7 @@
     'config:best-practices',
     ':automergePatch',
     ':automergeRequireAllStatusChecks',
-    ':maintainLockFilesWeekly',
+    ':maintainLockFilesMonthly",
     'mergeConfidence:all-badges',
   ],
   customManagers: [
