@@ -11,8 +11,8 @@
     {
       customType: 'regex',
       description: 'Update rust version in rust-toolchain.toml',
-      fileMatch: [
-        'rust-toolchain.toml$',
+      managerFilePatterns: [
+        '/rust-toolchain.toml$/',
       ],
       depNameTemplate: 'rust',
       datasourceTemplate: 'docker',
