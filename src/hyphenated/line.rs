@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 
 use crate::game::{self, CardPlayState};
 use crate::{
-    card_quantum::{CardQuantum, Variant},
     PositionSet,
+    card_quantum::{CardQuantum, Variant},
 };
 
 use super::card_states::CardStates;
@@ -1017,9 +1017,9 @@ impl Line {
                             if !duplicated_self {
                                 if cfg!(debug_assertions) {
                                     println!(
-                                    "Error 2: trash card {:?} ({card_state:?}, {}) is NOT trash",
-                                    slot.card, slot.quantum
-                                );
+                                        "Error 2: trash card {:?} ({card_state:?}, {}) is NOT trash",
+                                        slot.card, slot.quantum
+                                    );
                                 }
                                 errors += error;
                             }

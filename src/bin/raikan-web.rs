@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use websocket::sync::stream::NetworkStream;
 
 use raikan::game;
-use raikan::{game::PlayerStrategy, hyphenated, PositionSet, Variant};
+use raikan::{PositionSet, Variant, game::PlayerStrategy, hyphenated};
 
 fn main() {
     let session_id_env = std::env::var("HANABI_SID");
@@ -37,10 +37,12 @@ fn main() {
                 if name != reqwest::header::SET_COOKIE {
                     continue;
                 }
-                headers.set(websocket::header::Cookie(vec![value
-                    .to_str()
-                    .expect("cookie data should be ascii")
-                    .to_owned()]));
+                headers.set(websocket::header::Cookie(vec![
+                    value
+                        .to_str()
+                        .expect("cookie data should be ascii")
+                        .to_owned(),
+                ]));
             }
         }
     }
@@ -317,7 +319,9 @@ impl HanabClient {
                         }
                     }
                     _ => {
-                        println!("Received unknown websocket message (implemented are text and ping): {message:?}");
+                        println!(
+                            "Received unknown websocket message (implemented are text and ping): {message:?}"
+                        );
                     }
                 },
                 Err(error) => {

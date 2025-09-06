@@ -1,7 +1,7 @@
 use crate::game;
 
 use rand::thread_rng;
-use rand::{seq::SliceRandom, Rng};
+use rand::{Rng, seq::SliceRandom};
 
 pub struct DiscardPlayer {
     num_hand_cards: u8,

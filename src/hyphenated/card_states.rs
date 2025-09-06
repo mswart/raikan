@@ -1,6 +1,6 @@
+use crate::CardQuantum;
 use crate::card_quantum::Variant;
 use crate::game::{self, CardPlayState};
-use crate::CardQuantum;
 
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub struct CardState {
