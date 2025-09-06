@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use hanabi::game;
+use raikan::game;
 
 pub struct InstructedPlayer {
     actions: VecDeque<game::Move>,

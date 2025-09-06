@@ -2,7 +2,7 @@ use rand::prelude::*;
 use std::io::prelude::*;
 use std::{env, io, ops::AddAssign, thread};
 
-use hanabi::*;
+use raikan::*;
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -315,13 +315,13 @@ fn debug_regressions(old: &str, new: &str) -> io::Result<()> {
             let mut old_h2 = hyphenated::HyphenatedPlayer::new(false);
             let mut old_h3 = hyphenated::HyphenatedPlayer::new(false);
             let mut old_h4 = hyphenated::HyphenatedPlayer::new(false);
-            let mut old_players: Vec<&mut dyn hanabi::game::PlayerStrategy> =
+            let mut old_players: Vec<&mut dyn game::PlayerStrategy> =
                 vec![&mut old_h1, &mut old_h2, &mut old_h3, &mut old_h4];
             let mut new_h1 = hyphenated::HyphenatedPlayer::new(false);
             let mut new_h2 = hyphenated::HyphenatedPlayer::new(false);
             let mut new_h3 = hyphenated::HyphenatedPlayer::new(false);
             let mut new_h4 = hyphenated::HyphenatedPlayer::new(false);
-            let mut new_players: Vec<&mut dyn hanabi::game::PlayerStrategy> =
+            let mut new_players: Vec<&mut dyn game::PlayerStrategy> =
                 vec![&mut new_h1, &mut new_h2, &mut new_h3, &mut new_h4];
 
             let mut unchanged = 0;

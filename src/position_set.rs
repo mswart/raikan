@@ -65,7 +65,7 @@ impl PositionSet {
     /// Idempotent operation: previous value is not checked.
     ///
     /// ```
-    /// use hanabi::PositionSet;
+    /// use raikan::PositionSet;
     /// let mut a = PositionSet::new(5);
     /// a.add(3);
     /// a.remove(3);
@@ -102,7 +102,7 @@ impl PositionSet {
     /// Returns the lowest set position or None
     ///
     /// ```
-    /// use hanabi::PositionSet;
+    /// use raikan::PositionSet;
     /// let mut a = PositionSet::new(5);
     /// assert!(a.first().is_none());
     /// a.add(3);
@@ -120,7 +120,7 @@ impl PositionSet {
     /// Returns the highest set position or None
     ///
     /// ```
-    /// use hanabi::PositionSet;
+    /// use raikan::PositionSet;
     /// let mut a = PositionSet::new(5);
     /// assert!(a.last().is_none());
     /// a.add(2);
@@ -142,7 +142,7 @@ impl PositionSet {
     /// Returns the number of positions that are currently set
     ///
     /// ```
-    /// use hanabi::PositionSet;
+    /// use raikan::PositionSet;
     /// let mut a = PositionSet::new(5);
     /// assert_eq!(a.len(), 0);
     /// a.add(3);
@@ -155,7 +155,7 @@ impl PositionSet {
     /// Is no position set at all (equals to len() == 0)
     ///
     /// ```
-    /// use hanabi::PositionSet;
+    /// use raikan::PositionSet;
     /// let mut a = PositionSet::new(5);
     /// assert!(a.is_empty());
     /// a.add(3);
@@ -168,7 +168,7 @@ impl PositionSet {
     /// Are all positions set (equals to len() == max())
     ///
     /// ```
-    /// use hanabi::PositionSet;
+    /// use raikan::PositionSet;
     /// let mut a = PositionSet::new(3);
     /// assert!(!a.is_full());
     /// a.add(0);

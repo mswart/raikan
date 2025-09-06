@@ -1,5 +1,5 @@
 [package]
-name = "hanabi"
+name = "raikan"
 version = "0.2.0"
 authors = ["Malte Swart <mswart@devtation.de>"]
 edition = "2024"
@@ -21,7 +21,7 @@ slog = "2.7.0"
 slog-term = "2.9.2"
 
 [[bin]]
-name = "webclient"
+name = "raikan-web"
 test = false
 bench = false
 required-features = ["webclient"]

@@ -1,9 +1,8 @@
 use colored::*;
-use hanabi::{
-    self,
+use raikan::{
+    self, PositionSet,
     game::{self, ClueColor, Game, PlayerStrategy},
     hyphenated::{self, HyphenatedPlayer, LineScore, Slot},
-    PositionSet,
 };
 
 extern crate slog;
@@ -138,7 +137,7 @@ fn replay_game(turn: u8, deck: &str, actions: &str, options: &str) -> Replay {
     let mut h2 = HyphenatedPlayer::with_logger(log.new(o!("player" => "Bob")));
     let mut h3 = HyphenatedPlayer::with_logger(log.new(o!("player" => "Cathy")));
     let mut h4 = HyphenatedPlayer::with_logger(log.new(o!("player" => "Donald")));
-    let mut players: Vec<&mut dyn hanabi::game::PlayerStrategy> = Vec::new();
+    let mut players: Vec<&mut dyn game::PlayerStrategy> = Vec::new();
     players.push(&mut h1);
     players.push(&mut h2);
     players.push(&mut h3);
@@ -819,12 +818,14 @@ fn only_mark_card_as_clued_if_actually_the_case() {
         "0",
     );
     for line in replay.lines.iter() {
-        assert!(line.card_states[&game::Card {
-            rank: 2,
-            suit: game::Suit::Yellow(),
-        }]
-            .clued
-            .is_none());
+        assert!(
+            line.card_states[&game::Card {
+                rank: 2,
+                suit: game::Suit::Yellow(),
+            }]
+                .clued
+                .is_none()
+        );
     }
 }
 
@@ -906,12 +907,14 @@ fn clear_clued_cards_on_discard() {
         "0",
     );
     for line in replay.lines.iter() {
-        assert!(line.card_states[&game::Card {
-            rank: 4,
-            suit: game::Suit::Purple(),
-        }]
-            .clued
-            .is_none());
+        assert!(
+            line.card_states[&game::Card {
+                rank: 4,
+                suit: game::Suit::Purple(),
+            }]
+                .clued
+                .is_none()
+        );
     }
 }
 
@@ -926,12 +929,14 @@ fn clear_clued_cards_on_fix_clue() {
         "0",
     );
     for line in replay.lines.iter() {
-        assert!(line.card_states[&game::Card {
-            rank: 3,
-            suit: game::Suit::Blue(),
-        }]
-            .clued
-            .is_none());
+        assert!(
+            line.card_states[&game::Card {
+                rank: 3,
+                suit: game::Suit::Blue(),
+            }]
+                .clued
+                .is_none()
+        );
     }
 }
 
@@ -1286,10 +1291,10 @@ fn dont_prompt_own_cards_if_they_are_ambigious() {
 #[test]
 fn self_prompt() {
     let replay = replay_game(
-            11,
-            "415uwcsgfqvfcbpdbikgxevorthxuylkhmrjqpnwismaaupkdlnfa",
-            "05pc6aal0baaagaivcud7aatapar1d0aavadbe7abmayuabjoca1bfaqDcaw7ab2aoa3oab5uba6a4uabna9paau1caEbhaAwc",
-            "0",
+        11,
+        "415uwcsgfqvfcbpdbikgxevorthxuylkhmrjqpnwismaaupkdlnfa",
+        "05pc6aal0baaagaivcud7aatapar1d0aavadbe7abmayuabjoca1bfaqDcaw7ab2aoa3oab5uba6a4uabna9paau1caEbhaAwc",
+        "0",
     );
     let p3_slots = replay.slot_perspectives(0, 3);
     println!("p3_slots: {:?}", p3_slots);
@@ -1329,10 +1334,10 @@ fn self_prompt() {
 // tests needs to be adapted.
 fn self_prompt_after_potential_finess() {
     let replay = replay_game(
-            11,
-            "415uwcsgfqvfwbpdbikgxevorthxuylkhmrjqpncismaaupkdlnfa",
-            "05pc6aal0baaagaivcud7aatapar1d0aavadbe7abmayuabjoca1bfaqDcaw7ab2aoa3oab5uba6a4uabna9paau1caEbhaAwc",
-            "0",
+        11,
+        "415uwcsgfqvfwbpdbikgxevorthxuylkhmrjqpncismaaupkdlnfa",
+        "05pc6aal0baaagaivcud7aatapar1d0aavadbe7abmayuabjoca1bfaqDcaw7ab2aoa3oab5uba6a4uabna9paau1caEbhaAwc",
+        "0",
     );
     let p3_slots = replay.slot_perspectives(0, 3);
     println!("p3_slots: {:?}", p3_slots);
@@ -1372,10 +1377,10 @@ fn self_prompt_after_potential_finess() {
 // tests needs to be adapted.
 fn self_finess_instead_of_prompt() {
     let replay = replay_game(
-            11,
-            "415uycsgfqvfwbpdbikgxevorthxuwlkhmrjqpncismaaupkdlnfa",
-            "05pc6aal0baaagaivcud7aatapar1d0aavadbe7abmayuabjoca1bfaqDcaw7ab2aoa3oab5uba6a4uabna9paau1caEbhaAwc",
-            "0",
+        11,
+        "415uycsgfqvfwbpdbikgxevorthxuwlkhmrjqpncismaaupkdlnfa",
+        "05pc6aal0baaagaivcud7aatapar1d0aavadbe7abmayuabjoca1bfaqDcaw7ab2aoa3oab5uba6a4uabna9paau1caEbhaAwc",
+        "0",
     );
     let p3_slots = replay.slot_perspectives(2, 3);
     println!("p3_slots: {:?}", p3_slots);
@@ -1496,10 +1501,10 @@ fn no_self_prompt_if_easier_alternative() {
 fn no_self_prompt_if_easier_alternative2() {
     // Seed 2
     let replay = replay_game(
-            23,
-            "415jqgbuywktfifdpraklukmhrpsaxnvlgvehdcncfpmxauoqsiwb",
-            "05pcDaal6bpdaeajapucoaaqanacva1davadbhubbmabar6baobwocakbtaaucau7aaybz1abxa9ica8b00cbAaivca1Dda5a6ucbFaI1bb7agbLbJbMbNqc",
-            "0",
+        23,
+        "415jqgbuywktfifdpraklukmhrpsaxnvlgvehdcncfpmxauoqsiwb",
+        "05pcDaal6bpdaeajapucoaaqanacva1davadbhubbmabar6baobwocakbtaaucau7aaybz1abxa9ica8b00cbAaivca1Dda5a6ucbFaI1bb7agbLbJbMbNqc",
+        "0",
     );
     let p2_slots = replay.slot_perspectives(1, 0);
     println!("p2_slots: {:?}", p2_slots);
@@ -1536,11 +1541,11 @@ fn always_consider_foreign_prompts() {
 fn always_consider_foreign_prompts2() {
     // seed 9756824915852424369
     let replay = replay_game(
-            27,
-            "415tdcbfjvfmhuixnglskwuqigaahmnlsyapqoxudrekvpfwkprcb",
-            "05pbahDa6codaeakaoubar6b6cudagasapbb1caibmDbbqidaxbcvabl7bada1bwpbbya6uabna80a6bbt0ba9bz6cb5aua47aDbbGajobbFav0daCa3afidaMaBqb",
-            "0",
-        );
+        27,
+        "415tdcbfjvfmhuixnglskwuqigaahmnlsyapqoxudrekvpfwkprcb",
+        "05pbahDa6codaeakaoubar6b6cudagasapbb1caibmDbbqidaxbcvabl7bada1bwpbbya6uabna80a6bbt0ba9bz6cb5aua47aDbbGajobbFav0daCa3afidaMaBqb",
+        "0",
+    );
     assert!(
         replay
             .clone()
@@ -1578,11 +1583,11 @@ fn dont_self_prompt_yourself2() {
 fn no_wait_if_not_possible() {
     // seed 0
     let replay = replay_game(
-            11,
-            "415uxxrhphtwqkdbgvksgqfneysiufmwjomkilfaalvcnbpcrpadu",
-            "05uc6aakpbaaaf0b0a7cas6d6cadbeaqobbrahpb6cbuatDbbmodbybjanDcagb3bpodb0uba7bxa8iaubaAa5b6b17dudbEaFvcb2aGa41baIalvbbzaDbJbKbCqb",
-            "0",
-        );
+        11,
+        "415uxxrhphtwqkdbgvksgqfneysiufmwjomkilfaalvcnbpcrpadu",
+        "05uc6aakpbaaaf0b0a7cas6d6cadbeaqobbrahpb6cbuatDbbmodbybjanDcagb3bpodb0uba7bxa8iaubaAa5b6b17dudbEaFvcb2aGa41baIalvbbzaDbJbKbCqb",
+        "0",
+    );
     let slots = replay.slot_perspectives(3, 1);
     for (player, slot) in slots.iter().enumerate() {
         assert_eq!(
@@ -1604,11 +1609,11 @@ fn no_wait_if_not_possible() {
 fn unambiguous_prompt_clue_by_rank() {
     // seed 0
     let replay = replay_game(
-            8,
-            "415fkhmpbsvcdaxxjyinlawuuqwlfqapihorknrsevfkbgtcupgmd",
-            "050baepapcabuaak7barbfpbvbadau0bbmaaaw6d7cbcDdbibpbtbzobb2udbq0bb5bva67ab7a8ag6bbAbybCibbDvdaFDbaGidaHbsaIoba4ajiaaBb9b1qd",
-            "0",
-        );
+        8,
+        "415fkhmpbsvcdaxxjyinlawuuqwlfqapihorknrsevfkbgtcupgmd",
+        "050baepapcabuaak7barbfpbvbadau0bbmaaaw6d7cbcDdbibpbtbzobb2udbq0bb5bva67ab7a8ag6bbAbybCibbDvdaFDbaGidaHbsaIoba4ajiaaBb9b1qd",
+        "0",
+    );
     let slots = replay.slot_perspectives(0, 0);
     for (player, slot) in slots.iter().enumerate() {
         assert_eq!(
@@ -1649,11 +1654,11 @@ fn unambiguous_prompt_clue_by_rank() {
 fn ambigious_delayed_play_clue() {
     // seed 0
     let mut replay = replay_game(
-            11,
-            "415fkhmpbsvcdaxxjyinlawuuqwlfqapihorknrsevfkbgtcupgmd",
-            "050baepapcabuaak7barbfpbvbadau0bbmaaaw6d7cbcDdbibpbtbzobb2udbq0bb5bva67ab7a8ag6bbAbybCibbDvdaFDbaGidaHbsaIoba4ajiaaBb9b1qd",
-            "0",
-        );
+        11,
+        "415fkhmpbsvcdaxxjyinlawuuqwlfqapihorknrsevfkbgtcupgmd",
+        "050baepapcabuaak7barbfpbvbadau0bbmaaaw6d7cbcDdbibpbtbzobb2udbq0bb5bva67ab7a8ag6bbAbybCibbDvdaFDbaGidaHbsaIoba4ajiaaBb9b1qd",
+        "0",
+    );
     replay.clue(1, game::Clue::Color(game::ClueColor::Purple()));
     let slots = replay.slot_perspectives(1, 2);
     assert_eq!(

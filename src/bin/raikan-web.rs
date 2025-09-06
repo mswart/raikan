@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, VecDeque};
 use serde::{Deserialize, Serialize};
 use websocket::sync::stream::NetworkStream;
 
-use hanabi::game;
-use hanabi::{game::PlayerStrategy, hyphenated, PositionSet, Variant};
+use raikan::game;
+use raikan::{game::PlayerStrategy, hyphenated, PositionSet, Variant};
 
 fn main() {
     let session_id_env = std::env::var("HANABI_SID");
