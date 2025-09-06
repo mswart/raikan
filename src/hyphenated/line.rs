@@ -1006,13 +1006,12 @@ impl Line {
                             CardPlayState::Normal() => Some(1),
                         } {
                             let mut duplicated_self = false;
-                            if let Some((locked_player, turn)) = card_state.locked {
-                                if player == locked_player
-                                    && slot.turn != turn
-                                    && slot.quantum.size() == 0
-                                {
-                                    duplicated_self = true;
-                                }
+                            if let Some((locked_player, turn)) = card_state.locked
+                                && player == locked_player
+                                && slot.turn != turn
+                                && slot.quantum.size() == 0
+                            {
+                                duplicated_self = true;
                             }
                             if !duplicated_self {
                                 if cfg!(debug_assertions) {
@@ -1062,23 +1061,24 @@ impl Line {
                         }
                     }
                 }
-                if slot.play && slot.delayed == 0 {
-                    if let Some(error) = match card_state.play {
+                if slot.play
+                    && slot.delayed == 0
+                    && let Some(error) = match card_state.play {
                         CardPlayState::Playable() => None,
                         CardPlayState::CriticalPlayable() => None,
                         CardPlayState::Critical() => Some(3),
                         CardPlayState::Normal() => Some(2),
                         CardPlayState::Dead() => Some(1),
                         CardPlayState::Trash() => Some(1),
-                    } {
-                        if cfg!(debug_assertions) {
-                            println!(
-                                "Error {error}: {:?} card ({:?}; {}) marked as to play",
-                                card_state.play, slot.card, slot.quantum
-                            );
-                        }
-                        errors += error;
                     }
+                {
+                    if cfg!(debug_assertions) {
+                        println!(
+                            "Error {error}: {:?} card ({:?}; {}) marked as to play",
+                            card_state.play, slot.card, slot.quantum
+                        );
+                    }
+                    errors += error;
                 }
                 if !slot.trash
                     && (card_state.locked.unwrap_or((player, slot.turn)) == (player, slot.turn)
@@ -1603,12 +1603,11 @@ impl Line {
                 delayed_slot,
                 potential_player,
             } = self.callbacks[i]
+                && potential_player == who as u8
             {
-                if potential_player == who as u8 {
-                    let slot = &mut self.hands.slots[delayed_slot as usize];
-                    slot.delayed -= 1;
-                    self.callbacks.remove(i);
-                }
+                let slot = &mut self.hands.slots[delayed_slot as usize];
+                slot.delayed -= 1;
+                self.callbacks.remove(i);
             }
         }
 
