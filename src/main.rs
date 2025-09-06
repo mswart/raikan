@@ -23,7 +23,7 @@ fn main() -> io::Result<()> {
             args[1].parse().expect("Invalid seed format")
         } else {
             let mut seed_rng = rand::thread_rng();
-            seed_rng.gen()
+            seed_rng.r#gen()
         };
         let mut game = game::Game::new(&mut players, true, seed);
         game.run(&mut players);
