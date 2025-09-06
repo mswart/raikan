@@ -378,13 +378,13 @@ impl HanabClient {
     }
 
     fn on_error(&mut self, json: &str) -> Result<(), serde_json::Error> {
-        let warning = serde_json::from_str(json)?;
+        let warning: () = serde_json::from_str(json)?;
         println!("Warning {:?}", warning);
         Ok(())
     }
 
     fn on_warning(&mut self, json: &str) -> Result<(), serde_json::Error> {
-        let warning = serde_json::from_str(json)?;
+        let warning: () = serde_json::from_str(json)?;
         println!("Warning {:?}", warning);
         Ok(())
     }

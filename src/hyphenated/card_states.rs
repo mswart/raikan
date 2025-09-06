@@ -164,7 +164,7 @@ impl CardStates {
         }
     }
 
-    pub fn iter(&self) -> CardStateIterator {
+    pub fn iter(&self) -> CardStateIterator<'_> {
         CardStateIterator {
             card_states: self,
             next_pos: 0,
@@ -172,7 +172,7 @@ impl CardStates {
         }
     }
 
-    pub fn iter_clued(&self) -> CardStateIterator {
+    pub fn iter_clued(&self) -> CardStateIterator<'_> {
         CardStateIterator {
             card_states: self,
             next_pos: 0,

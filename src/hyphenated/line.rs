@@ -147,7 +147,7 @@ impl Hands {
         old_pos as usize
     }
 
-    pub fn iter_hand(&self, player: u8) -> HandIterator {
+    pub fn iter_hand(&self, player: u8) -> HandIterator<'_> {
         HandIterator {
             hands: self,
             player,
@@ -156,7 +156,7 @@ impl Hands {
         }
     }
 
-    fn iter_hand_mut(&mut self, player: u8) -> HandMutIterator {
+    fn iter_hand_mut(&mut self, player: u8) -> HandMutIterator<'_> {
         let back_pos = self.hand_sizes[player as usize];
         HandMutIterator {
             slots: &mut self.slots,
