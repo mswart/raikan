@@ -1,0 +1,175 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.2.0](https://github.com/mswart/raikan/releases/tag/v0.2.0) - 2025-09-14
+
+### Fixed
+
+- *(deps)* update rust crate serde_json to v1.0.144 ([#64](https://github.com/mswart/raikan/pull/64))
+- *(deps)* update rust crate serde to v1.0.221 ([#63](https://github.com/mswart/raikan/pull/63))
+- *(deps)* update rust crate websocket to 0.27.1
+- *(deps)* update rust crate reqwest to 0.12
+- *(deps)* update rust crate slog-term to 2.9.1
+- *(deps)* update rust crate colored to 2.1.0
+- *(deps)* update rust crate websocket to 0.26.5
+- *(deps)* update rust crate rand to 0.8.5
+- *(deps)* update rust crate colored to 2.0.4
+- *(game)* improve replay parsing
+
+### Other
+
+- Prepare pulication
+- *(deps)* update actions-rust-lang/rustfmt digest to 559aa30
+- *(deps)* update actions-rust-lang/setup-rust-toolchain digest to ac90e63
+- Merge pull request #61 from mswart/renovate/actions-checkout-5.x
+- *(deps)* update actions/checkout action to v5
+- Resolve clippy warnings
+- Fix code formatting
+- Rename project
+- Upgrade to Edition 2024
+- Refresh dependencies
+- *(config)* migrate config .github/renovate.json5
+- fix config
+- reduce maintenance frequency
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- Merge pull request #33 from mswart/renovate/swatinem-rust-cache-digest
+- *(deps)* lock file maintenance
+- Merge pull request #30 from mswart/renovate/swatinem-rust-cache-digest
+- *(deps)* update actions-rust-lang/setup-rust-toolchain digest to d5fcac4
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* update actions/checkout digest to b4ffde6
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- *(deps)* lock file maintenance
+- Merge pull request #9 from mswart/renovate/websocket-0.x
+- *(deps)* lock file maintenance
+- Don't run on PR for the moment
+- *(config)* migrate config .github/renovate.json5
+- improve configuration
+- Add renovate.json
+- Adapt webclient on refectored interface
+- More good touch principal
+- WIP early two safes
+- Don't play clue card that might be clued in your hand
+- No self-prompt on newly touched cards
+- Let player track clue state themselves
+- More finess / prompt improvements
+- Improve handling of already clued cards
+- Further finess/prompts tweaks
+- More prompt/finess fixes
+- Improve prompts & finesses
+- Starting to use a logging library
+- Make webclient binary feature dependent
+- structured approach to complicated play clues
+- describe blind plays as such
+- finesses and more tests
+- more utf-8 characters for easier to understand output flags
+- report total sum of strikes and blind plays
+- Improve prompts
+- Simplified/deduplicate card searching
+- Move webclient into own binary to speed up tests
+- Don't clue duplicated ones on first turn
+- Don't play delayed cards
+- Better line/replay output
+- Basic prompt implementation
+- Update rust edition and fix clippy warnings
+- Support delayed play clues on chop fives
+- More good touch principal
+- Improve performance
+- Correctly handle two cards in one hand
+- won games are also finished
+- Implement first delayed play clues
+- Add tests to fix later
+- Restructure hyphenated player
+- Clear clued cards upon fix clues
+- Clear clued state upon discard
+- Don't play cards that can't be playable
+- Reset internal clue card state upon misplays
+- Make clued_cards perspective aware
+- Only assume card is clued if we are sure about that
+- Multi-player-perspective card tracking
+- First steps into understanding fix clues
+- simplify message parsing
+- games won on the last turn as still won
+- very bad: 8 clue implementation
+- print score/max score distribution for finished games
+- Reduce useless clues
+- Improve webclient shared replay behavior
+- Always safe 5s via rank
+- Implement a basic hanab.live webclient player
+- More tests to improve clues
+- Add helper to inspect game that got worse
+- Persist replay urls in recording list
+- Improve line debug output
+- Make line game less
+- Better reasoning about additional trash cards
+- Don't "trash" clue
+- Unify clue logic
+- fix deck on lost games
+- Keep better track about clued cards
+- Clue multiple cards if possible
+- ensure deck is complete.
+- Persist full game result list
+- More tests with small clue improvements
+- Better line scores and based on first real test
+- Paralize stats on all cores
+- Line-based implementation
+- Generate URL encoded replay URLs
+- Correct game state handling
+- Give tempo clues
+- Implement focus like h-group
+- Consider safe clues via color
+- Remember cards that we clued ourselves
+- Complete desk in hanab.live replay of lost games
+- Better naming
+- Evaluate potential safe for other players, too
+- Don't clue cards twice in players hands
+- Don't reason about own hand based on own clues
+- Don't play known trash cards
+- Fix/complete hanabi replay JSON
+- Fix typo (suite instead of suit)
+- Generate hanab.live compatible JSON replays
+- Tweak openings
+- improve handled of delayed play cards
+- make stats better comparable
+- improve strategy
+- Shuffle desk with seed
+- Let binary use the lib
+- improve stats output
+- Remove higher tracking features from the game
+- Let players track all actions / information
+- Implement dedicated struct for a position set
+- add first tests
+- reason based on commonly played card
+- need support won games, too yeah
+- Implement stats mode
+- implement for play clues and plays
+- fix play_state
+- support strategy state + inform about clues
+- Improve game output (print potential card state)
+- Implement basic game logic (and trivial strategies)
