@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/mswart/raikan/compare/v0.2.0...v0.2.1) - 2025-09-24
+
+### Fixed
+
+- *(webclient)* replace websocket and native-tls
+
 ## [0.2.0](https://github.com/mswart/raikan/releases/tag/v0.2.0) - 2025-09-14
 
 Initial public release.
