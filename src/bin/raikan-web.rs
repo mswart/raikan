@@ -1,16 +1,20 @@
 use std::collections::{BTreeMap, VecDeque};
 
-use serde::{Deserialize, Serialize};
-use websocket::sync::stream::NetworkStream;
-
 use raikan::game;
 use raikan::{PositionSet, Variant, game::PlayerStrategy, hyphenated};
+use serde::{Deserialize, Serialize};
+use std::net::TcpStream;
+use tungstenite::{
+    ClientRequestBuilder, client::connect, http::Uri, protocol::Message, protocol::WebSocket,
+    stream::MaybeTlsStream,
+};
 
 fn main() {
     let session_id_env = std::env::var("HANABI_SID");
-    let mut headers = websocket::header::Headers::new();
+    let uri: Uri = "wss://hanab.live/ws".parse().unwrap();
+    let mut builder = ClientRequestBuilder::new(uri);
     match session_id_env {
-        Ok(message) => headers.set(websocket::header::Cookie(vec![message])),
+        Ok(message) => builder = builder.with_header("cookie", message.to_owned()),
         Err(_error) => {
             let username =
                 std::env::var("HANABI_USERNAME").expect("HANABI_USERNAME environment is required");
@@ -37,22 +41,13 @@ fn main() {
                 if name != reqwest::header::SET_COOKIE {
                     continue;
                 }
-                headers.set(websocket::header::Cookie(vec![
-                    value
-                        .to_str()
-                        .expect("cookie data should be ascii")
-                        .to_owned(),
-                ]));
+                builder = builder.with_header("cookie", value.to_str().expect("should work"));
             }
         }
     }
 
-    let mut client = HanabClient {
-        client: websocket::ClientBuilder::new("wss://hanab.live/ws")
-            .unwrap()
-            .custom_headers(&headers)
-            .connect(None)
-            .unwrap(),
+    let mut client: HanabClient = HanabClient {
+        client: connect(builder).unwrap().0,
         user_id: 0,
         username: "".to_string(),
         table_id: 0,
@@ -133,6 +128,12 @@ struct TableProgressMessage {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
+struct Spectator {
+    name: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 struct TableState {
     id: usize,
     name: String,
@@ -148,7 +149,7 @@ struct TableState {
     shared_replay: bool,
     progress: i8,
     players: Vec<String>,
-    spectators: Vec<String>,
+    spectators: Vec<Spectator>,
     max_players: u8,
 }
 
@@ -277,7 +278,7 @@ struct ReplaySegmentMessage {
 }
 
 struct HanabClient {
-    client: websocket::sync::Client<Box<dyn NetworkStream + Send>>,
+    client: WebSocket<MaybeTlsStream<TcpStream>>,
     user_id: usize,
     username: String,
     user_states: std::collections::BTreeMap<usize, UserState>,
@@ -291,21 +292,16 @@ struct HanabClient {
 impl HanabClient {
     fn run(&mut self) {
         loop {
-            let message = self.client.recv_message();
+            let message = self.client.read();
             match message {
                 Ok(message) => match message {
-                    websocket::OwnedMessage::Ping(id) => {
-                        match self
-                            .client
-                            .send_message(&websocket::OwnedMessage::Pong(id.clone()))
-                        {
-                            Ok(_) => {}
-                            Err(error) => {
-                                println!("Failed to send pong websocket message: {}", error)
-                            }
+                    Message::Ping(id) => match self.client.send(Message::Pong(id.clone())) {
+                        Ok(_) => {}
+                        Err(error) => {
+                            println!("Failed to send pong websocket message: {}", error)
                         }
-                    }
-                    websocket::OwnedMessage::Text(text) => {
+                    },
+                    Message::Text(text) => {
                         let (command, json) = text
                             .split_once(' ')
                             .expect("Websocket message must be 'command JSON'");
@@ -592,8 +588,8 @@ impl HanabClient {
 
     fn send(&mut self, command: &str, body: &str) {
         println!("==> {command} {body}");
-        let message = websocket::OwnedMessage::Text(format!("{} {}", command, body));
-        match self.client.send_message(&message) {
+        let message = Message::Text(format!("{} {}", command, body).into());
+        match self.client.send(message) {
             Ok(()) => {}
             Err(error) => {
                 eprintln!("Could not send message to server: {error}");
