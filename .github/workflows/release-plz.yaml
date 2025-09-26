@@ -29,7 +29,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     outputs:
-      release_created: ${{ steps.release-plz.outputs.release_created }}
+      releases_created: ${{ steps.release-plz.outputs.releases_created }}
       tag: ${{ steps.release-plz.outputs.tag }}
 
   # Create a PR with the new versions and changelog, preparing the next release.
@@ -60,7 +60,7 @@ jobs:
     needs:
       - release-plz-release
     uses: ./.github/workflows/build-binaries.yaml
-    if: needs.release-plz-release.outputs.release_created
+    if: needs.release-plz-release.outputs.releases_created == 'true'
     with:
       ref: refs/tag/${{ needs.release-plz-release.outputs.tag }}
     permissions:
