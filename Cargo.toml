@@ -9,9 +9,11 @@ license = "AGPL-3.0-or-later"
 keywords = ["hanabi", "hyphenated", "bot"]
 categories = ["games", "simulation"]
 include = ["/src", "/tests", "LICENSE"]
+# be explicit about MSRV, but use first version with edition 2024 for now:
+rust-version = "1.85"
 
 [dependencies]
-colored = "2.2.0"
+colored = "3.0.0"
 rand = "0.8.5"
 rand_pcg = "0.3"
 serde = { version = "1.0", features = ["derive"] }
