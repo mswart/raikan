@@ -1,6 +1,6 @@
 [package]
 name = "raikan"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 description = "Hanabi bot using Hyphenated rules for hanab.io"
 readme = "README.md"
