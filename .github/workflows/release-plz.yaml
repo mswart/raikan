@@ -22,7 +22,7 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@ac90e63697ac2784f4ecfe2964e1a285c304003a # v1.14.1
       - name: Run release-plz
-        uses: release-plz/action@20b23932963f7971bdff386c3542f07fbec45f42 # v0.5.125
+        uses: release-plz/action@52440b50d383aa252927de395c8b2c1e0a9cf8e9 # v0.5.126
         id: release-plz
         with:
           command: release
@@ -50,7 +50,7 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@ac90e63697ac2784f4ecfe2964e1a285c304003a # v1.14.1
       - name: Run release-plz
-        uses: release-plz/action@20b23932963f7971bdff386c3542f07fbec45f42 # v0.5.125
+        uses: release-plz/action@52440b50d383aa252927de395c8b2c1e0a9cf8e9 # v0.5.126
         with:
           command: release-pr
         env:
