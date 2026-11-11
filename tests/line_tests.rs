@@ -2432,3 +2432,26 @@ fn good_touch_principal4() {
 
     assert!(y3 > y2_dub);
 }
+
+#[test]
+fn slot_ids_survive_hand_shifts_and_storage_reuse() {
+    let mut line = hyphenated::Line::new(4, 0);
+    line.own_drawn();
+    let first = line.hands.slot(0, 0).id;
+    line.own_drawn();
+    let second = line.hands.slot(0, 0).id;
+    assert_ne!(first, second);
+    assert_eq!(line.hands.find(first), Some((0, 1)));
+    line.discarded(
+        0,
+        0,
+        game::Card {
+            suit: game::Suit::Red(),
+            rank: 1,
+        },
+    );
+    line.own_drawn();
+    assert_ne!(line.hands.slot(0, 0).id, second);
+    assert_eq!(line.hands.find(second), None);
+    assert_eq!(line.hands.find(first), Some((0, 1)));
+}

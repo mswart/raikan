@@ -1,4 +1,5 @@
 mod card_states;
+pub mod interpretation;
 mod line;
 mod slot;
 
@@ -9,7 +10,7 @@ use slog;
 
 pub use line::Line;
 pub use line::LineScore;
-pub use slot::Slot;
+pub use slot::{Slot, SlotId};
 
 impl std::fmt::Debug for HyphenatedPlayer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

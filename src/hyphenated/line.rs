@@ -7,7 +7,10 @@ use crate::{
 };
 
 use super::card_states::CardStates;
-use super::slot::Slot;
+use super::interpretation::{
+    ClueRecord, HandEntry, Hypothesis, Interpretations, Step, StepKind, Tier,
+};
+use super::slot::{Slot, SlotId};
 
 use slog;
 
@@ -90,6 +93,7 @@ pub struct Line {
     score: u8,
     own_player: u8,
     pub callbacks: VecDeque<Callback>,
+    pub interpretations: Interpretations,
     logger: slog::Logger,
 }
 
@@ -102,6 +106,7 @@ impl PartialEq for Line {
             && self.score == other.score
             && self.own_player == other.own_player
             && self.callbacks == other.callbacks
+            && self.interpretations == other.interpretations
     }
 }
 impl Eq for Line {}
@@ -115,10 +120,13 @@ pub struct Hands {
     slots: [Slot; 20],
     next_slot: Option<u8>,
     used_slots: u8,
+    next_id: SlotId,
 }
 
 impl Hands {
-    fn insert_slot(&mut self, player: usize, slot: Slot) {
+    fn insert_slot(&mut self, player: usize, mut slot: Slot) {
+        slot.id = self.next_id;
+        self.next_id += 1;
         let slot_index = if let Some(slot_index) = self.next_slot {
             self.next_slot = None;
             slot_index
@@ -177,6 +185,18 @@ impl Hands {
 
     pub fn slot_mut(&mut self, player: u8, pos: u8) -> &mut Slot {
         &mut self.slots[self.slot_index(player, pos) as usize]
+    }
+
+    /// Locate a card (by its stable id) in the hands: `(player, pos)`.
+    pub fn find(&self, id: SlotId) -> Option<(u8, u8)> {
+        for player in 0..self.num_players {
+            for (pos, slot) in self.iter_hand(player) {
+                if slot.id == id {
+                    return Some((player, pos));
+                }
+            }
+        }
+        None
     }
 }
 
@@ -326,14 +346,6 @@ impl<'a> DoubleEndedIterator for HandMutIterator<'a> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-enum PlayRelation {
-    Normal(),
-    WaitingPlay(),
-    Prompt(),
-    Finess(),
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MarkCertainty {
     Prep(),
@@ -354,7 +366,8 @@ struct PlayEvaluation {
     whom: usize,
     pos: u8,
     card: game::Card,
-    places: [(u8, u8, PlayRelation); 5],
+    steps: Vec<Step>,
+    tier: Tier,
     pending_marks: bool,
     played_rank: u8,
     marked_cards: [PositionSet; 6],
@@ -362,13 +375,34 @@ struct PlayEvaluation {
 }
 
 impl PlayEvaluation {
+    fn add_step(&mut self, line: &Line, card: game::Card, holder: u8, pos: u8, kind: StepKind) {
+        self.steps.push(Step {
+            card,
+            holder,
+            kind,
+            slot: line.hands.slot(holder, pos).id,
+            layers: 0,
+            done: false,
+        });
+    }
+
+    fn into_hypothesis(mut self) -> Hypothesis {
+        self.steps.sort_by_key(|step| step.card.rank);
+        Hypothesis {
+            focus_card: self.card,
+            steps: self.steps,
+            tier: self.tier,
+        }
+    }
+
     fn prep(line: &mut Line, who: usize, whom: usize, pos: u8, logger: slog::Logger) -> u8 {
         let mut evaluation = Self {
             who,
             whom,
             pos,
             card: line.hands.slot(whom as u8, pos).card,
-            places: [(0, 0, PlayRelation::Normal()); 5],
+            steps: Vec::new(),
+            tier: Tier::Direct,
             pending_marks: false,
             played_rank: 0,
             marked_cards: [PositionSet::new(6); 6],
@@ -403,7 +437,8 @@ impl PlayEvaluation {
             whom,
             pos,
             card,
-            places: [(0, 0, PlayRelation::Normal()); 5],
+            steps: Vec::new(),
+            tier: Tier::Direct,
             pending_marks: false,
             played_rank: 0,
             marked_cards: [PositionSet::new(6); 6],
@@ -424,7 +459,8 @@ impl PlayEvaluation {
                 suit: game::Suit::Red(),
                 rank: 0,
             },
-            places: [(0, 0, PlayRelation::Normal()); 5],
+            steps: Vec::new(),
+            tier: Tier::Direct,
             pending_marks: false,
             played_rank: 0,
             marked_cards: [PositionSet::new(6); 6],
@@ -455,8 +491,13 @@ impl PlayEvaluation {
                 previous_card
             );
             self.marked_cards[clued_player as usize].add(found_pos);
-            self.places[previous_card.rank as usize - 1] =
-                (clued_player, found_pos, PlayRelation::WaitingPlay());
+            self.add_step(
+                line,
+                previous_card,
+                clued_player,
+                found_pos,
+                StepKind::Queued,
+            );
             self.pending_marks = true;
             return Some(true);
         }
@@ -479,8 +520,13 @@ impl PlayEvaluation {
                     previous_card
                 );
                 self.marked_cards[clued_player as usize].add(found_pos);
-                self.places[previous_card.rank as usize - 1] =
-                    (clued_player, found_pos, PlayRelation::Prompt());
+                self.add_step(
+                    line,
+                    previous_card,
+                    clued_player,
+                    found_pos,
+                    StepKind::Prompt,
+                );
                 self.pending_marks = true;
                 return Some(true);
             }
@@ -510,8 +556,13 @@ impl PlayEvaluation {
                     previous_card
                 );
                 self.marked_cards[clued_player as usize].add(found_pos);
-                self.places[previous_card.rank as usize - 1] =
-                    (clued_player, found_pos, PlayRelation::Prompt());
+                self.add_step(
+                    line,
+                    previous_card,
+                    clued_player,
+                    found_pos,
+                    StepKind::Prompt,
+                );
                 self.pending_marks = true;
                 return Some(true);
             }
@@ -534,8 +585,13 @@ impl PlayEvaluation {
                 previous_card
             );
             self.marked_cards[clued_player as usize].add(found_pos);
-            self.places[previous_card.rank as usize - 1] =
-                (clued_player, found_pos, PlayRelation::Prompt());
+            self.add_step(
+                line,
+                previous_card,
+                clued_player,
+                found_pos,
+                StepKind::Prompt,
+            );
             self.pending_marks = true;
             return Some(true);
         }
@@ -554,10 +610,14 @@ impl PlayEvaluation {
         premarked: PositionSet,
         first_action: FirstAction,
     ) -> Result<(), bool> {
+        self.tier = match first_action {
+            FirstAction::NonSelf() => Tier::Direct,
+            FirstAction::SelfPrompt() => Tier::SelfPrompt,
+            FirstAction::SelfFiness() => Tier::SelfFinesse,
+        };
         self.marked_cards[self.whom] = premarked;
         self.marked_cards[self.whom].add(self.pos);
-        self.places[self.card.rank as usize - 1] =
-            (self.whom as u8, self.pos, PlayRelation::Normal());
+        self.add_step(line, self.card, self.whom as u8, self.pos, StepKind::Focus);
         let mut allowed_self_search = first_action;
         match line.card_states[&self.card].play {
             game::CardPlayState::Playable() => Ok(()),
@@ -586,8 +646,7 @@ impl PlayEvaluation {
                             .expect("clued = Some(255) should also lock the slot, or?");
                         for (pos, slot) in line.hands.iter_hand(player) {
                             if slot.turn == turn {
-                                self.places[previous_rank as usize - 1] =
-                                    (player, pos, PlayRelation::Prompt());
+                                self.add_step(line, previous_card, player, pos, StepKind::Prompt);
                                 slog::debug!(
                                     self.logger,
                                     "Looking for {:?}: clued on {player}'s hand: {slot:?}",
@@ -662,8 +721,13 @@ impl PlayEvaluation {
                                 previous_card
                             );
                             self.marked_cards[finess_player as usize].add(other_pos);
-                            self.places[previous_rank as usize - 1] =
-                                (finess_player, other_pos, PlayRelation::Finess());
+                            self.add_step(
+                                line,
+                                previous_card,
+                                finess_player,
+                                other_pos,
+                                StepKind::Finesse,
+                            );
                             self.pending_marks = true;
                             allowed_self_search = FirstAction::SelfFiness();
                             continue 'rank_loop;
@@ -684,8 +748,7 @@ impl PlayEvaluation {
                             previous_card
                         );
                         self.marked_cards[0_usize].add(found_pos);
-                        self.places[previous_rank as usize - 1] =
-                            (0, found_pos, PlayRelation::WaitingPlay());
+                        self.add_step(line, previous_card, 0, found_pos, StepKind::Queued);
                         self.pending_marks = true;
                         continue;
                     }
@@ -707,8 +770,7 @@ impl PlayEvaluation {
                                 previous_card
                             );
                             self.marked_cards[0_usize].add(other_pos);
-                            self.places[previous_rank as usize - 1] =
-                                (0, other_pos, PlayRelation::Prompt());
+                            self.add_step(line, previous_card, 0, other_pos, StepKind::Prompt);
                             self.pending_marks = true;
                             continue 'rank_loop;
                         }
@@ -728,16 +790,14 @@ impl PlayEvaluation {
                                     "Looking for {:?}: known self-prompted in our hand ({other_pos}): {slot:?}",
                                     previous_card
                                 );
-                                self.places[previous_rank as usize - 1] =
-                                    (0, other_pos, PlayRelation::Prompt());
+                                self.add_step(line, previous_card, 0, other_pos, StepKind::Prompt);
                             } else {
                                 slog::debug!(
                                     self.logger,
                                     "Looking for {:?}: finess in our hand ({other_pos}): {slot:?}",
                                     previous_card
                                 );
-                                self.places[previous_rank as usize - 1] =
-                                    (0, other_pos, PlayRelation::Finess());
+                                self.add_step(line, previous_card, 0, other_pos, StepKind::Finesse);
                             }
                             continue 'rank_loop;
                         }
@@ -757,8 +817,7 @@ impl PlayEvaluation {
                                 previous_card
                             );
                             self.marked_cards[0_usize].add(other_pos);
-                            self.places[previous_rank as usize - 1] =
-                                (0, other_pos, PlayRelation::Finess());
+                            self.add_step(line, previous_card, 0, other_pos, StepKind::Finesse);
                             self.pending_marks = true;
                             continue 'rank_loop;
                         }
@@ -781,16 +840,20 @@ impl PlayEvaluation {
             return;
         }
         slog::debug!(self.logger, "mark: {self:?}");
-        for previous_rank in (self.played_rank + 1)..self.card.rank {
-            let previous_card = game::Card {
-                rank: previous_rank,
-                suit: self.card.suit,
-            };
-            let (player, pos, relation) = self.places[previous_rank as usize - 1];
-            let (next_player, next_pos, _) = self.places[previous_rank as usize];
+        let mut steps = self.steps.clone();
+        steps.sort_by_key(|step| step.card.rank);
+        for pair in steps.windows(2) {
+            let step = pair[0];
+            let previous_card = step.card;
+            let (player, pos) = line.hands.find(step.slot).expect("evaluation slot exists");
+            let (next_player, next_pos) = line
+                .hands
+                .find(pair[1].slot)
+                .expect("evaluation slot exists");
+            let relation = step.kind;
             let found_slot = line.hands.slot_mut(player, pos);
             match relation {
-                PlayRelation::Normal() => {
+                StepKind::Focus => {
                     if certainty != MarkCertainty::Ambigious() {
                         found_slot.quantum.soft_clear();
                         found_slot.quantum.add_card(&previous_card, true);
@@ -801,7 +864,7 @@ impl PlayEvaluation {
                         focused_slot.quantum.remove_card(&previous_card, true);
                     }
                 }
-                PlayRelation::WaitingPlay() => {
+                StepKind::Queued => {
                     if certainty != MarkCertainty::Ambigious() {
                         found_slot.quantum.soft_clear();
                         found_slot.quantum.add_card(&previous_card, true);
@@ -822,7 +885,7 @@ impl PlayEvaluation {
                         focused_slot.quantum.remove_card(&previous_card, true);
                     }
                 }
-                PlayRelation::Prompt() => match certainty {
+                StepKind::Prompt => match certainty {
                     MarkCertainty::Prep() => {
                         if player != self.whom as u8 {
                             found_slot.quantum.soft_clear();
@@ -862,7 +925,7 @@ impl PlayEvaluation {
                         line.hands.slot_mut(next_player, next_pos).delayed += 1;
                     }
                 },
-                PlayRelation::Finess() => match certainty {
+                StepKind::Finesse => match certainty {
                     MarkCertainty::Prep() => {
                         if player != self.whom as u8 {
                             found_slot.quantum.soft_clear();
@@ -917,6 +980,7 @@ impl Line {
     pub fn with_logger(num_players: u8, own_player: u8, logger: slog::Logger) -> Self {
         let variant = Variant {};
         let empty_slot = Slot {
+            id: 0,
             quantum: CardQuantum::new(variant),
             play: false,
             trash: false,
@@ -949,6 +1013,7 @@ impl Line {
                 slots: [empty_slot; 20],
                 next_slot: None,
                 used_slots: 0,
+                next_id: 0,
             },
             turn: -16,
             variant: Variant {},
@@ -956,6 +1021,7 @@ impl Line {
             score: 0,
             own_player,
             callbacks: VecDeque::new(),
+            interpretations: Interpretations::new(),
             logger,
         }
     }
@@ -1133,6 +1199,7 @@ impl Line {
         self.hands.insert_slot(
             player,
             Slot {
+                id: 0,
                 quantum,
                 card,
                 clued: false,
@@ -1154,6 +1221,7 @@ impl Line {
 
     pub fn own_drawn(&mut self) {
         let mut hand = Slot {
+            id: 0,
             quantum: CardQuantum::new(self.variant),
             play: false,
             trash: false,
@@ -1212,6 +1280,17 @@ impl Line {
         self.turn += 1;
         let slot_index = self.hands.remove_slot(player, pos as u8);
         let slot = self.hands.slots[slot_index];
+        let hand_after: Vec<_> = self
+            .hands
+            .iter_hand(player as u8)
+            .map(|(_, slot)| HandEntry {
+                id: slot.id,
+                clued: slot.clued,
+                turn: slot.turn,
+            })
+            .collect();
+        self.interpretations
+            .on_play(player as u8, slot.id, card, successful, &hand_after);
         if player == 0 {
             self.track_card(card, -1, -2);
             if slot.clued && successful {
@@ -1479,6 +1558,9 @@ impl Line {
 
     pub fn discarded(&mut self, player: usize, pos: usize, card: game::Card) {
         self.turn += 1;
+        self.interpretations.on_non_play(player as u8);
+        self.interpretations
+            .on_discard(self.hands.slot(player as u8, pos as u8).id);
         self.card_states.discarded(&card);
         let slot_index = self.hands.remove_slot(player, pos as u8);
         if self.hands.slots[slot_index].clued && player > 0 {
@@ -1597,6 +1679,12 @@ impl Line {
         clue: game::Clue,
         touched: game::PositionSet,
     ) -> u8 {
+        self.interpretations.on_non_play(who as u8);
+        let touched_ids: Vec<_> = touched
+            .iter()
+            .map(|pos| self.hands.slot(whom as u8, pos).id)
+            .collect();
+        self.interpretations.on_clue(&touched_ids);
         self.turn += 1;
         for i in (0..self.callbacks.len()).rev() {
             if let Callback::PotentialPrompt {
@@ -1965,6 +2053,18 @@ impl Line {
                 }
             }
         }
+
+        self.interpretations.add(ClueRecord {
+            turn: self.turn,
+            giver: who as u8,
+            receiver: whom as u8,
+            focus: self.hands.slot(whom as u8, pos).id,
+            hypotheses: evaluations[..num_evaluations]
+                .iter()
+                .cloned()
+                .map(PlayEvaluation::into_hypothesis)
+                .collect(),
+        });
 
         match play_quantum.size() {
             0 => error += 2,

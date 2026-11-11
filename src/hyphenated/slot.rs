@@ -2,8 +2,14 @@ use super::card_states::CardStates;
 use crate::card_quantum::CardQuantum;
 use crate::game;
 
+/// Stable identity of a drawn card. Unlike the storage index in `Hands`,
+/// it is never reused, so long-lived references (e.g. clue interpretations)
+/// can point at a card safely.
+pub type SlotId = u16;
+
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub struct Slot {
+    pub id: SlotId,
     pub card: game::Card,
     pub clued: bool,
     pub play: bool,
