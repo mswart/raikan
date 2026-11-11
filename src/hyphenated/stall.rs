@@ -85,7 +85,7 @@ impl Line {
         if self.context.clues < 8 && view.hands.iter_hand(0).any(|(_, s)| s.trash) {
             return Normal;
         }
-        if view.hands.iter_hand(0).all(|(_, s)| s.clued) {
+        if view.chop(0).is_none() {
             return Locked;
         }
         if let Some((previous, card)) = self.context.last_loss
@@ -122,16 +122,9 @@ impl Line {
         if severity == StallSeverity::Normal || touched.is_empty() {
             return None;
         }
-        let newly_touched = touched
-            .iter()
-            .any(|pos| !self.hands.slot(receiver, pos).clued);
+        let newly_touched = !self.newly_touched(receiver, touched).is_empty();
         if newly_touched {
-            let chop = self
-                .hands
-                .iter_hand(receiver)
-                .rev()
-                .find(|(_, s)| !s.clued)
-                .map(|(pos, _)| pos);
+            let chop = self.chop(receiver);
             if clue == Clue::Rank(5) && chop.is_none_or(|pos| !touched.contains(pos)) {
                 return Some(StallKind::Five);
             }
@@ -140,13 +133,7 @@ impl Line {
             if on_chop && matches!(clue, Clue::Rank(2 | 5)) {
                 return None;
             }
-            let focus = if on_chop {
-                chop.expect("touched chop")
-            } else {
-                touched
-                    .iter()
-                    .find(|pos| !self.hands.slot(receiver, *pos).clued)?
-            };
+            let focus = self.clue_focus(receiver, touched)?;
             let mut possibilities = self.hands.slot(receiver, focus).quantum;
             match clue {
                 Clue::Rank(rank) => possibilities.limit_by_rank(rank as usize, true),
@@ -157,10 +144,9 @@ impl Line {
             }
             if severity == StallSeverity::Locked
                 && on_chop
-                && self
-                    .hands
-                    .iter_hand(receiver)
-                    .any(|(pos, slot)| !slot.clued && !touched.contains(pos))
+                && self.hands.iter_hand(receiver).any(|(pos, slot)| {
+                    !slot.clued && slot.promised.is_none() && !touched.contains(pos)
+                })
             {
                 return Some(StallKind::LockedSave);
             }
@@ -223,7 +209,7 @@ impl Line {
     pub(super) fn five_stall_distance(&self, receiver: u8) -> u8 {
         let mut distance = 0;
         for (_, slot) in self.hands.iter_hand(receiver).rev() {
-            if slot.clued {
+            if slot.clued || slot.promised.is_some() {
                 continue;
             }
             if slot.card.rank == 5 {
@@ -238,11 +224,9 @@ impl Line {
     /// interpretation stays conservative, but generation must prefer that
     /// ordinary save over lower-precedence stalls (including off-chop fives).
     pub(super) fn saves_critical_chop(&self, receiver: u8, clue: Clue) -> bool {
-        self.hands
-            .iter_hand(receiver)
-            .rev()
-            .find(|(_, slot)| !slot.clued)
-            .is_some_and(|(_, slot)| {
+        self.chop(receiver)
+            .map(|pos| self.hands.slot(receiver, pos))
+            .is_some_and(|slot| {
                 slot.card.rank != 0
                     && slot.card.affected(clue)
                     && (slot.card.rank != 5 || clue == Clue::Rank(5))

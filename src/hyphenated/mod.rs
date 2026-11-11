@@ -1,4 +1,5 @@
 mod card_states;
+mod fundamentals;
 pub mod interpretation;
 mod line;
 mod search;

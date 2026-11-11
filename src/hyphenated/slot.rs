@@ -45,6 +45,7 @@ impl Slot {
         }
         if self.quantum.size() == 0 {
             self.trash = true;
+            self.play = false;
             return;
         }
         if !card_states.play_quantum.interset(self.quantum) {

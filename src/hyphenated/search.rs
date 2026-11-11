@@ -158,6 +158,23 @@ fn evaluate(line: &Line, status: &GameStatus, action: Move) -> Option<Evaluation
     match action {
         Move::Clue(receiver, clue) => {
             let (mut forecast, priority) = Forecast::clue(line, status, receiver, clue)?;
+            let gets_new_card = (0..line.hands.num_players).any(|player| {
+                line.hands.iter_hand(player).any(|(pos, before)| {
+                    let after = forecast.views[0].hands.slot(player, pos);
+                    !before.clued
+                        && before.promised.is_none()
+                        && (after.clued || after.promised.is_some())
+                })
+            });
+            // Minimum clue value: ordinary tempo clues must not replace a
+            // discard. Fixes and stalls have their own reason to spend a clue;
+            // a re-clue that gets a new finesse also meets the principle.
+            if !gets_new_card
+                && line.clue_stall(receiver, clue).is_none()
+                && line.score(0).no_more_errors_than(&priority)
+            {
+                return None;
+            }
             let quality = priority.utility() as f64;
             forecast.rollout();
             let danger = forecast.danger();

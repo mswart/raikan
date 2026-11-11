@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Apply level-1 clue focus consistently, including implicit clues on finessed
+  cards, and protect those cards when selecting chop.
+- Support double-chop 2 saves while preserving the visible rule in each player's
+  view; retain playable alternatives in ambiguous critical saves.
+- Remove blocked ranks from good-touch deductions, preserve literal information,
+  and avoid reserving identities from unprotected cards.
+- Enforce minimum clue value in action selection while retaining fixes, stalls,
+  and re-clues that introduce new connections.
+- Add level-1 regression coverage and enable six previously ignored replay tests.
+
 ## [0.2.2](https://github.com/mswart/raikan/compare/v0.2.1...v0.2.2) - 2025-09-26
 
 ### Other

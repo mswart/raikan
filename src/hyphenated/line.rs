@@ -888,6 +888,13 @@ impl Line {
     fn refresh_derived(&mut self) {
         for player in 0..self.hands.num_players {
             for (_, slot) in self.hands.iter_hand_mut(player) {
+                if slot.clued {
+                    // Good touch applies to every protected card, including
+                    // non-focus cards and suits blocked by a later discard.
+                    for card in self.card_states.trash_quantum.iter() {
+                        slot.base_quantum.remove_card(&card, true);
+                    }
+                }
                 slot.quantum = slot.base_quantum;
                 slot.play = false;
                 slot.trash = false;
@@ -1239,9 +1246,9 @@ impl Line {
         let mut bonus = 0;
         for player in 1..self.hands.num_players {
             let mut queued_actions = 0;
-            let mut chop = true;
+            let chop = self.chop(player);
             let mut discard_risk = 0;
-            for (_pos, slot) in self.hands.iter_hand(player).rev() {
+            for (pos, slot) in self.hands.iter_hand(player).rev() {
                 let card_state = self.card_states[&slot.card];
                 if slot.clued {
                     clued += 1;
@@ -1307,16 +1314,13 @@ impl Line {
                         errors += error;
                     }
                 } else {
-                    if chop {
-                        chop = false;
-                        if card_state.clued.is_none() {
-                            match card_state.play {
-                                CardPlayState::Critical() | CardPlayState::CriticalPlayable() => {
-                                    discard_risk -= CRITICAL_CARD_VALUE as i8
-                                }
-                                CardPlayState::Playable() => discard_risk -= 2,
-                                _ => {}
+                    if chop == Some(pos) && card_state.clued.is_none() {
+                        match card_state.play {
+                            CardPlayState::Critical() | CardPlayState::CriticalPlayable() => {
+                                discard_risk -= CRITICAL_CARD_VALUE as i8
                             }
+                            CardPlayState::Playable() => discard_risk -= 2,
+                            _ => {}
                         }
                     }
                     if slot.promised.is_some() {
@@ -1531,7 +1535,7 @@ impl Line {
     pub fn discarded(&mut self, player: usize, pos: usize, card: game::Card) {
         self.context.actions_taken += 1;
         let slot = self.hands.slot(player as u8, pos as u8);
-        if !slot.clued && !slot.trash {
+        if !slot.clued && slot.promised.is_none() && !slot.trash {
             self.context.early_game = false;
         }
         self.context.clues = (self.context.clues + 1).min(8);
@@ -1552,15 +1556,6 @@ impl Line {
         }
         self.refresh_derived();
         self.refresh_clued_cards();
-    }
-
-    fn foreign_chop(&self, player: usize) -> i8 {
-        for (pos, slot) in self.hands.iter_hand(player as u8).rev() {
-            if !slot.clued {
-                return pos as i8;
-            }
-        }
-        -1
     }
 
     fn track_card(&mut self, card: game::Card, place: i8, old_place: i8) {
@@ -1598,6 +1593,20 @@ impl Line {
         clue: game::Clue,
         touched: game::PositionSet,
     ) -> u8 {
+        let old_chop = self.chop(whom as u8);
+        let newly_clued = self.newly_touched(whom as u8, touched);
+        let focus = self
+            .clue_focus(whom as u8, touched)
+            .expect("empty clues are not implemented");
+        let mut save_options = CardQuantum::new(self.variant);
+        save_options.clear();
+        if old_chop == Some(focus) && newly_clued.contains(focus) {
+            for card in self.hands.slot(whom as u8, focus).quantum.iter() {
+                if card.affected(clue) && self.can_save(who as u8, whom as u8, clue, card) {
+                    save_options.add_card(&card, false);
+                }
+            }
+        }
         let stall = self.stall_kind(who as u8, whom as u8, clue, touched);
         let tempo_focus = (stall == Some(StallKind::Tempo))
             .then(|| self.stall_focus(whom as u8, touched))
@@ -1622,15 +1631,9 @@ impl Line {
         self.turn += 1;
         self.refresh_derived();
 
-        let old_chop = self.foreign_chop(whom);
-
         let mut error = if skipped_finesse { 2 } else { 0 };
-        let mut newly_clued = touched;
         for pos in 0..self.hands.hand_sizes[whom] {
             let slot = self.hands.slot_mut(whom as u8, pos);
-            if slot.clued {
-                newly_clued.remove(pos);
-            }
             let old_size = slot.quantum.size();
             let previsous_first_quantum_card = slot.quantum.iter().next();
             slot.apply_clue(clue, touched.contains(pos));
@@ -1646,7 +1649,7 @@ impl Line {
             if touched.contains(pos) {
                 slot.clued = true;
             }
-            if old_size != 1 && slot.quantum.size() == 1 {
+            if slot.quantum.size() == 1 {
                 let card = slot.quantum.iter().next().expect("we checked the size");
                 if slot.clued {
                     if whom == 0 || slot.card == card {
@@ -1660,7 +1663,12 @@ impl Line {
 
                 slot.update_slot_attributes(&self.card_states);
                 for other_pos in 0..self.hands.hand_sizes[whom] {
-                    if other_pos != pos {
+                    // Knowing an unclued card's identity does not promise it
+                    // will be kept. Good touch only reserves protected cards.
+                    if other_pos != pos
+                        && self.hands.slot(whom as u8, pos).clued
+                        && self.hands.slot(whom as u8, other_pos).clued
+                    {
                         self.hands
                             .slot_mut(whom as u8, other_pos)
                             .remove_card(&card, true);
@@ -1743,7 +1751,6 @@ impl Line {
             return error;
         }
         if newly_clued.is_empty() {
-            let focus = touched.first().expect("empty clues are not implemented");
             let slot = self.hands.slot_mut(whom as u8, focus);
             if slot.play && !slot.locked && !slot.fixed {
                 // useless reclue
@@ -1764,40 +1771,6 @@ impl Line {
             return error;
         }
 
-        let mut potential_safe = false;
-        let focus = if old_chop >= 0 && touched.contains(old_chop as u8) {
-            let chop_slot = self.hands.slot_mut(whom as u8, old_chop as u8);
-            // check whether it can be a safe clue.
-            for potential_card in chop_slot.quantum.clone().iter() {
-                match self.card_states[&potential_card].play {
-                    game::CardPlayState::Critical() => {
-                        if potential_card.rank == 5 && clue != game::Clue::Rank(5) {
-                            // 5s will only be safed via rank
-                        } else {
-                            potential_safe = true
-                        }
-                    }
-                    game::CardPlayState::Dead() => {
-                        chop_slot.remove_card(&potential_card, true);
-                    }
-                    game::CardPlayState::Trash() => {
-                        chop_slot.remove_card(&potential_card, true);
-                    }
-                    game::CardPlayState::Normal() => {
-                        if potential_card.rank == 2 && clue == game::Clue::Rank(2) {
-                            potential_safe = true;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            old_chop as u8
-        } else {
-            touched
-                .first()
-                .expect("We have check previously that touched must contain something")
-        };
-
         // somebody else was clued -> remember which cards are clued
         for pos in newly_clued.iter_first(focus) {
             let slot = self.hands.slot_mut(whom as u8, pos);
@@ -1813,42 +1786,14 @@ impl Line {
                 }
             }
             if pos == focus {
-                if potential_safe
+                if save_options.interset(slot.quantum)
                     && (whom == 0 || !(slot.card.rank == 5 && clue != game::Clue::Rank(5)))
                 {
                     for potential_card in slot.quantum.clone().iter() {
-                        match self.card_states[&potential_card].play {
-                            game::CardPlayState::Normal() => {
-                                if potential_card.rank == 2 && clue == game::Clue::Rank(2) {
-                                    let mut second_copy_visible_by_both = false;
-                                    for i in 0..self.card_states[&potential_card].tracked_count {
-                                        let place = self.card_states[&potential_card]
-                                            .tracked_places
-                                            [i as usize];
-                                        if place != who as i8 && place != whom as i8 {
-                                            second_copy_visible_by_both = true;
-                                        }
-                                    }
-                                    if second_copy_visible_by_both {
-                                        slot.remove_card(&potential_card, true)
-                                    }
-                                } else {
-                                    slot.remove_card(&potential_card, true)
-                                }
-                            }
-                            game::CardPlayState::Dead() => {
-                                slot.remove_card(&potential_card, true);
-                            }
-                            game::CardPlayState::Trash() => {
-                                slot.remove_card(&potential_card, true);
-                            }
-                            game::CardPlayState::Critical() => {
-                                if potential_card.rank == 5 && clue != game::Clue::Rank(5) {
-                                    slot.remove_card(&potential_card, true);
-                                    // 5 will only be safed via rank
-                                }
-                            }
-                            _ => {}
+                        if !save_options.contains(&potential_card)
+                            && !self.card_states.play_quantum.contains(&potential_card)
+                        {
+                            slot.remove_card(&potential_card, true);
                         }
                     }
                 } else {
@@ -2230,7 +2175,7 @@ impl Line {
             if slot.trash {
                 return game::Move::Discard(pos);
             }
-            if !slot.clued {
+            if !slot.clued && slot.promised.is_none() {
                 chop = pos as i8;
             }
         }

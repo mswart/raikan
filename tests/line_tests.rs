@@ -548,7 +548,6 @@ fn clue_multiple_ones1() {
 }
 
 #[test]
-#[ignore]
 fn clue_multiple_ones2() {
     // seed 278
     let replay = replay_game(
@@ -881,7 +880,6 @@ fn correct_card_assumption_upon_misplay() {
 }
 
 #[test]
-#[ignore]
 /// Only play cards if there is a change they are playable.
 /// Fix clue that clear the identity should potentially remove the play annotation
 fn dont_play_cards_not_playable() {
@@ -945,7 +943,6 @@ fn clear_clued_cards_on_fix_clue() {
 }
 
 #[test]
-#[ignore]
 /// Should a player have two copies of the same card, on is to be discarded
 fn discard_double_card() {
     // id 50241
@@ -1166,7 +1163,6 @@ fn good_touch_principal() {
 }
 
 #[test]
-#[ignore]
 fn good_touch_principal2() {
     // id 56145
     let mut replay = replay_game(
@@ -1451,7 +1447,6 @@ fn no_finess_if_cards_are_already_clued() {
 }
 
 #[test]
-#[ignore]
 fn self_prompt2() {
     let line = replay_game(
             52,
@@ -2492,7 +2487,6 @@ fn early_2_safes() {
 }
 
 #[test]
-#[ignore]
 /// A color clue can never be a self-prompt upon other newly touched cards
 /// After p1, p2 are already clued,
 /// a purple clue touching two cards must be p3 (it cannot be p4 with self-prompt of p3)

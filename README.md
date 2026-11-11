@@ -38,7 +38,7 @@ supported; variant-specific rules are not implemented.
 
 | H-Group level | Status |
 | --- | --- |
-| [1 — Fundamentals](https://hanabi.github.io/level-1) | Core behavior implemented; edge cases remain |
+| [1 — Fundamentals](https://hanabi.github.io/level-1) | Implemented for the standard five-suit game |
 | [2 — Basic Moves](https://hanabi.github.io/level-2) | Partial |
 | [3 — Basic Strategy](https://hanabi.github.io/level-3) | Partial |
 | [4 — Chop Moves](https://hanabi.github.io/level-4) | Not implemented |
@@ -50,14 +50,25 @@ supported; variant-specific rules are not implemented.
 
 ### Level 1 — Fundamentals
 
-* **Implemented:** Positive and negative clue information, playable/trash/critical
-  card tracking, good-touch deductions, and ordinary chop selection. Known trash
-  is discarded before an unknown chop. Rank-2, rank-5, and critical-card saves
-  are recognized on chop. Direct and delayed play clues can connect through
-  prompts and finesses.
-* **Gaps:** Focus selection does not consistently skip already-clued cards when
-  a clue also touches new cards. The exception allowing a 2 save when both copies
-  are on chop is missing. Some good-touch and ambiguous-save cases remain unresolved.
+* **Focus and chop:** Clues focus chop when newly touched, otherwise the leftmost
+  new card; clues with no new touches focus the leftmost re-touched card.
+  Finessed cards count as already touched and are protected from chop discards.
+  Known trash is discarded first without changing which card is chop.
+* **Saves:** Rank-2, rank-5, and critical-card saves are recognized on chop.
+  The 2-save visible rule includes the double-chop exception and respects what
+  each player can see. Ambiguous critical saves retain both playable and save
+  identities instead of ordering an unsafe play. Color clues cannot 5-save.
+* **Good touch:** Positive and negative literal clues are preserved separately
+  from deductions. Clued cards exclude played cards, blocked ranks, and protected
+  duplicates. Merely identifying an unclued card does not reserve it for play.
+* **Plays and clue value:** Direct and delayed play clues connect through prompts
+  and finesses, with prompts taking precedence. Ordinary clues must gain a new
+  card; fixes and supported stalls remain available. Early-game play/save clues,
+  including double-chop 2 saves, take precedence over a 5 stall or unknown discard.
+
+Focused regression tests live in [fundamentals.rs](src/hyphenated/fundamentals.rs),
+with replay coverage in [line_tests.rs](tests/line_tests.rs). The advanced
+connection and recovery limitations described under later levels still apply.
 
 ### Level 2 — Basic Moves
 
