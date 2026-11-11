@@ -20,7 +20,7 @@
 //! not play, all hypotheses relying on their finesse die and the
 //! self-finesse interpretation (higher tier) becomes active.
 
-use crate::game;
+use crate::{CardQuantum, game};
 
 use super::slot::SlotId;
 
@@ -121,7 +121,12 @@ impl ClueRecord {
     /// Hypotheses which are currently considered (Occam's razor)
     pub fn active(&self) -> impl Iterator<Item = &Hypothesis> {
         let tier = self.active_tier();
-        self.hypotheses.iter().filter(move |h| Some(h.tier) == tier)
+        let direct = self.hypotheses.iter().any(|h| {
+            Some(h.tier) == tier && h.expected_now().is_some_and(|s| s.kind == StepKind::Focus)
+        });
+        self.hypotheses.iter().filter(move |h| {
+            Some(h.tier) == tier && !(direct && h.pending_steps().any(|s| s.layers > 0))
+        })
     }
 
     /// Single remaining hypothesis (if the clue is fully disambiguated)
@@ -135,10 +140,11 @@ impl ClueRecord {
 }
 
 /// Minimal information about a hand card needed to move finesse targets.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct HandEntry {
     pub id: SlotId,
     pub clued: bool,
+    pub quantum: CardQuantum,
     /// turn the card was drawn
     pub turn: i8,
 }
@@ -205,18 +211,24 @@ impl Interpretations {
             let reserved = self.reserved_finesse_slots(record_index);
             let record = &mut self.records[record_index];
             let record_turn = record.turn;
+            let matches_play = |step: &Step| {
+                (step.slot == slot && step.card == card)
+                    || (step.holder == player
+                        && step.layers > 0
+                        && hand_after.iter().any(|entry| entry.id == step.slot)
+                        && remaining_layers(step, hand_after, record_turn, &reserved) < step.layers)
+            };
             let confirmed = successful
-                && record.active().any(|h| {
-                    h.expected_now().is_some_and(|s| {
-                        s.slot == slot && s.card == card && s.kind == StepKind::Finesse
-                    })
+                && record.hypotheses.iter().any(|h| {
+                    (Some(h.tier) == record.active_tier()
+                        || record
+                            .active()
+                            .any(|active| active.focus_card == h.focus_card))
+                        && h.expected_now()
+                            .is_some_and(|s| s.kind == StepKind::Finesse && matches_play(s))
                 });
             record.hypotheses.retain_mut(|hypothesis| {
-                if confirmed
-                    && !hypothesis
-                        .pending_steps()
-                        .any(|s| s.slot == slot && s.card == card)
-                {
+                if confirmed && !hypothesis.pending_steps().any(&matches_play) {
                     return false;
                 }
                 apply_play(
@@ -260,22 +272,25 @@ impl Interpretations {
     }
 
     /// `player` used their turn for something else than a play (clue or
-    /// discard). Every *active* hypothesis in which a blind play of `player`
-    /// is due right now is not true.
+    /// discard). Eliminate active meanings whose next blind play belongs to
+    /// them. Later links and inactive fallback meanings are not obligations.
     pub fn on_non_play(&mut self, player: u8) -> Outcome {
         for record in self.records.iter_mut() {
-            let Some(tier) = record.active_tier() else {
-                continue;
-            };
-            record.hypotheses.retain(|hypothesis| {
-                if hypothesis.tier != tier {
-                    return true;
-                }
-                match hypothesis.expected_now() {
-                    Some(step) => !(step.holder == player && step.kind == StepKind::Finesse),
-                    None => true,
-                }
-            });
+            // Only blind obligations compel a play: a clued card can be held
+            // while its owner waits for another player's interpretation.
+            // Urgent saves can exempt blind obligations once supported.
+            let rejected: Vec<_> = record
+                .active()
+                .filter(|hypothesis| {
+                    hypothesis
+                        .expected_now()
+                        .is_some_and(|step| step.holder == player && step.kind == StepKind::Finesse)
+                })
+                .cloned()
+                .collect();
+            record
+                .hypotheses
+                .retain(|hypothesis| !rejected.contains(hypothesis));
         }
         self.prune()
     }
@@ -315,6 +330,13 @@ impl Interpretations {
     }
 }
 
+fn remaining_layers(step: &Step, hand: &[HandEntry], turn: i8, reserved: &[SlotId]) -> u8 {
+    hand.iter()
+        .take_while(|entry| entry.id != step.slot)
+        .filter(|entry| !entry.clued && entry.turn <= turn && !reserved.contains(&entry.id))
+        .count() as u8
+}
+
 /// Apply a play to a single hypothesis. Returns whether it is still alive.
 #[allow(clippy::too_many_arguments)]
 fn apply_play(
@@ -348,20 +370,19 @@ fn apply_play(
                 return false;
             }
         } else if successful && step.card == card {
-            if step.kind == StepKind::Focus {
-                // the focused card can't be this card anymore (it is trash now)
-                return false;
-            }
-            // connecting card got played from elsewhere: requirement fulfilled
-            step.done = true;
+            // Playing this identity elsewhere contradicts its assigned slot.
+            return false;
         } else if step.holder == player
             && step.kind == StepKind::Finesse
-            && successful
             && step.layers > 0
             && hand_after.iter().any(|entry| entry.id == step.slot)
         {
             // observer view: a layer in front of the target got played
-            step.layers -= 1;
+            let remaining = remaining_layers(step, hand_after, record_turn, reserved);
+            if !successful && remaining < step.layers {
+                return false;
+            }
+            step.layers = step.layers.min(remaining);
         }
     }
     if layered {
@@ -396,16 +417,26 @@ fn retarget_finesses(
         }
     }
     for step in &mut hypothesis.steps[index..] {
-        if step.done || step.holder != holder || step.kind == StepKind::Focus {
+        if step.done
+            || step.holder != holder
+            || (step.slot != played_slot && step.kind != StepKind::Finesse)
+        {
             continue;
         }
         let candidate = hand_after
             .iter()
-            .filter(|entry| entry.turn <= record_turn && !used.contains(&entry.id))
+            .filter(|entry| {
+                entry.turn <= record_turn
+                    && !used.contains(&entry.id)
+                    && entry.quantum.contains_hard(&step.card)
+            })
             .find(|entry| prompt && step.card == expected && entry.clued)
             .or_else(|| {
                 hand_after.iter().find(|entry| {
-                    !entry.clued && entry.turn <= record_turn && !used.contains(&entry.id)
+                    !entry.clued
+                        && entry.turn <= record_turn
+                        && !used.contains(&entry.id)
+                        && entry.quantum.contains_hard(&step.card)
                 })
             });
         let Some(entry) = candidate else {
@@ -447,6 +478,7 @@ mod tests {
             .map(|(id, clued)| HandEntry {
                 id: *id,
                 clued: *clued,
+                quantum: CardQuantum::new(crate::card_quantum::Variant {}),
                 turn: 0,
             })
             .collect()
@@ -502,7 +534,7 @@ mod tests {
         i.add(finesse_record());
         let outcome = i.on_play(1, 10, card(R, 1), true, &hand(&[(11, false)]));
         assert!(outcome.dead.is_empty());
-        // self-finesse alternative: r1 was played elsewhere => step done as well
+        // The play rules out the alternative which assigned r1 to our hand.
         let record = &i.records[0];
         assert!(record.hypotheses[0].steps[0].done);
         assert_eq!(record.hypotheses[0].pending_before(1), Some(0));
@@ -607,6 +639,39 @@ mod tests {
         let steps = &i.records[1].hypotheses[0].steps;
         assert_eq!(steps[0].slot, 4);
         assert_eq!(steps[1].slot, 7, "slot 6 is reserved by the other clue");
+    }
+
+    #[test]
+    fn observers_track_only_layers_and_abort_a_bombed_layer() {
+        let mut record = finesse_record();
+        record.hypotheses.truncate(1);
+        record.hypotheses[0].steps[0].layers = 1;
+        let mut i = Interpretations {
+            records: vec![record],
+        };
+        // An unrelated play behind the target leaves the layer intact.
+        i.on_play(1, 12, card(B, 1), true, &hand(&[(11, false), (10, false)]));
+        assert_eq!(i.records[0].hypotheses[0].steps[0].layers, 1);
+        // The blind layer in front of the target bombs: observers abandon it too.
+        let outcome = i.on_play(1, 11, card(B, 4), false, &hand(&[(10, false)]));
+        assert_eq!(outcome.dead.len(), 1);
+        assert!(i.is_empty());
+    }
+
+    #[test]
+    fn layered_retarget_skips_new_draws_and_incompatible_prompts() {
+        let mut record = finesse_record();
+        record.hypotheses.truncate(1);
+        record.hypotheses[0].steps[0].kind = StepKind::Prompt;
+        let mut after = hand(&[(11, false), (12, true), (13, true)]);
+        after[0].turn = 6;
+        after[1].quantum.limit_by_rank(3, true);
+        after[2].quantum.limit_by_rank(1, true);
+        let mut i = Interpretations {
+            records: vec![record],
+        };
+        i.on_play(1, 10, card(B, 1), true, &after);
+        assert_eq!(i.records[0].hypotheses[0].steps[0].slot, 13);
     }
 
     #[test]

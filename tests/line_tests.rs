@@ -241,6 +241,7 @@ impl Replay {
         self.print();
         println!("Score: {score:?}");
         self.target_player = (self.target_player + 1) % self.lines.len() as u8;
+        self.line = self.lines[self.target_player as usize].clone();
         score
     }
 
@@ -277,7 +278,8 @@ impl Replay {
                 }
             }
         }
-        self.target_player += 1;
+        self.target_player = (self.target_player + 1) % num_players;
+        self.line = self.lines[self.target_player as usize].clone();
         self.print();
     }
 }
@@ -1329,15 +1331,26 @@ fn self_prompt() {
 }
 
 #[test]
-#[ignore]
-// tests needs to be adapted.
 fn self_prompt_after_potential_finess() {
-    let replay = replay_game(
+    let mut replay = replay_game(
         11,
         "415uwcsgfqvfwbpdbikgxevorthxuylkhmrjqpncismaaupkdlnfa",
         "05pc6aal0baaagaivcud7aatapar1d0aavadbe7abmayuabjoca1bfaqDcaw7ab2aoa3oab5uba6a4uabna9paau1caEbhaAwc",
         "0",
     );
+    // Cathy still has a plausible p3 finesse after playing p2. Alice must
+    // wait until Cathy declines that blind play on her next turn.
+    assert!(replay.lines[0].hands.slot(0, 0).delayed > 0);
+    replay.play(
+        0,
+        Some(game::Card {
+            suit: game::Suit::Blue(),
+            rank: 3,
+        }),
+    );
+    replay.clue(1, game::Clue::Rank(5));
+    replay.clue(3, game::Clue::Rank(3));
+    replay.clue(1, game::Clue::Rank(5));
     let p3_slots = replay.slot_perspectives(0, 3);
     println!("p3_slots: {:?}", p3_slots);
     for (player, slot) in p3_slots.iter().enumerate() {
@@ -1372,8 +1385,6 @@ fn self_prompt_after_potential_finess() {
 }
 
 #[test]
-#[ignore]
-// tests needs to be adapted.
 fn self_finess_instead_of_prompt() {
     let replay = replay_game(
         11,
@@ -1706,7 +1717,6 @@ fn wait_on_potential_prompts() {
 // finess clues:
 
 #[test]
-#[ignore]
 /// a nice 5-for-1 finess starting with a self-finess (all in order)
 fn prefer_finess_over_delayed_play_clue() {
     // id 31554
@@ -1725,15 +1735,57 @@ fn prefer_finess_over_delayed_play_clue() {
 }
 
 #[test]
-#[ignore]
 fn layed_finess() {
     // https://hanab.live/replay-json/415gbbkuaxamlmfipdgchyaejwukhfvqlrpvnpkwsrfitcdqnusxo,05pbah0danocafalvavdae1dapaaoduaaradbgibamacaqbiavabwa,0
-    // e.g. on r3 to get g1, r2 to play
-    assert!(false);
+    let mut replay = replay_game(
+        2,
+        "415gbbkuaxamlmfipdgchyaejwukhfvqlrpvnpkwsrfitcdqnusxo",
+        "05pbah0danocafalvavdae1dapaaoduaaradbgibamacaqbiavabwa",
+        "0",
+    );
+    // r1 is played. Cluing Bob's r3 asks Alice to blind play g1, then r2.
+    replay
+        .clue(1, game::Clue::Rank(3))
+        .expect("clue touches r3");
+    assert!(replay.lines[0].hands.slot(0, 0).play);
+    assert!(replay.lines[0].hands.slot(0, 0).promised.is_some());
+    assert!(replay.lines[1].hands.slot(0, 0).delayed > 0);
+    replay.clue(2, game::Clue::Rank(1));
+    replay.play(
+        0,
+        Some(game::Card {
+            suit: game::Suit::Green(),
+            rank: 5,
+        }),
+    );
+    let r2 = game::Card {
+        suit: game::Suit::Red(),
+        rank: 2,
+    };
+    for (player, slot) in replay.slot_perspectives(0, 1).iter().enumerate() {
+        assert_eq!(
+            slot.quantum.to_vec(),
+            vec![r2],
+            "player {player} lost the layered r2"
+        );
+        assert!(slot.promised.is_some());
+        assert!(slot.play);
+    }
+    assert!(
+        replay.lines[0].hands.slot(0, 0).promised.is_none(),
+        "new draw is not part of the finesse"
+    );
+    replay.clue(3, game::Clue::Rank(2));
+    replay.play(0, None);
+    replay.play(0, None);
+    replay.play(1, None);
+    for slot in replay.slot_perspectives(1, 0) {
+        assert_eq!(slot.delayed, 0);
+        assert!(slot.play, "Bob can play r3 after the connecting r2");
+    }
 }
 
 #[test]
-#[ignore]
 fn layered_self_finess() {
     let mut replay = replay_game(
         0,
@@ -1747,6 +1799,18 @@ fn layered_self_finess() {
     assert!(!score.has_errors(), "Valid layered finess clue");
     // bob does not plays finess (donald must reason is might not have y3, and must start with self-finess)
     replay.clue(0, game::Clue::Color(game::ClueColor::Purple()));
+    let donald = &replay.lines[3];
+    assert!(donald.hands.slot(0, 0).play);
+    assert!(donald.hands.slot(0, 0).promised.is_some());
+    assert!(donald.hands.slot(0, 1).delayed > 0);
+    assert!(
+        donald
+            .interpretations
+            .records
+            .iter()
+            .any(|record| record.receiver == 0
+                && record.active_tier() == Some(hyphenated::interpretation::Tier::SelfFinesse))
+    );
 }
 
 #[test]
@@ -1767,11 +1831,26 @@ fn dont_force_players_into_chopping_critical_cards() {
 }
 
 #[test]
-#[ignore]
 fn fix_pending_misplay() {
-    // https://hanab.live/replay-json/415gbbkuaxamlmfipdgchyaejwukhfvqlrpvnpkwsrfitcdqnusxo,05pbah0danocafalvavdae1dapaaoduaaradbgibamacaqbiavabwa,0
-    // turn
-    assert!(false);
+    let mut replay = replay_game(
+        2,
+        "415gbbkuaxamlmfipdgchyaejwukhfvqlrpvnpkwsrfitcdqnusxo",
+        "05pbah0danocafalvavdae1dapaaoduaaradbgibamacaqbiavabwa",
+        "0",
+    );
+    replay.clue(1, game::Clue::Rank(3));
+    let target = replay.lines[0].hands.slot(0, 0).id;
+    assert!(replay.lines[0].hands.slot(0, 0).promised.is_some());
+    // Donald identifies Alice's first card before she blind plays it.
+    replay.clue(0, game::Clue::Rank(1));
+    let slot = replay.lines[0].hands.slot(0, 0);
+    assert!(slot.clued);
+    assert!(slot.promised.is_none());
+    assert!(slot.quantum.is_rank(1));
+    assert!(replay.lines[0].interpretations.iter_active().all(|(_, h)| {
+        h.pending_steps()
+            .all(|step| step.slot != target || step.card.rank == 1)
+    }));
 }
 
 #[test]
@@ -1796,19 +1875,30 @@ fn reclue_for_finess() {
 }
 
 #[test]
-#[ignore]
 fn prompt_finess() {
     // prompt converts to finess after successful play
-    let _replay = replay_game(
+    let mut replay = replay_game(
         6,
         "415xbpkdphugripkuqvmfsbaqtcvkecldlmfwgunajrwnsfyoaxih",
         "05pdvdalan0cvcodapob0dbkaovcocajauba0datasbbpdbqazicbea1awudvdbva21dbfiba7bca3iaa5a07aby1bbx7ab4vbbdbh1bbrpcDda6bm6bbBobaLbDaIudobqa",
         "0",
     );
+    let b2 = game::Card {
+        suit: game::Suit::Blue(),
+        rank: 2,
+    };
+    assert_eq!(replay.lines[3].hands.slot(0, 1).quantum.to_vec(), vec![b2]);
+    assert!(replay.lines[3].hands.slot(0, 1).play);
+    assert!(replay.lines[2].hands.slot(0, 2).delayed > 0);
+    // Cathy waits; Donald plays a prompted p2 and continues looking for b2.
+    replay.clue(1, game::Clue::Rank(4));
+    replay.play(1, None);
+    assert_eq!(replay.lines[3].hands.slot(0, 1).quantum.to_vec(), vec![b2]);
+    assert!(replay.lines[3].hands.slot(0, 1).play);
+    assert!(replay.lines[2].hands.slot(0, 2).delayed > 0);
 }
 
 #[test]
-#[ignore]
 /// cathy struggles with this clues (assumpts prompt over self-finess)
 /// all 3s played except r3, g3;
 /// r1 and g2 next cards to play
@@ -1823,10 +1913,14 @@ fn play_or_prompt_starting_with_self_finess() {
         "03lcwaalsbaaagaipcodxaatapbcsabjavadkcaqwcabbeaxkcarbfa3ta",
         "0",
     );
-    let slots = replay.slot_perspectives(0, 0);
-    for (player, slot) in slots.iter().enumerate() {
-        assert!(slot.play, "Player {player} missed a finess");
-    }
+    assert!(
+        replay.lines[0].hands.slot(0, 1).play,
+        "Alice must start the connecting self-finesse"
+    );
+    assert!(
+        replay.lines[0].hands.slot(0, 0).delayed > 0,
+        "focus waits for the self-finesse"
+    );
     // check intermediate state
     replay.play(1, None);
     replay.print();
@@ -2458,4 +2552,46 @@ fn slot_ids_survive_hand_shifts_and_storage_reuse() {
     assert_ne!(line.hands.slot(0, 0).id, second);
     assert_eq!(line.hands.find(second), None);
     assert_eq!(line.hands.find(first), Some((0, 1)));
+}
+
+#[test]
+fn queued_self_finesse_does_not_hide_duplicate_layer_blockers() {
+    let mut replay = replay_game(
+        2,
+        "415frghsrvjpyiluaabwmgxsiwpmncpuldvkbaekqqfdnhukotfxc",
+        "05vdoavbaoabah1daparwa",
+        "0",
+    );
+    assert!(
+        replay.clue_is_bad(1, game::Clue::Rank(2)),
+        "the queued r1 makes the second r1 an unsafe layer before Donald's p1"
+    );
+}
+
+#[test]
+fn cluing_resolved_finesse_preserves_its_identity() {
+    let replay = replay_game(
+        4,
+        "415flufqacpjkgdicbhrekapvdqmrlnhkgitspbymuwxofvnaxwus",
+        "05ucvcajpaac7dpb0barah1b0cbdafakapwd",
+        "0",
+    );
+    assert_eq!(
+        replay.lines[0].hands.slot(0, 0).quantum.to_vec(),
+        vec![game::Card {
+            suit: game::Suit::Yellow(),
+            rank: 1
+        }],
+        "the rank clue identifies the promised y1 without excluding it"
+    );
+    let replay = replay_game(
+        8,
+        "415flufqacpjkgdicbhrekapvdqmrlnhkgitspbymuwxofvnaxwus",
+        "05ucvcajpaac7dpb0barah1b0cbdafakapwd",
+        "0",
+    );
+    assert!(
+        !replay.lines[0].hands.slot(0, 0).play,
+        "later clues must not move the known y1 onto an unplayable new draw"
+    );
 }

@@ -339,6 +339,7 @@ struct PlayEvaluation {
     steps: Vec<Step>,
     tier: Tier,
     marked_cards: [PositionSet; 6],
+    excluded_finesses: PositionSet,
     logger: slog::Logger,
 }
 
@@ -372,6 +373,7 @@ impl PlayEvaluation {
         pos: u8,
         premarked: PositionSet,
         first_action: FirstAction,
+        excluded_finesses: PositionSet,
         logger: slog::Logger,
     ) -> Result<Self, bool> {
         let mut evaluation = Self {
@@ -382,6 +384,7 @@ impl PlayEvaluation {
             steps: Vec::new(),
             tier: Tier::Direct,
             marked_cards: [PositionSet::new(6); 6],
+            excluded_finesses,
             logger,
         };
         match evaluation.resolve(line, premarked, first_action) {
@@ -399,10 +402,10 @@ impl PlayEvaluation {
     ) -> Option<bool> {
         if let Some((found_pos, slot)) =
             line.hands
-                .iter_hand_mut(clued_player)
+                .iter_hand(clued_player)
                 .find(|(other_pos, slot)| {
                     !self.marked_cards[clued_player as usize].contains(*other_pos)
-                                    && slot.clued
+                                    && (slot.clued || slot.promised.is_some())
                                     && slot.card == previous_card // quantum.contains(&previous_card)
                                     && (slot.play || slot.delayed > 0)
                 })
@@ -425,7 +428,7 @@ impl PlayEvaluation {
         if clued_player == self.who as u8 {
             if let Some((found_pos, slot)) =
                 line.hands
-                    .iter_hand_mut(clued_player)
+                    .iter_hand(clued_player)
                     .find(|(other_pos, slot)| {
                         !self.marked_cards[clued_player as usize].contains(*other_pos)
                             && slot.clued
@@ -460,7 +463,7 @@ impl PlayEvaluation {
         if clued_player == self.whom as u8 && allowed_self_search == FirstAction::NonSelf() {
             if let Some((found_pos, slot)) =
                 line.hands
-                    .iter_hand_mut(clued_player)
+                    .iter_hand(clued_player)
                     .find(|(other_pos, slot)| {
                         !self.marked_cards[clued_player as usize].contains(*other_pos)
                             && slot.clued
@@ -489,7 +492,7 @@ impl PlayEvaluation {
         }
         if let Some((found_pos, slot)) =
             line.hands
-                .iter_hand_mut(clued_player)
+                .iter_hand(clued_player)
                 .find(|(other_pos, slot)| {
                     !self.marked_cards[clued_player as usize].contains(*other_pos)
                         && slot.clued
@@ -554,6 +557,28 @@ impl PlayEvaluation {
                         // card already played
                         continue;
                     }
+                    // An earlier clue may already reserve this connecting card,
+                    // even while its other meanings remain unresolved.
+                    let queued = (0..line.hands.num_players).find_map(|holder| {
+                        line.hands
+                            .iter_hand(holder)
+                            .find(|(pos, slot)| {
+                                slot.promised.is_some()
+                                    && !self.marked_cards[holder as usize].contains(*pos)
+                                    && slot.quantum.contains(&previous_card)
+                                    && if holder == 0 {
+                                        slot.quantum.size() == 1
+                                    } else {
+                                        slot.card == previous_card
+                                    }
+                            })
+                            .map(|(pos, _)| (holder, pos))
+                    });
+                    if let Some((holder, pos)) = queued {
+                        self.marked_cards[holder as usize].add(pos);
+                        self.add_step(line, previous_card, holder, pos, StepKind::Queued);
+                        continue;
+                    }
                     // obvious place: everybody knows where it is
                     if previous_state.clued == Some(255) {
                         // known place for everybody
@@ -590,7 +615,9 @@ impl PlayEvaluation {
 
                     // check finess positions:
                     for finess_player in (1..line.hands.num_players).rev() {
-                        if finess_player == self.who as u8 {
+                        if finess_player == self.who as u8
+                            || self.excluded_finesses.contains(finess_player)
+                        {
                             // a clue giver does not know their own hand => they can't target their finess cards
                             continue;
                         }
@@ -601,7 +628,7 @@ impl PlayEvaluation {
                         }
                         if line
                             .hands
-                            .iter_hand_mut(finess_player)
+                            .iter_hand(finess_player)
                             .any(|(other_pos, slot)| {
                                 !self.marked_cards[finess_player as usize].contains(other_pos)
                                     && slot.clued
@@ -617,19 +644,37 @@ impl PlayEvaluation {
                             continue;
                         }
                         // ensure how clued card would be played earlier:
-                        for (other_pos, slot) in line.hands.iter_hand_mut(finess_player) {
+                        let mut layers = 0;
+                        let mut layer_cards = Vec::new();
+                        let mut layer_positions = Vec::new();
+                        for (other_pos, slot) in line.hands.iter_hand(finess_player) {
                             if slot.clued
+                                || slot.promised.is_some()
                                 || self.marked_cards[finess_player as usize].contains(other_pos)
                             {
                                 continue;
                             }
                             if slot.card != previous_card {
+                                if line.card_states.play_quantum.contains(&slot.card)
+                                    && line.card_states[&slot.card].clued.is_none()
+                                    && !(0..line.hands.num_players)
+                                        .flat_map(|player| line.hands.iter_hand(player))
+                                        .any(|(_, other)| {
+                                            other.id != slot.id
+                                                && (other.clued || other.promised.is_some())
+                                                && other.card == slot.card
+                                        })
+                                    && !self.steps.iter().any(|step| {
+                                        step.kind != StepKind::Focus && step.card == slot.card
+                                    })
+                                    && !layer_cards.contains(&slot.card)
+                                {
+                                    layers += 1;
+                                    layer_cards.push(slot.card);
+                                    layer_positions.push(other_pos);
+                                    continue;
+                                }
                                 break;
-                                // if line.card_states.play_quantum.contains(&slot.card) {
-                                //     continue;
-                                // } else {
-                                //     break;
-                                // }
                             }
                             slog::debug!(
                                 self.logger,
@@ -637,6 +682,9 @@ impl PlayEvaluation {
                                 previous_card
                             );
                             self.marked_cards[finess_player as usize].add(other_pos);
+                            for layer_pos in &layer_positions {
+                                self.marked_cards[finess_player as usize].add(*layer_pos);
+                            }
                             self.add_step(
                                 line,
                                 previous_card,
@@ -644,14 +692,15 @@ impl PlayEvaluation {
                                 other_pos,
                                 StepKind::Finesse,
                             );
+                            self.steps.last_mut().expect("just added finesse").layers = layers;
                             allowed_self_search = FirstAction::SelfFiness();
                             continue 'rank_loop;
                         }
                     }
                     if let Some((found_pos, slot)) =
-                        line.hands.iter_hand_mut(0).find(|(other_pos, slot)| {
+                        line.hands.iter_hand(0).find(|(other_pos, slot)| {
                             !self.marked_cards[0_usize].contains(*other_pos)
-                                && slot.clued
+                                && (slot.clued || slot.promised.is_some())
                                 && slot.quantum.contains(&previous_card)
                                 && (self.who != 0 || slot.quantum.size() == 1)
                                 && (slot.play || slot.delayed > 0)
@@ -668,7 +717,7 @@ impl PlayEvaluation {
                     }
 
                     if allowed_self_search != FirstAction::NonSelf() {
-                        for (other_pos, slot) in line.hands.iter_hand_mut(0) {
+                        for (other_pos, slot) in line.hands.iter_hand(0) {
                             if self.who == 0 && slot.quantum.size() != 1 {
                                 continue;
                             }
@@ -688,7 +737,7 @@ impl PlayEvaluation {
                             continue 'rank_loop;
                         }
                     } else {
-                        for (other_pos, slot) in line.hands.iter_hand_mut(0) {
+                        for (other_pos, slot) in line.hands.iter_hand(0) {
                             if self.marked_cards[0].contains(other_pos) {
                                 continue;
                             }
@@ -715,8 +764,11 @@ impl PlayEvaluation {
                         }
                     }
 
-                    if allowed_self_search == FirstAction::SelfFiness() && self.who > 0 {
-                        for (other_pos, slot) in line.hands.iter_hand_mut(0) {
+                    if allowed_self_search == FirstAction::SelfFiness()
+                        && self.who > 0
+                        && !self.excluded_finesses.contains(0)
+                    {
+                        for (other_pos, slot) in line.hands.iter_hand(0) {
                             if slot.clued || self.marked_cards[0].contains(other_pos) {
                                 continue;
                             }
@@ -821,10 +873,10 @@ impl Line {
             if active.is_empty() {
                 continue;
             }
-            let known_card = self
-                .hands
-                .find(record.focus)
-                .and_then(|(player, pos)| (player != 0).then(|| self.hands.slot(player, pos).card));
+            let known_card = self.hands.find(record.focus).and_then(|(player, pos)| {
+                (player != 0 && self.hands.slot(player, pos).card.rank != 0)
+                    .then(|| self.hands.slot(player, pos).card)
+            });
             let observed_tier = record
                 .hypotheses
                 .iter()
@@ -858,7 +910,15 @@ impl Line {
                         {
                             cards.add_card(&step.card, false);
                             all_finesse &= step.kind == StepKind::Finesse;
-                            delay = delay.max(hypothesis.pending_before(slot.id).unwrap_or(0));
+                            delay = delay.max(
+                                hypothesis.pending_before(slot.id).unwrap_or(0)
+                                    + hypothesis
+                                        .pending_steps()
+                                        .take_while(|s| s.slot != slot.id)
+                                        .map(|s| s.layers)
+                                        .sum::<u8>()
+                                    + step.layers,
+                            );
                         } else {
                             all_reference = false;
                             all_finesse = false;
@@ -873,6 +933,81 @@ impl Line {
                         slot.play = delay == 0;
                     } else if cards.size() > 0 {
                         slot.delayed = slot.delayed.max(delay);
+                    }
+                }
+            }
+        }
+        for record in &self.interpretations.records {
+            let known_card = self.hands.find(record.focus).and_then(|(player, pos)| {
+                (player != 0 && self.hands.slot(player, pos).card.rank != 0)
+                    .then(|| self.hands.slot(player, pos).card)
+            });
+            let hypotheses: Vec<_> = if let Some(card) = known_card {
+                let tier = record
+                    .hypotheses
+                    .iter()
+                    .filter(|h| h.focus_card == card)
+                    .map(|h| h.tier)
+                    .min();
+                record
+                    .hypotheses
+                    .iter()
+                    .filter(|h| h.focus_card == card && Some(h.tier) == tier)
+                    .collect()
+            } else {
+                record.active().collect()
+            };
+            for player in 0..self.hands.num_players {
+                let relevant: Vec<_> = if player == record.receiver {
+                    record.active().collect()
+                } else {
+                    hypotheses.clone()
+                };
+                // A layer is an obligation only when every current meaning
+                // asks this holder to play it, just like a connecting target.
+                let mut common: Vec<(SlotId, u8)> = Vec::new();
+                for (index, hypothesis) in relevant.iter().enumerate() {
+                    let mut layers = Vec::new();
+                    for step in hypothesis
+                        .pending_steps()
+                        .filter(|s| s.holder == player && s.layers > 0)
+                    {
+                        let earlier = hypothesis.pending_before(step.slot).unwrap_or(0)
+                            + hypothesis
+                                .pending_steps()
+                                .take_while(|s| s.slot != step.slot)
+                                .map(|s| s.layers)
+                                .sum::<u8>();
+                        for (offset, id) in self
+                            .layer_slots(record, hypothesis, step)
+                            .into_iter()
+                            .enumerate()
+                        {
+                            layers.push((id, earlier + offset as u8));
+                        }
+                    }
+                    if index == 0 {
+                        common = layers;
+                    } else {
+                        common.retain_mut(|(id, delay)| {
+                            if let Some((_, other)) = layers.iter().find(|(layer, _)| layer == id) {
+                                *delay = (*delay).max(*other);
+                                true
+                            } else {
+                                false
+                            }
+                        });
+                    }
+                }
+                for (id, delay) in common {
+                    let (holder, pos) = self.hands.find(id).expect("layer slot exists");
+                    let slot = self.hands.slot_mut(holder, pos);
+                    slot.promised = Some(record.turn);
+                    slot.delayed = slot.delayed.max(delay);
+                    slot.play = slot.delayed == 0;
+                    if holder != 0 {
+                        slot.quantum.soft_clear();
+                        slot.quantum.add_card(&slot.card, true);
                     }
                 }
             }
@@ -900,10 +1035,19 @@ impl Line {
         }
         for player in 0..self.hands.num_players {
             for (_, slot) in self.hands.iter_hand(player) {
-                if slot.clued && player != 0 {
+                if slot.clued && player != 0 && slot.card.rank != 0 {
                     self.card_states[&slot.card].clued.get_or_insert(player);
                 }
-                if slot.clued && slot.quantum.size() == 1 {
+                if (slot.clued
+                    || self.interpretations.records.iter().any(|record| {
+                        record.resolved().is_some_and(|hypothesis| {
+                            hypothesis
+                                .pending_steps()
+                                .any(|step| step.slot == slot.id && step.kind == StepKind::Finesse)
+                        })
+                    }))
+                    && slot.quantum.size() == 1
+                {
                     let card = slot.quantum.iter().next().expect("singleton quantum");
                     if player == 0 || slot.card == card {
                         self.card_states[&card].clued = Some(255);
@@ -914,15 +1058,149 @@ impl Line {
         }
     }
 
+    fn layer_slots(
+        &self,
+        record: &ClueRecord,
+        hypothesis: &Hypothesis,
+        step: &Step,
+    ) -> Vec<SlotId> {
+        let Some((holder, target)) = self.hands.find(step.slot) else {
+            return Vec::new();
+        };
+        let eligible: Vec<_> = self
+            .hands
+            .iter_hand(holder)
+            .filter(|(pos, slot)| {
+                *pos < target
+                    && !slot.clued
+                    && slot.turn <= record.turn
+                    && !hypothesis.steps.iter().any(|s| s.slot == slot.id)
+                    && slot.promised.is_none_or(|turn| turn == record.turn)
+            })
+            .map(|(_, slot)| slot.id)
+            .collect();
+        eligible[eligible.len().saturating_sub(step.layers as usize)..].to_vec()
+    }
+
+    fn matches_visible_hand(&self, hypothesis: &Hypothesis) -> bool {
+        hypothesis.pending_steps().all(|step| {
+            self.hands.find(step.slot).is_some_and(|(holder, pos)| {
+                let slot = self.hands.slot(holder, pos);
+                if holder == 0 {
+                    slot.quantum.contains_hard(&step.card)
+                } else {
+                    slot.card == step.card
+                }
+            })
+        })
+    }
+
+    fn true_hypothesis<'a>(&self, record: &'a ClueRecord) -> Option<&'a Hypothesis> {
+        let (holder, pos) = self.hands.find(record.focus)?;
+        if holder == 0 {
+            return None;
+        }
+        let card = self.hands.slot(holder, pos).card;
+        record
+            .hypotheses
+            .iter()
+            .filter(|h| h.focus_card == card && self.matches_visible_hand(h))
+            .min_by_key(|h| h.tier)
+    }
+
+    /// Whether earlier seats can disambiguate this clue before its receiver acts.
+    fn resolves_before_receiver(&self, record: &ClueRecord, card: game::Card) -> bool {
+        let Some(truth) = record
+            .hypotheses
+            .iter()
+            .filter(|h| h.focus_card == card && self.matches_visible_hand(h))
+            .min_by_key(|h| h.tier)
+        else {
+            return false;
+        };
+        let mut future = Interpretations {
+            records: vec![record.clone()],
+        };
+        let mut player = (record.giver + 1) % self.hands.num_players;
+        while player != record.receiver {
+            if truth
+                .expected_now()
+                .is_none_or(|step| step.holder != player)
+            {
+                future.on_non_play(player);
+            }
+            player = (player + 1) % self.hands.num_players;
+        }
+        future.records.first().is_some_and(|r| {
+            r.active()
+                .any(|h| h.focus_card == card && self.matches_visible_hand(h))
+        })
+    }
+
     pub fn score(&self, extra_error: u8) -> LineScore {
         let mut discard_risks = 0;
         let mut clued = 0;
         let mut finess = 0;
         let mut play = 0;
-        let mut errors = extra_error;
+        let mut errors = extra_error as u16;
         if cfg!(debug_assertions) && extra_error > 0 {
             println!("error {extra_error}: initial error passed in",);
         }
+        let mut finesse_slots = Vec::new();
+        let mut layer_slots = Vec::new();
+        for record in &self.interpretations.records {
+            let Some((holder, _)) = self.hands.find(record.focus) else {
+                continue;
+            };
+            if holder == 0 {
+                continue;
+            }
+            let Some(truth) = self.true_hypothesis(record) else {
+                errors += 2;
+                continue;
+            };
+            if !self.resolves_before_receiver(record, truth.focus_card) {
+                errors += 2;
+            }
+            let mut projected = self.card_states.clone();
+            for step in truth.pending_steps() {
+                if step.kind == StepKind::Finesse
+                    && step.holder != 0
+                    && !finesse_slots.contains(&step.slot)
+                {
+                    finesse_slots.push(step.slot);
+                }
+                let layers = self.layer_slots(record, truth, step);
+                if step.holder != 0 && layers.len() != step.layers as usize {
+                    errors += 2;
+                }
+                for id in layers {
+                    let (player, pos) = self.hands.find(id).expect("layer slot exists");
+                    let card = self.hands.slot(player, pos).card;
+                    if !projected.play_quantum.contains(&card) {
+                        errors += 2;
+                    } else {
+                        projected.played(&card);
+                    }
+                    if !layer_slots.contains(&id) {
+                        layer_slots.push(id);
+                    }
+                }
+                if !projected.play_quantum.contains(&step.card) {
+                    errors += 2;
+                } else {
+                    projected.played(&step.card);
+                }
+                if step.kind == StepKind::Finesse
+                    && step.holder == record.giver
+                    && record.turn == self.turn
+                {
+                    errors += 2;
+                }
+            }
+        }
+        finess += finesse_slots.len() as u8;
+        play += layer_slots.len() as u8;
         let mut bonus = 0;
         for player in 1..self.hands.num_players {
             let mut queued_actions = 0;
@@ -996,7 +1274,6 @@ impl Line {
                     }
                     if slot.promised.is_some() {
                         queued_actions += 1;
-                        finess += 1;
                         if !slot.quantum.contains(&slot.card) {
                             if cfg!(debug_assertions) {
                                 println!(
@@ -1031,6 +1308,9 @@ impl Line {
                     && (card_state.locked.unwrap_or((player, slot.turn)) == (player, slot.turn)
                         || slot.quantum.size() > 0)
                     && !slot.quantum.contains(&slot.card)
+                    && !self.interpretations.records.iter().any(|record| {
+                        record.focus == slot.id && self.resolves_before_receiver(record, slot.card)
+                    })
                 {
                     let error = match card_state.play {
                         CardPlayState::Playable() => 2,
@@ -1062,7 +1342,7 @@ impl Line {
             finess,
             play,
             discard_risks,
-            errors,
+            errors: errors.min(u8::MAX as u16) as u8,
             bonus,
         }
     }
@@ -1139,6 +1419,7 @@ impl Line {
             .map(|(_, slot)| HandEntry {
                 id: slot.id,
                 clued: slot.clued,
+                quantum: slot.base_quantum,
                 turn: slot.turn,
             })
             .collect();
@@ -1257,6 +1538,11 @@ impl Line {
         clue: game::Clue,
         touched: game::PositionSet,
     ) -> u8 {
+        let skipped_finesse = who == 0
+            && self
+                .hands
+                .iter_hand(0)
+                .any(|(_, slot)| slot.promised.is_some() && slot.play && !slot.clued);
         self.interpretations.on_non_play(who as u8);
         let touched_ids: Vec<_> = touched
             .iter()
@@ -1268,7 +1554,7 @@ impl Line {
 
         let old_chop = self.foreign_chop(whom);
 
-        let mut error = 0;
+        let mut error = if skipped_finesse { 2 } else { 0 };
         let mut newly_clued = touched;
         for pos in 0..self.hands.hand_sizes[whom] {
             let slot = self.hands.slot_mut(whom as u8, pos);
@@ -1308,6 +1594,37 @@ impl Line {
                         self.hands
                             .slot_mut(whom as u8, other_pos)
                             .remove_card(&card, true);
+                    }
+                }
+            }
+        }
+        for record in &mut self.interpretations.records {
+            for hypothesis in &mut record.hypotheses {
+                let targets: Vec<_> = hypothesis.pending_steps().map(|s| s.slot).collect();
+                for step in hypothesis
+                    .steps
+                    .iter_mut()
+                    .filter(|s| !s.done && s.kind == StepKind::Finesse && s.holder == whom as u8)
+                {
+                    if let Some((holder, position)) = self.hands.find(step.slot) {
+                        if !self
+                            .hands
+                            .slot(holder, position)
+                            .quantum
+                            .contains_hard(&step.card)
+                        {
+                            if let Some((_, slot)) =
+                                self.hands.iter_hand(holder).find(|(pos, slot)| {
+                                    touched.contains(*pos)
+                                        && !targets.contains(&slot.id)
+                                        && slot.quantum.contains_hard(&step.card)
+                                })
+                            {
+                                step.slot = slot.id;
+                                step.kind = StepKind::Prompt;
+                                step.layers = 0;
+                            }
+                        }
                     }
                 }
             }
@@ -1380,7 +1697,11 @@ impl Line {
             let slot = self.hands.slot_mut(whom as u8, pos);
             if !slot.locked {
                 for (card, state) in self.card_states.iter_clued() {
-                    if state.clued != Some(whom as u8) {
+                    // Identifying a resolved finesse must preserve its own
+                    // assignment; good touch excludes it from other slots.
+                    if state.clued != Some(whom as u8)
+                        && state.locked != Some((whom as u8, slot.turn))
+                    {
                         slot.remove_card(&card, true);
                     }
                 }
@@ -1494,6 +1815,66 @@ impl Line {
         error
     }
 
+    /// Reorient the information available to the giver for a conservative
+    /// receiver check. Our unknown cards stay unknown in the temporary view.
+    fn receiver_view(&self, receiver: u8) -> Self {
+        let mut view = self.clone();
+        let players = self.hands.num_players;
+        let rotate = |player: u8| (players + player - receiver) % players;
+        for player in 0..players {
+            let old = (receiver + player) % players;
+            view.hands.hand_sizes[player as usize] = self.hands.hand_sizes[old as usize];
+            for pos in 0..self.hands.max_hand_size {
+                view.hands.hand_slots[(player * self.hands.max_hand_size + pos) as usize] =
+                    self.hands.hand_slots[(old * self.hands.max_hand_size + pos) as usize];
+            }
+        }
+        for (_, slot) in view.hands.iter_hand_mut(0) {
+            slot.card.rank = 0;
+        }
+        for (_, slot) in view.hands.iter_hand_mut(rotate(0)) {
+            if slot.quantum.size() == 1 {
+                slot.card = slot.quantum.iter().next().expect("singleton");
+            }
+        }
+        let cards: Vec<_> = view.card_states.iter().map(|(card, _)| card).collect();
+        for card in cards {
+            let state = &mut view.card_states[&card];
+            if let Some(holder) = state.clued {
+                if holder != 255 {
+                    state.clued = if holder == receiver {
+                        None
+                    } else {
+                        Some(rotate(holder))
+                    };
+                }
+            }
+            for place in &mut state.tracked_places {
+                if *place == receiver as i8 {
+                    *place = -2;
+                    state.tracked_count = state.tracked_count.saturating_sub(1);
+                } else if *place >= 0 {
+                    *place = rotate(*place as u8) as i8;
+                }
+            }
+            state
+                .tracked_places
+                .sort_unstable_by_key(|place| *place == -2);
+            state.locked = state.locked.map(|(holder, turn)| (rotate(holder), turn));
+        }
+        for record in &mut view.interpretations.records {
+            record.giver = rotate(record.giver);
+            record.receiver = rotate(record.receiver);
+            for hypothesis in &mut record.hypotheses {
+                for step in &mut hypothesis.steps {
+                    step.holder = rotate(step.holder);
+                }
+            }
+        }
+        view.own_player = (self.own_player + receiver) % players;
+        view
+    }
+
     fn resolve_play_clue(
         &mut self,
         who: usize,
@@ -1514,6 +1895,7 @@ impl Line {
                 }
             }
         }
+        let receiver_check = (who == 0).then(|| self.receiver_view(whom as u8));
         // Observers can condition connecting cards on the visible focus. Use a
         // temporary view so these assumptions stay retractable with the record.
         let mut view = self.clone();
@@ -1527,6 +1909,7 @@ impl Line {
                 pos,
                 premarked,
                 FirstAction::SelfFiness(),
+                PositionSet::new(6),
                 self.logger.clone(),
             )
             .ok()
@@ -1563,22 +1946,39 @@ impl Line {
             FirstAction::SelfFiness(),
         ] {
             for potential_card in candidates.iter() {
-                if let Ok(evaluation) = PlayEvaluation::test(
-                    &mut view,
-                    potential_card,
-                    who,
-                    whom,
-                    pos,
-                    premarked,
-                    first_action,
-                    self.logger.clone(),
-                ) {
-                    let hypothesis = evaluation.into_hypothesis();
-                    if !hypotheses
-                        .iter()
-                        .any(|h: &Hypothesis| h.steps == hypothesis.steps)
-                    {
-                        hypotheses.push(hypothesis);
+                let mut exclusions = vec![PositionSet::new(6)];
+                let mut index = 0;
+                while index < exclusions.len() {
+                    let excluded = exclusions[index];
+                    index += 1;
+                    if let Ok(evaluation) = PlayEvaluation::test(
+                        &mut view,
+                        potential_card,
+                        who,
+                        whom,
+                        pos,
+                        premarked,
+                        first_action,
+                        excluded,
+                        self.logger.clone(),
+                    ) {
+                        let hypothesis = evaluation.into_hypothesis();
+                        for step in hypothesis
+                            .pending_steps()
+                            .filter(|s| s.kind == StepKind::Finesse && s.holder != whom as u8)
+                        {
+                            let mut next = excluded;
+                            next.add(step.holder);
+                            if !exclusions.contains(&next) {
+                                exclusions.push(next);
+                            }
+                        }
+                        if !hypotheses
+                            .iter()
+                            .any(|h: &Hypothesis| h.steps == hypothesis.steps)
+                        {
+                            hypotheses.push(hypothesis);
+                        }
                     }
                 }
             }
@@ -1601,8 +2001,89 @@ impl Line {
             hypotheses,
         });
         self.refresh_derived();
+        if let Some(mut receiver_view) = receiver_check
+            && !self.hands.slot(whom as u8, pos).trash
+        {
+            let giver = (self.hands.num_players - whom as u8) % self.hands.num_players;
+            receiver_view.resolve_play_clue(giver as usize, 0, pos, premarked);
+            let card = self.hands.slot(whom as u8, pos).card;
+            if !receiver_view.interpretations.records.iter().any(|record| {
+                record.turn == self.turn
+                    && record.receiver == 0
+                    && receiver_view.resolves_before_receiver(record, card)
+            }) {
+                error += 2;
+            }
+        }
 
         error
+    }
+
+    /// Check the next turn of each other player using the information that
+    /// player can see. A valid-looking chain can still cause an immediate bomb
+    /// when another holder interprets the same clue differently.
+    fn first_round_is_safe(
+        &self,
+        before: &Self,
+        receiver: usize,
+        clue: game::Clue,
+        touched: PositionSet,
+    ) -> bool {
+        let players = self.hands.num_players;
+        let mut views = vec![self.clone()];
+        for player in 1..players {
+            let mut view = before.receiver_view(player);
+            view.clued(
+                (players - player) as usize,
+                ((players + receiver as u8 - player) % players) as usize,
+                clue,
+                touched,
+            );
+            views.push(view);
+        }
+        for player in 1..players {
+            if let Some(game::Move::Play(pos)) = views[player as usize].play() {
+                let card = self.hands.slot(player, pos).card;
+                if !views[0].card_states.play_quantum.contains(&card) {
+                    return false;
+                }
+                for (observer, view) in views.iter_mut().enumerate() {
+                    view.played(
+                        ((players + player - observer as u8) % players) as usize,
+                        pos as usize,
+                        card,
+                        true,
+                    );
+                }
+            } else {
+                for (observer, view) in views.iter_mut().enumerate() {
+                    view.interpretations
+                        .on_non_play((players + player - observer as u8) % players);
+                    view.refresh_derived();
+                    view.refresh_clued_cards();
+                }
+            }
+        }
+        self.interpretations
+            .records
+            .iter()
+            .filter(|record| record.turn == self.turn)
+            .all(|record| {
+                let Some((holder, pos)) = self.hands.find(record.focus) else {
+                    return true;
+                };
+                let card = self.hands.slot(holder, pos).card;
+                views[0].hands.find(record.focus).is_none()
+                    || matches!(views[0].card_states[&card].play, CardPlayState::Trash())
+                    || views[0].interpretations.records.iter().any(|remaining| {
+                        remaining.focus == record.focus
+                            && remaining.turn == record.turn
+                            && remaining
+                                .hypotheses
+                                .iter()
+                                .any(|h| h.focus_card == card && views[0].matches_visible_hand(h))
+                    })
+            })
     }
 
     pub fn clue(&mut self, whom: usize, clue: game::Clue) -> Option<LineScore> {
@@ -1615,7 +2096,11 @@ impl Line {
         if touched.is_empty() {
             return None;
         }
-        let error = self.clued(0, whom, clue, touched);
+        let before = self.clone();
+        let mut error = self.clued(0, whom, clue, touched);
+        if !self.first_round_is_safe(&before, whom, clue, touched) {
+            error += 2;
+        }
         Some(self.score(error))
     }
 
@@ -1752,5 +2237,139 @@ mod tests {
             "literal rank clue survives retraction"
         );
         assert_eq!(line.hands.slot(0, 1).delayed, 0);
+    }
+    fn layered_line(layer_rank: u8) -> Line {
+        use game::Suit::*;
+        let mut line = Line::new(4, 0);
+        for _ in 0..4 {
+            line.own_drawn();
+        }
+        let hands = [
+            [(Red(), 3), (Purple(), 4), (Blue(), 4), (Yellow(), 4)],
+            [
+                (Green(), layer_rank),
+                (Red(), 2),
+                (Blue(), 4),
+                (Yellow(), 4),
+            ],
+            [(Purple(), 1), (Green(), 4), (Blue(), 5), (Yellow(), 5)],
+        ];
+        for (player, cards) in hands.iter().enumerate() {
+            for &(suit, rank) in cards.iter().rev() {
+                line.drawn(player + 1, game::Card { suit, rank });
+            }
+        }
+        line.card_states.played(&card(1));
+        line.refresh_derived();
+        line.refresh_clued_cards();
+        line
+    }
+
+    #[test]
+    fn conditional_layer_waits_for_disambiguation() {
+        let mut line = layered_line(1);
+        let focus = step(&line, 1, 0, 3, StepKind::Focus);
+        let mut layered = step(&line, 2, 1, 2, StepKind::Finesse);
+        layered.layers = 1;
+        let alternative = step(&line, 3, 0, 2, StepKind::Finesse);
+        line.interpretations.add(ClueRecord {
+            turn: line.turn,
+            giver: 0,
+            receiver: 1,
+            focus: focus.slot,
+            hypotheses: vec![
+                Hypothesis {
+                    focus_card: card(3),
+                    steps: vec![layered, focus],
+                    tier: Tier::Direct,
+                },
+                Hypothesis {
+                    focus_card: card(3),
+                    steps: vec![alternative, focus],
+                    tier: Tier::Direct,
+                },
+            ],
+        });
+        line.refresh_derived();
+        assert!(line.hands.slot(2, 0).promised.is_none());
+        assert!(!line.hands.slot(2, 0).play);
+
+        line.interpretations.on_non_play(3);
+        line.refresh_derived();
+        assert!(line.hands.slot(2, 0).promised.is_some());
+        assert!(line.hands.slot(2, 0).play);
+    }
+
+    #[test]
+    fn giving_layered_finesse_counts_target_and_layer_separately() {
+        let line = layered_line(1);
+        let layered = line.clone().clue(1, game::Clue::Rank(3)).unwrap();
+        let direct = line
+            .clone()
+            .clue(2, game::Clue::Color(game::ClueColor::Green()))
+            .unwrap();
+        assert!(!layered.has_errors(), "{layered:?}");
+        assert_eq!(
+            layered.finess, 1,
+            "g1 is a layer; only r2 is the finesse target"
+        );
+        assert!(
+            layered.play >= 2,
+            "both the layer and focused card yield plays"
+        );
+        assert!(layered > direct);
+    }
+
+    #[test]
+    fn reject_unplayable_layers_and_occam_mismatch() {
+        assert!(
+            layered_line(4)
+                .clue(1, game::Clue::Rank(3))
+                .unwrap()
+                .has_errors()
+        );
+        // Red could simply mean r2. A receiver would play this r3 too early.
+        assert!(
+            layered_line(1)
+                .clue(1, game::Clue::Color(game::ClueColor::Red()))
+                .unwrap()
+                .has_errors()
+        );
+    }
+
+    #[test]
+    fn reject_layer_duplicating_an_already_queued_card() {
+        let mut line = layered_line(1);
+        let slot = line.hands.slot_mut(3, 0);
+        slot.card = game::Card {
+            suit: game::Suit::Green(),
+            rank: 1,
+        };
+        slot.apply_clue(game::Clue::Rank(1), true);
+        slot.clued = true;
+        line.refresh_derived();
+        line.refresh_clued_cards();
+        assert!(line.clue(1, game::Clue::Rank(3)).unwrap().has_errors());
+    }
+
+    #[test]
+    fn reject_clue_that_abandons_our_due_finesse() {
+        let mut line = layered_line(1);
+        let connecting = step(&line, 0, 0, 2, StepKind::Finesse);
+        let focus = step(&line, 1, 0, 3, StepKind::Focus);
+        line.interpretations.add(ClueRecord {
+            turn: 0,
+            giver: 3,
+            receiver: 1,
+            focus: focus.slot,
+            hypotheses: vec![Hypothesis {
+                focus_card: card(3),
+                steps: vec![connecting, focus],
+                tier: Tier::Direct,
+            }],
+        });
+        line.refresh_derived();
+        assert!(line.hands.slot(0, 0).play);
+        assert!(line.clue(3, game::Clue::Rank(5)).unwrap().has_errors());
     }
 }

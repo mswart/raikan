@@ -27,12 +27,13 @@ While limitations will come up, it allows for first successful games (sometimes 
 Implemented features:
 
 * Basic clue and save rules are implemented
-* Some/most finess clues work
+* Play-clue interpretations track prompts, finesses, and layered finesses
+* Blind-play and non-play evidence disambiguates pending connections
+* Resolved finesse cards count as clued for good-touch deductions
 
 Core limitations:
 
 * No stalling
-* Finessed cards aren't considered "clued" and therefore often recluded :-(
 * Eager action selection (if the bot can clue is probably will, even if it will force the next player to chop a critical card)
 * No stalling
 * No chop moves etc.
