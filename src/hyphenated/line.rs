@@ -9,6 +9,7 @@ use super::interpretation::{
     ClueRecord, HandEntry, Hypothesis, Interpretations, Step, StepKind, Tier,
 };
 use super::slot::{Slot, SlotId};
+use super::stall::{StallKind, TurnContext};
 
 use slog;
 
@@ -53,6 +54,10 @@ impl PartialOrd for LineScore {
 }
 
 impl LineScore {
+    pub(super) fn no_more_errors_than(&self, other: &Self) -> bool {
+        self.errors <= other.errors
+    }
+
     /// Finite leaf value for action search: an immediate point must not
     /// outweigh an avoidable strike or the loss of a critical card.
     pub(super) fn utility(&self) -> i32 {
@@ -103,6 +108,7 @@ pub struct Line {
     score: u8,
     own_player: u8,
     pub interpretations: Interpretations,
+    pub(super) context: TurnContext,
     logger: slog::Logger,
 }
 
@@ -115,6 +121,7 @@ impl PartialEq for Line {
             && self.score == other.score
             && self.own_player == other.own_player
             && self.interpretations == other.interpretations
+            && self.context == other.context
     }
 }
 impl Eq for Line {}
@@ -856,6 +863,7 @@ impl Line {
             score: 0,
             own_player,
             interpretations: Interpretations::new(),
+            context: TurnContext::default(),
             logger,
         }
     }
@@ -1422,6 +1430,11 @@ impl Line {
     }
 
     pub fn played(&mut self, player: usize, pos: usize, card: game::Card, successful: bool) {
+        self.context.actions_taken += 1;
+        self.context.last_loss = (!successful).then_some((player as u8, card));
+        if successful && card.rank == 5 {
+            self.context.clues = (self.context.clues + 1).min(8);
+        }
         self.turn += 1;
         let slot_index = self.hands.remove_slot(player, pos as u8);
         let slot = self.hands.slots[slot_index];
@@ -1438,7 +1451,7 @@ impl Line {
         self.interpretations
             .on_play(player as u8, slot.id, card, successful, &hand_after);
         if !successful && !slot.clued && pos == 0 {
-            // With no stall convention, a failed blind play withdraws our own
+            // A failed blind play withdraws our own
             // pending blind plays, or the immediate play inferred from that clue.
             let mut cancelled: Vec<_> = self
                 .hands
@@ -1488,6 +1501,13 @@ impl Line {
     }
 
     pub fn discarded(&mut self, player: usize, pos: usize, card: game::Card) {
+        self.context.actions_taken += 1;
+        let slot = self.hands.slot(player as u8, pos as u8);
+        if !slot.clued && !slot.trash {
+            self.context.early_game = false;
+        }
+        self.context.clues = (self.context.clues + 1).min(8);
+        self.context.last_loss = Some((player as u8, card));
         self.turn += 1;
         self.interpretations.on_non_play(player as u8);
         self.interpretations
@@ -1550,6 +1570,16 @@ impl Line {
         clue: game::Clue,
         touched: game::PositionSet,
     ) -> u8 {
+        let stall = self.stall_kind(who as u8, whom as u8, clue, touched);
+        let tempo_focus = (stall == Some(StallKind::Tempo))
+            .then(|| self.stall_focus(whom as u8, touched))
+            .flatten();
+        self.context.actions_taken += 1;
+        if stall == Some(StallKind::Five) && self.context.early_game {
+            self.context.early_five_stalled = true;
+        }
+        self.context.clues = self.context.clues.saturating_sub(1);
+        self.context.last_loss = None;
         let skipped_finesse = who == 0
             && self
                 .hands
@@ -1648,6 +1678,42 @@ impl Line {
             })
         });
         self.refresh_derived();
+        if stall.is_some() {
+            // Tempo promises an immediate play of the focus only. Other stalls
+            // convey literal information and good touch without a new chain.
+            if let Some(focus) = tempo_focus {
+                let slot = self.hands.slot_mut(whom as u8, focus);
+                slot.base_quantum.soft_limit(self.card_states.play_quantum);
+            }
+            for pos in newly_clued.iter() {
+                let slot = self.hands.slot_mut(whom as u8, pos);
+                if !slot.locked {
+                    for (card, state) in self.card_states.iter_clued() {
+                        if state.clued != Some(whom as u8)
+                            && state.locked != Some((whom as u8, slot.turn))
+                        {
+                            slot.remove_card(&card, true);
+                        }
+                    }
+                }
+                if whom != 0 {
+                    let card = slot.card;
+                    for player in 0..self.hands.num_players {
+                        if player == who as u8 || player == whom as u8 {
+                            continue;
+                        }
+                        for (_, slot) in self.hands.iter_hand_mut(player) {
+                            if slot.clued {
+                                slot.remove_card(&card, true);
+                            }
+                        }
+                    }
+                }
+            }
+            self.refresh_derived();
+            self.refresh_clued_cards();
+            return error;
+        }
         if newly_clued.is_empty() {
             let focus = touched.first().expect("empty clues are not implemented");
             let slot = self.hands.slot_mut(whom as u8, focus);
@@ -1833,6 +1899,10 @@ impl Line {
         let mut view = self.clone();
         let players = self.hands.num_players;
         let rotate = |player: u8| (players + player - receiver) % players;
+        view.context.last_loss = self
+            .context
+            .last_loss
+            .map(|(player, card)| (rotate(player), card));
         for player in 0..players {
             let old = (receiver + player) % players;
             view.hands.hand_sizes[player as usize] = self.hands.hand_sizes[old as usize];

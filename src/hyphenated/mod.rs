@@ -3,6 +3,7 @@ pub mod interpretation;
 mod line;
 mod search;
 mod slot;
+mod stall;
 
 use crate::card_quantum::Variant;
 use crate::game;
@@ -103,6 +104,7 @@ impl game::PlayerStrategy for HyphenatedPlayer {
     }
 
     fn act(&mut self, status: &game::GameStatus) -> game::Move {
+        self.line.context.clues = status.clues;
         search::choose_action(&self.line, status, self.debug)
     }
 }

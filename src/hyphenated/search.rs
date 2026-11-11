@@ -14,6 +14,7 @@
 //! also needs consistent joint hand beliefs, draw outcomes, and the final-turn
 //! counter, rather than treating these marginal beliefs as perfect information.
 
+use super::stall::{StallKind, StallSeverity};
 use super::{Line, LineScore};
 use crate::{
     PositionSet, Variant,
@@ -25,6 +26,13 @@ const STRIKE_COST: f64 = 50.0;
 const STRIKEOUT_COST: f64 = 1000.0;
 
 pub(super) fn choose_action(line: &Line, status: &GameStatus, debug: bool) -> Move {
+    let mut position = line.clone();
+    position.context.clues = status.clues;
+    let line = &position;
+    let severity = line.stall_severity(0);
+    let baseline = line.score(0);
+    let mut normal_clue_available = false;
+    let mut best_stall: Option<(StallKind, u8, Move, Evaluation)> = None;
     let mut best = None;
     let mut preferred: Option<(Move, Evaluation)> = None;
     for action in candidates(line, status.clues) {
@@ -34,14 +42,42 @@ pub(super) fn choose_action(line: &Line, status: &GameStatus, debug: bool) -> Mo
         if debug {
             println!("considered {action:?}: {evaluation:?}");
         }
+        let value = evaluation.value;
+        if best.is_none_or(|(_, previous)| value > previous) {
+            best = Some((action, value));
+        }
+        if let Move::Clue(receiver, clue) = action {
+            if let Some(kind) = line.clue_stall(receiver, clue)
+                && !(kind.is_general_save() && line.saves_critical_chop(receiver, clue))
+            {
+                if evaluation.urgent == 0.0 && evaluation.priority.no_more_errors_than(&baseline) {
+                    let distance = if kind == StallKind::Five {
+                        line.five_stall_distance(receiver)
+                    } else {
+                        0
+                    };
+                    if best_stall
+                        .as_ref()
+                        .is_none_or(|(old_kind, old_distance, _, old)| {
+                            (kind.precedence(), distance) < (old_kind.precedence(), *old_distance)
+                                || ((kind.precedence(), distance)
+                                    == (old_kind.precedence(), *old_distance)
+                                    && evaluation.value > old.value)
+                        })
+                    {
+                        best_stall = Some((kind, distance, action, evaluation));
+                    }
+                }
+                continue;
+            }
+            normal_clue_available |= evaluation.priority > baseline
+                && evaluation.priority.no_more_errors_than(&baseline)
+                && evaluation.urgent == 0.0;
+        }
         // Preserve expected play order when it is safe. Skipping a promised play
         // can retract a teammate's connection, so only an emergency warrants it.
         if matches!(action, Move::Play(_)) && evaluation.danger == 0.0 {
             return action;
-        }
-        let value = evaluation.value;
-        if best.is_none_or(|(_, previous)| value > previous) {
-            best = Some((action, value));
         }
         if preferred
             .as_ref()
@@ -51,6 +87,13 @@ pub(super) fn choose_action(line: &Line, status: &GameStatus, debug: bool) -> Mo
         {
             preferred = Some((action, evaluation));
         }
+    }
+    if !normal_clue_available
+        && (severity >= StallSeverity::DoubleDiscard
+            || (severity == StallSeverity::Early && !line.context.early_five_stalled))
+        && let Some((_, _, action, _)) = best_stall
+    {
+        return action;
     }
     // Unknown chop cards always carry some background risk. That alone should
     // not make the bot replace normal discards with weak clues and lock hands.
@@ -209,7 +252,8 @@ struct Forecast {
 }
 
 impl Forecast {
-    fn from_line(line: Line, clues: u8, strikes: u8) -> Self {
+    fn from_line(mut line: Line, clues: u8, strikes: u8) -> Self {
+        line.context.clues = clues;
         let mut views = vec![line];
         for player in 1..views[0].hands.num_players {
             views.push(views[0].decision_view(player));
@@ -229,6 +273,9 @@ impl Forecast {
         receiver: u8,
         clue: Clue,
     ) -> Option<(Self, LineScore)> {
+        let mut position = before.clone();
+        position.context.clues = status.clues;
+        let before = &position;
         let mut touched = PositionSet::new(before.hands.hand_sizes[receiver as usize]);
         for (pos, slot) in before.hands.iter_hand(receiver) {
             if slot.card.affected(clue) {
@@ -236,6 +283,7 @@ impl Forecast {
             }
         }
         let mut after = before.clone();
+        after.context.clues = status.clues;
         let score = after.clue(receiver as usize, clue)?;
         let players = before.hands.num_players;
         let mut views = vec![after];
@@ -265,6 +313,7 @@ impl Forecast {
 
     fn own_card(before: &Line, status: &GameStatus, action: Move, card: Card) -> Self {
         let mut after = before.clone();
+        after.context.clues = status.clues;
         let mut clues = status.clues;
         let mut new_strikes = 0;
         match action {
@@ -447,6 +496,12 @@ mod tests {
             played.clues, 1,
             "the next player's forced discard restores a token"
         );
+        assert!(
+            played
+                .views
+                .iter()
+                .all(|view| view.context.clues == played.clues)
+        );
     }
 
     #[test]
@@ -502,6 +557,12 @@ mod tests {
         assert_eq!(forecast.lost_points, 0);
         assert_eq!(forecast.clues, 1);
         assert_eq!(choose_action(&line, &status(0), false), Move::Play(0));
+        assert!(
+            forecast
+                .views
+                .iter()
+                .all(|view| view.context.clues == forecast.clues)
+        );
     }
 
     #[test]

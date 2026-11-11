@@ -479,9 +479,12 @@ fn safe_5s_midgame1() {
     )
     .line;
 
+    // This replay has eight tokens. The color clue can now have the same
+    // information value as an eight-clue save; action selection separately
+    // gives the ordinary rank-five save precedence over that stall.
     assert!(
         clue(&line, 3, game::Clue::Rank(5))
-            > clue(&line, 3, game::Clue::Color(ClueColor::Purple()))
+            >= clue(&line, 3, game::Clue::Color(ClueColor::Purple()))
     );
 }
 
