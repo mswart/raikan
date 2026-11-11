@@ -15,15 +15,30 @@ pub struct Slot {
     pub play: bool,
     pub trash: bool,
     pub quantum: CardQuantum,
+    /// Clues and good-touch deductions, before applying live interpretations.
+    pub(crate) base_quantum: CardQuantum,
     pub locked: bool,
     pub fixed: bool,
     pub turn: i8,
     pub delayed: u8,
-    pub callbacks: bool,
     pub promised: Option<i8>,
 }
 
 impl Slot {
+    pub(crate) fn remove_card(&mut self, card: &game::Card, soft: bool) {
+        self.quantum.remove_card(card, soft);
+        self.base_quantum.remove_card(card, soft);
+    }
+
+    pub(crate) fn apply_clue(&mut self, clue: game::Clue, touched: bool) {
+        for quantum in [&mut self.quantum, &mut self.base_quantum] {
+            match clue {
+                game::Clue::Rank(rank) => quantum.limit_by_rank(rank as usize, touched),
+                game::Clue::Color(color) => quantum.limit_by_suit(&color.suit(), touched),
+            }
+        }
+    }
+
     pub fn update_slot_attributes(&mut self, card_states: &CardStates) {
         if self.delayed > 0 {
             return;

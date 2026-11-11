@@ -205,7 +205,20 @@ impl Interpretations {
             let reserved = self.reserved_finesse_slots(record_index);
             let record = &mut self.records[record_index];
             let record_turn = record.turn;
+            let confirmed = successful
+                && record.active().any(|h| {
+                    h.expected_now().is_some_and(|s| {
+                        s.slot == slot && s.card == card && s.kind == StepKind::Finesse
+                    })
+                });
             record.hypotheses.retain_mut(|hypothesis| {
+                if confirmed
+                    && !hypothesis
+                        .pending_steps()
+                        .any(|s| s.slot == slot && s.card == card)
+                {
+                    return false;
+                }
                 apply_play(
                     hypothesis,
                     player,
@@ -322,7 +335,12 @@ fn apply_play(
         if step.slot == slot {
             if successful && step.card == card {
                 step.done = true;
-            } else if successful && step.kind == StepKind::Finesse {
+            } else if successful
+                && matches!(
+                    step.kind,
+                    StepKind::Finesse | StepKind::Prompt | StepKind::Queued
+                )
+            {
                 // blind play of another playable card: layered finesse
                 layered = true;
             } else {
@@ -362,30 +380,45 @@ fn retarget_finesses(
     record_turn: i8,
     reserved: &[SlotId],
 ) -> bool {
-    let own_targets: Vec<SlotId> = hypothesis
+    let Some(index) = hypothesis
         .steps
         .iter()
-        .filter(|step| !step.done && step.holder == holder && step.kind == StepKind::Finesse)
-        .map(|step| step.slot)
-        .filter(|slot| *slot != played_slot)
-        .collect();
-    let mut candidates = hand_after.iter().filter(|entry| {
-        !entry.clued
-            && entry.turn <= record_turn
-            && (own_targets.contains(&entry.id) || !reserved.contains(&entry.id))
-    });
-    for step in hypothesis.steps.iter_mut() {
-        if step.done || step.holder != holder || step.kind != StepKind::Finesse {
+        .position(|s| !s.done && s.slot == played_slot)
+    else {
+        return true;
+    };
+    let expected = hypothesis.steps[index].card;
+    let prompt = hypothesis.steps[index].kind != StepKind::Finesse;
+    let mut used = reserved.to_vec();
+    for step in &hypothesis.steps[..index] {
+        if !step.done {
+            used.push(step.slot);
+        }
+    }
+    for step in &mut hypothesis.steps[index..] {
+        if step.done || step.holder != holder || step.kind == StepKind::Focus {
             continue;
         }
-        match candidates.next() {
-            Some(entry) => {
-                step.slot = entry.id;
-                step.layers = step.layers.saturating_sub(1);
-            }
-            // no finesse position left: hypothesis impossible
-            None => return false,
-        }
+        let candidate = hand_after
+            .iter()
+            .filter(|entry| entry.turn <= record_turn && !used.contains(&entry.id))
+            .find(|entry| prompt && step.card == expected && entry.clued)
+            .or_else(|| {
+                hand_after.iter().find(|entry| {
+                    !entry.clued && entry.turn <= record_turn && !used.contains(&entry.id)
+                })
+            });
+        let Some(entry) = candidate else {
+            return false;
+        };
+        step.slot = entry.id;
+        step.kind = if entry.clued {
+            StepKind::Prompt
+        } else {
+            StepKind::Finesse
+        };
+        step.layers = step.layers.saturating_sub(1);
+        used.push(entry.id);
     }
     true
 }

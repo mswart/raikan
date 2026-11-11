@@ -199,10 +199,9 @@ impl Replay {
         for line in self.lines.iter() {
             println!(" - {:?}", line.card_states);
         }
-        println!("Callbacks:");
+        println!("Interpretations:");
         for line in self.lines.iter() {
-            line.print_callbacks(" - ");
-            // println!(" - {:?}", line.callbacks);
+            line.print_interpretations(" - ");
         }
     }
 
@@ -2277,13 +2276,18 @@ fn update_promise_from_prompt_to_finess() {
         rank: 1,
         suit: game::Suit::Red(),
     };
-    // cathy can assume r1 is prompted (instead of the finess as it is actually is)
-    // (later with more context she *might* directly play finess, as p1 is already promised)
+    // The earlier p2 clue still reserves p1. Keeping its interpretation
+    // separate lets Cathy finesse r1 directly instead of reusing that prompt.
     assert_eq!(
         replay.lines[2].hands.slot(0, 2).quantum.to_vec(),
-        vec![r1],
-        "Cathy should assume finess"
+        vec![game::Card {
+            suit: game::Suit::Purple(),
+            rank: 1
+        }],
+        "Cathy must preserve the existing p1 connection"
     );
+    assert_eq!(replay.lines[2].hands.slot(0, 0).quantum.to_vec(), vec![r1]);
+    assert!(replay.lines[2].hands.slot(0, 0).promised.is_some());
     replay.play(2, Some(r1));
     // clue on red 4 went side-ways (the clue-giver assumpted goood touch to have r3)
     for (player, slot) in replay.slot_perspectives(2, 1).iter().enumerate() {
