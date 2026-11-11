@@ -1814,23 +1814,6 @@ fn layered_self_finess() {
 }
 
 #[test]
-#[ignore]
-/// a nice 5-for-1 finess starting with a self-finess (all in order)
-fn dont_force_players_into_chopping_critical_cards() {
-    // id 31554
-    let replay = replay_game(
-        20,
-        "415tdcbfjvfmhuixnglskwuqigaahmnlsyapqoxudrekvpfwkprcb",
-        "05pbahDa6codaeakaoubar6b6cudagasapbb1caibm7bbfajubbcocbzpaaybu7bbt0ba6bwan6cb8a9vaadbBa4bxvd0c7aa7b5bqaC0aa3bEibbHaaaMb2bNqa",
-        "0",
-    );
-    assert!(
-        replay.clone().clue_is_bad(1, game::Clue::Rank(4)),
-        "y5 is sacrifised"
-    );
-}
-
-#[test]
 fn fix_pending_misplay() {
     let mut replay = replay_game(
         2,

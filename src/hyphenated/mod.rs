@@ -1,6 +1,7 @@
 mod card_states;
 pub mod interpretation;
 mod line;
+mod search;
 mod slot;
 
 use crate::card_quantum::Variant;
@@ -102,48 +103,6 @@ impl game::PlayerStrategy for HyphenatedPlayer {
     }
 
     fn act(&mut self, status: &game::GameStatus) -> game::Move {
-        if let Some(play_move) = self.line.play() {
-            return play_move;
-        }
-        if status.clues == 0 {
-            return self.line.discard();
-        }
-        // compare clues:
-        let mut best_score = if status.clues == 8 {
-            LineScore::bad()
-        } else {
-            self.line.score(0)
-        };
-        let mut best_move = self.line.discard();
-        if self.debug {
-            println!("discarding score: {:?}", best_score);
-        }
-        for player in 1..self.line.hands.num_players {
-            for suit in self.variant.suits().iter() {
-                let clue = game::Clue::Color(suit.clue_color());
-                if let Some(score) = self.line.clone().clue(player as usize, clue) {
-                    if self.debug {
-                        println!("considered cluing {:?} to {player} with {:?}", clue, score);
-                    }
-                    if score > best_score {
-                        best_move = game::Move::Clue(player, clue);
-                        best_score = score;
-                    }
-                }
-            }
-            for rank in 1..=5 {
-                let clue = game::Clue::Rank(rank);
-                if let Some(score) = self.line.clone().clue(player as usize, clue) {
-                    if self.debug {
-                        println!("considered cluingg {:?} to {player} with {:?}", clue, score);
-                    }
-                    if score > best_score {
-                        best_move = game::Move::Clue(player, clue);
-                        best_score = score;
-                    }
-                }
-            }
-        }
-        best_move
+        search::choose_action(&self.line, status, self.debug)
     }
 }

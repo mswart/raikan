@@ -30,14 +30,24 @@ Implemented features:
 * Play-clue interpretations track prompts, finesses, and layered finesses
 * Blind-play and non-play evidence disambiguates pending connections
 * Resolved finesse cards count as clued for good-touch deductions
+* Action selection forecasts other players' plays and forced discards, accounting for clue tokens, strikes, and critical-card losses
+* Urgent fixes or token-generating discards can take priority over an otherwise playable card
 
 Core limitations:
 
 * No stalling
-* Eager action selection (if the bot can clue is probably will, even if it will force the next player to chop a critical card)
-* No stalling
+* Action forecasts stop at the next clue-giving choice or one table rotation; future draws and final-turn limits are not modeled
 * No chop moves etc.
 * No variants.
+
+Action search averages possible identities of the bot's own cards using remaining
+copy counts. It preserves the usual action priorities unless the forecast finds a
+misplay, a forced loss in another hand, or a loss of a protected own card. The
+background risk of discarding an ordinary unknown chop does not trigger a change.
+The search separates candidates, transitions, and evaluation so it can later grow
+into deeper expectimax or robust minimax: teammates remain cooperative, while
+uncertain card outcomes can be averaged or evaluated pessimistically. Deeper
+search will need joint hand beliefs, draw outcomes, and the final-turn counter.
 
 ## Use as library
 

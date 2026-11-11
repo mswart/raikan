@@ -53,6 +53,18 @@ impl PartialOrd for LineScore {
 }
 
 impl LineScore {
+    /// Finite leaf value for action search: an immediate point must not
+    /// outweigh an avoidable strike or the loss of a critical card.
+    pub(super) fn utility(&self) -> i32 {
+        self.score as i32 * 10
+            + self.discard_risks as i32
+            + self.play as i32
+            + self.clued as i32 * 2
+            + self.finess as i32 * 2
+            + self.bonus as i32
+            - self.errors as i32 * 10
+    }
+
     pub fn zero() -> Self {
         Self {
             score: 0,
@@ -1817,7 +1829,7 @@ impl Line {
 
     /// Reorient the information available to the giver for a conservative
     /// receiver check. Our unknown cards stay unknown in the temporary view.
-    fn receiver_view(&self, receiver: u8) -> Self {
+    pub(super) fn receiver_view(&self, receiver: u8) -> Self {
         let mut view = self.clone();
         let players = self.hands.num_players;
         let rotate = |player: u8| (players + player - receiver) % players;
@@ -1872,6 +1884,15 @@ impl Line {
             }
         }
         view.own_player = (self.own_player + receiver) % players;
+        view
+    }
+
+    /// Recompute a seat's decisions after a simulated public card action.
+    /// Foreign holders may have had truth-specific deductions in our view.
+    pub(super) fn decision_view(&self, player: u8) -> Self {
+        let mut view = self.receiver_view(player);
+        view.refresh_derived();
+        view.refresh_clued_cards();
         view
     }
 
