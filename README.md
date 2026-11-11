@@ -21,50 +21,137 @@ Send the bot a DM with `/join` as message to make it join your table.
 
 ## H-Group rule support
 
-Experienced beginner maybe?
-While limitations will come up, it allows for first successful games (sometimes even perfect ones).
+Support is partial and varies by convention. This overview covers levels 1–9,
+ending at stalling, the highest level with implemented special moves. It does not
+mean that all earlier levels are complete. Only the standard five-suit game is
+supported; variant-specific rules are not implemented.
 
-Implemented features:
+| H-Group level | Status |
+| --- | --- |
+| [1 — Fundamentals](https://hanabi.github.io/level-1) | Core behavior implemented; edge cases remain |
+| [2 — Basic Moves](https://hanabi.github.io/level-2) | Partial |
+| [3 — Basic Strategy](https://hanabi.github.io/level-3) | Partial |
+| [4 — Chop Moves](https://hanabi.github.io/level-4) | Not implemented |
+| [5 — Intermediate Finesses](https://hanabi.github.io/level-5) | Partial |
+| [6 — Tempo Clues](https://hanabi.github.io/level-6) | Partial |
+| [7 — Emergency Discards](https://hanabi.github.io/level-7) | Limited tactical support; discard signals missing |
+| [8 — End-Game](https://hanabi.github.io/level-8) | No dedicated convention support |
+| [9 — Stalling](https://hanabi.github.io/level-9) | Most stall types implemented; exceptions remain |
 
-* Basic clue and save rules are implemented
-* Play-clue interpretations track prompts, finesses, and layered finesses
-* Blind-play and non-play evidence disambiguates pending connections
-* Resolved finesse cards count as clued for good-touch deductions
-* Action selection forecasts other players' plays and forced discards, accounting for clue tokens, strikes, and critical-card losses
-* Urgent fixes or token-generating discards can take priority over an otherwise playable card
-* 5 stalls in the early game and in double-discard, locked-hand, and eight-token situations
-* Tempo, fill-in, and burn stalls in double-discard, locked-hand, and eight-token situations, with clue precedence
-* Locked-hand saves on chop that leave the receiver an unclued card, and eight-clue saves on older cards after the opening turn
+### Level 1 — Fundamentals
 
-Core limitations:
+* **Implemented:** Positive and negative clue information, playable/trash/critical
+  card tracking, good-touch deductions, and ordinary chop selection. Known trash
+  is discarded before an unknown chop. Rank-2, rank-5, and critical-card saves
+  are recognized on chop. Direct and delayed play clues can connect through
+  prompts and finesses.
+* **Gaps:** Focus selection does not consistently skip already-clued cards when
+  a clue also touches new cards. The exception allowing a 2 save when both copies
+  are on chop is missing. Some good-touch and ambiguous-save cases remain unresolved.
 
-* Anxiety plays and the 5-stall finesse-position exception are not implemented
-* Stall interpretation is conservative; it does not infer finesses from the availability of higher-precedence clues
-* Action forecasts stop at the next clue-giving choice or one table rotation; future draws and final-turn limits are not modeled
-* No chop moves etc.
-* No variants.
+### Level 2 — Basic Moves
 
-Action search averages possible identities of the bot's own cards using remaining
-copy counts. It preserves the usual action priorities unless the forecast finds a
-misplay, a forced loss in another hand, or a loss of a protected own card. The
-background risk of discarding an ordinary unknown chop does not trigger a change.
-The search separates candidates, transitions, and evaluation so it can later grow
-into deeper expectimax or robust minimax: teammates remain cooperative, while
-uncertain card outcomes can be averaged or evaluated pessimistically. Deeper
-search will need joint hand beliefs, draw outcomes, and the final-turn counter.
+* **Implemented:** Early-game off-chop 5 stalls; chains of prompts and finesses,
+  including mixed prompt/finesse chains, reverse finesses, and self-finesses.
+  Alternative interpretations remain pending until plays or non-plays distinguish
+  them. Misplays can cancel dependent instructions while preserving literal clues.
+* **Gaps:** Ambiguous connections and recovery after a misplayed prompt are not
+  complete; ignored regression tests still cover unresolved cases. The bot does
+  not guarantee correct handling of every multi-step combination.
 
-Stalling follows the [H-Group stall table](https://hanabi.github.io/level-9#allowable-stall-clues-stall-table).
-Normal plays, safe discards, and useful play/save clues take precedence over
-stalls. The bot gives one early-game 5 stall when needed, choosing the five closest
-to chop; further early-game 5 stalls are optional and are normally skipped.
-5, fill-in, general saves, and burn stalls preserve literal information and existing connections
-without adding a new play or finesse instruction. Tempo stalls request an
-immediate play of the focus, without creating a connecting chain.
-Locked-hand saves and eight-clue saves have equal precedence with fill-in clues,
-after 5 and tempo stalls and before burns. Ordinary rank-2/rank-5 saves, literal
-plays, and critical chop saves keep priority over these general saves.
-Public actions track clue tokens, the opening turn, the first unknown discard,
-and possible double-discard situations for every player view.
+### Level 3 — Basic Strategy
+
+* **Implemented:** Basic fix clues can restore a card's identity when an inference
+  conflicts with literal information. Action selection can prioritize a fix over
+  the bot's own play to prevent a predicted misplay. Clue scoring rewards useful
+  touches and connecting plays, and penalizes errors and critical-card losses.
+* **Gaps:** The special play order for starting-hand and freshly drawn 1s is
+  missing; the bot normally chooses its leftmost playable card. Sarcastic discards
+  do not transfer information. Stop clues and fixes that also introduce new cards
+  do not have complete convention handling.
+
+### Level 4 — Chop Moves
+
+* **Not implemented:** Trash, 5, and order chop moves. There is no persistent
+  protection of an unclued card through a chop-move signal. Saving a card with an
+  ordinary clue or a stall does not add this convention.
+
+### Level 5 — Intermediate Finesses
+
+* **Implemented:** Layered finesses track playable cards ahead of a connecting
+  target, including layered self-finesses. Queued connections reserve their cards
+  across turns and hand shifts. Candidate clues are checked for unsafe or
+  duplicate layers, and resolved finesse cards participate in good-touch deductions.
+* **Gaps:** Multi-color prompt rules are outside the supported variant. Hidden
+  and clandestine finesse cases are not comprehensively covered by the current
+  resolver and regression tests; layered-finesse support is not full level-5 support.
+
+### Level 6 — Tempo Clues
+
+* **Implemented:** Re-cluing can request a play from an already-clued card. In
+  supported stalling situations, a tempo clue promises only its focus to play,
+  shifting that focus past touched cards already known to be playable.
+* **Gaps:** No tempo chop moves, general focus-shifting rule outside stalls, or
+  dedicated discard-modulation policy. The full distinction between valuable
+  tempo clues and low-value tempo clues is not encoded.
+
+### Level 7 — Emergency Discards
+
+* **Implemented:** Action search forecasts other players' plays and forced
+  zero-token discards. It can generate a clue token instead of playing, or avoid
+  spending the final token, when that prevents a predicted critical-card loss.
+* **Gaps:** Scream and shout discards do not communicate a chop move or force the
+  receiver to stall. Token generation is a tactical search result, without the
+  full generation-discard convention. Forecasts stop at the next clue-giving
+  choice or one table rotation; there is no full All 4's Test.
+
+### Level 8 — End-Game
+
+* **Current behavior:** The game engine handles deck exhaustion and the final
+  round, but the strategy continues using its ordinary action policy.
+* **Not implemented:** Pace-based planning, final-turn-aware search, positional
+  discards or misplays, distribution clues, and a dedicated end-game burning
+  policy. Burns available through level-9 stall contexts do not provide general
+  end-game stalling.
+
+### Level 9 — Stalling
+
+* **Contexts:** Tracks clue tokens, the opening turn, the first unknown discard,
+  locked hands, and double-discard danger in every player's view. Misplays and
+  known-trash discards do not end the early game.
+* **5 stalls:** Gives one early-game 5 stall when needed, preferring the five
+  closest to chop. Further early-game 5 stalls are optional and normally skipped.
+  Also recognizes 5 stalls during double-discard danger, with a locked hand, or
+  with eight clues after the opening turn.
+* **Other stalls:** Tempo, fill-in, and burn clues are supported in those latter
+  three contexts. Locked-hand saves may protect any chop card if the clue leaves
+  the receiver an unclued card. Eight-clue saves may protect a card on or off chop,
+  but cannot focus the newest card or apply on the opening turn.
+* **Precedence:** Normal useful play/save clues come first, followed by 5 stalls,
+  tempo stalls, then fill-ins and general saves at equal priority, then burns.
+  Safe ordinary plays/discards take precedence when available. Non-tempo stalls
+  preserve literal information and existing connections without adding a new
+  play or finesse instruction.
+* **Gaps:** Anxiety plays, scream-discard stall recognition, and the 5-stall
+  finesse-position exception are missing. Interpretation is conservative: it
+  does not infer a finesse from the availability of a higher-precedence clue.
+
+### Implementation and search limits
+
+Clue interpretation and card knowledge live in
+[line.rs](src/hyphenated/line.rs) and
+[interpretation.rs](src/hyphenated/interpretation.rs); stall classification lives
+in [stall.rs](src/hyphenated/stall.rs). Regression cases are in
+[line_tests.rs](tests/line_tests.rs) and the modules' unit tests.
+
+[Action search](src/hyphenated/search.rs) averages possible own-card identities
+using remaining copy counts. It preserves ordinary action priorities unless a
+forecast identifies an emergency; background risk on an unknown chop alone does
+not trigger a change. Future draws and final-turn limits are not modeled.
+Candidate generation, transitions, and evaluation are separate extension points
+for deeper expectimax or robust minimax. Such an extension would need joint hand
+beliefs, draw outcomes, and the final-turn counter. Teammates remain cooperative;
+minimization would apply to uncertain outcomes, not opposing players.
 
 ## Use as library
 
