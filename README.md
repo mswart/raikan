@@ -14,10 +14,20 @@ It can join games and be a bot to play with more players than available peoples.
 
 You can either compile the project yourself (enable `webclient` feature) or use the binaries from releases.
 
-You need to set `HANABI_USERNAME` and `HANABI_PASSWORD` environment variables to define which account to use for hanab.live.
-Remember that new accounts are crated on-the-fly if the username isn't taken yet.
+Create the bot's account on [hanab.live](https://hanab.live) first, then set
+`HANABI_USERNAME` and `HANABI_PASSWORD` to its credentials. The bot logs in as
+`client=bot`; it does not create accounts automatically. Login failures report
+the HTTP status and the server's explanation.
+
+Alternatively, set `HANABI_SID` to an existing cookie in the form
+`hanabi.sid=<session value>`. This skips password login; unset it to use the
+username and password again. Do not include `Set-Cookie` attributes such as
+`Path` or `HttpOnly`.
 
 Send the bot a DM with `/join` as message to make it join your table.
+The web client supports one table at a time, using the standard `No Variant`
+rules. It uses Hanabi Live's current lobby and game-event protocol; spectators
+and replay viewers do not send moves.
 
 ## H-Group rule support
 

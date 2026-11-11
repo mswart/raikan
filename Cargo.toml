@@ -31,7 +31,6 @@ tungstenite = { version = "0.28.0", optional = true, features = [
 
 [[bin]]
 name = "raikan-web"
-test = false
 bench = false
 required-features = ["webclient"]
 

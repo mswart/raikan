@@ -13,11 +13,14 @@ use super::stall::{StallKind, TurnContext};
 
 use slog;
 
+const CRITICAL_CARD_VALUE: i32 = 5;
+
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct LineScore {
     discard_risks: i8,
     score: u8,
     clued: u8,
+    saved: u8,
     finess: u8,
     play: u8,
     errors: u8,
@@ -34,6 +37,7 @@ impl PartialOrd for LineScore {
         match (self.discard_risks as i32
             + self.play as i32
             + self.clued as i32 * 2
+            + self.saved as i32 * CRITICAL_CARD_VALUE
             + self.finess as i32 * 2
             + self.bonus as i32
             - self.errors as i32 * 10)
@@ -41,6 +45,7 @@ impl PartialOrd for LineScore {
                 &(other.discard_risks as i32
                     + other.play as i32
                     + other.clued as i32 * 2
+                    + other.saved as i32 * CRITICAL_CARD_VALUE
                     + other.finess as i32 * 2
                     + other.bonus as i32
                     - other.errors as i32 * 10),
@@ -65,6 +70,7 @@ impl LineScore {
             + self.discard_risks as i32
             + self.play as i32
             + self.clued as i32 * 2
+            + self.saved as i32 * CRITICAL_CARD_VALUE
             + self.finess as i32 * 2
             + self.bonus as i32
             - self.errors as i32 * 10
@@ -74,6 +80,7 @@ impl LineScore {
         Self {
             score: 0,
             clued: 0,
+            saved: 0,
             finess: 0,
             play: 0,
             discard_risks: 0,
@@ -90,6 +97,7 @@ impl LineScore {
         Self {
             score: 0,
             clued: 0,
+            saved: 0,
             finess: 0,
             play: 0,
             discard_risks: 0,
@@ -983,15 +991,13 @@ impl Line {
                 } else {
                     hypotheses.clone()
                 };
-                // A layer is an obligation only when every current meaning
-                // asks this holder to play it, just like a connecting target.
-                let mut common: Vec<(SlotId, u8)> = Vec::new();
+                // The same card can be a layer in one meaning and a target in
+                // another. Intersect their combined obligations, preserving the
+                // latest required timing across all meanings.
+                let mut common: Vec<(SlotId, u8, bool)> = Vec::new();
                 for (index, hypothesis) in relevant.iter().enumerate() {
-                    let mut layers = Vec::new();
-                    for step in hypothesis
-                        .pending_steps()
-                        .filter(|s| s.holder == player && s.layers > 0)
-                    {
+                    let mut obligations = Vec::new();
+                    for step in hypothesis.pending_steps().filter(|s| s.holder == player) {
                         let earlier = hypothesis.pending_before(step.slot).unwrap_or(0)
                             + hypothesis
                                 .pending_steps()
@@ -1003,15 +1009,19 @@ impl Line {
                             .into_iter()
                             .enumerate()
                         {
-                            layers.push((id, earlier + offset as u8));
+                            obligations.push((id, earlier + offset as u8, true));
                         }
+                        obligations.push((step.slot, earlier + step.layers, false));
                     }
                     if index == 0 {
-                        common = layers;
+                        common = obligations;
                     } else {
-                        common.retain_mut(|(id, delay)| {
-                            if let Some((_, other)) = layers.iter().find(|(layer, _)| layer == id) {
+                        common.retain_mut(|(id, delay, includes_layer)| {
+                            if let Some((_, other, layer)) =
+                                obligations.iter().find(|(slot, _, _)| slot == id)
+                            {
                                 *delay = (*delay).max(*other);
+                                *includes_layer |= layer;
                                 true
                             } else {
                                 false
@@ -1019,7 +1029,11 @@ impl Line {
                         });
                     }
                 }
-                for (id, delay) in common {
+                for (id, delay, includes_layer) in common {
+                    // Pure target constraints were already projected above.
+                    if !includes_layer {
+                        continue;
+                    }
                     let (holder, pos) = self.hands.find(id).expect("layer slot exists");
                     let slot = self.hands.slot_mut(holder, pos);
                     slot.promised = Some(record.turn);
@@ -1160,6 +1174,7 @@ impl Line {
     pub fn score(&self, extra_error: u8) -> LineScore {
         let mut discard_risks = 0;
         let mut clued = 0;
+        let mut saved = 0;
         let mut finess = 0;
         let mut play = 0;
         let mut errors = extra_error as u16;
@@ -1230,6 +1245,17 @@ impl Line {
                 let card_state = self.card_states[&slot.card];
                 if slot.clued {
                     clued += 1;
+                    // A queued play only postpones a discard. Credit lasting
+                    // protection of a critical card even while its holder has
+                    // a play, using the same value as an exposed critical chop.
+                    if !slot.trash
+                        && matches!(
+                            card_state.play,
+                            CardPlayState::Critical() | CardPlayState::CriticalPlayable()
+                        )
+                    {
+                        saved += 1;
+                    }
                     if slot.play || slot.delayed > 0 {
                         play += 1;
                         queued_actions += 1;
@@ -1285,8 +1311,9 @@ impl Line {
                         chop = false;
                         if card_state.clued.is_none() {
                             match card_state.play {
-                                CardPlayState::Critical() => discard_risk -= 5,
-                                CardPlayState::CriticalPlayable() => discard_risk -= 5,
+                                CardPlayState::Critical() | CardPlayState::CriticalPlayable() => {
+                                    discard_risk -= CRITICAL_CARD_VALUE as i8
+                                }
                                 CardPlayState::Playable() => discard_risk -= 2,
                                 _ => {}
                             }
@@ -1359,6 +1386,7 @@ impl Line {
         LineScore {
             score: self.score,
             clued,
+            saved,
             finess,
             play,
             discard_risks,
@@ -2389,6 +2417,59 @@ mod tests {
         line.refresh_derived();
         assert!(line.hands.slot(2, 0).promised.is_some());
         assert!(line.hands.slot(2, 0).play);
+    }
+
+    #[test]
+    fn mixed_layer_and_target_obligations_require_consensus_without_guessing_our_card() {
+        for reverse in [false, true] {
+            let mut line = layered_line(1);
+            let focus = step(&line, 1, 0, 3, StepKind::Focus);
+            let direct = step(&line, 0, 0, 2, StepKind::Finesse);
+            let mut layered = step(&line, 0, 1, 2, StepKind::Finesse);
+            layered.layers = 1;
+            let mut hypotheses = vec![
+                Hypothesis {
+                    focus_card: card(3),
+                    steps: vec![direct, focus],
+                    tier: Tier::Direct,
+                },
+                Hypothesis {
+                    focus_card: card(3),
+                    steps: vec![layered, focus],
+                    tier: Tier::Direct,
+                },
+            ];
+            if reverse {
+                hypotheses.reverse();
+            }
+            line.interpretations.add(ClueRecord {
+                turn: line.turn,
+                giver: 3,
+                receiver: 1,
+                focus: focus.slot,
+                hypotheses,
+            });
+            line.refresh_derived();
+            assert_eq!(line.play(), Some(game::Move::Play(0)));
+            assert!(line.hands.slot(0, 0).promised.is_some());
+            assert!(
+                line.hands.slot(0, 0).quantum.size() > 1,
+                "a hidden layer need not be r2"
+            );
+            assert!(line.hands.slot(0, 1).promised.is_none());
+
+            // An alternative that does not require our card removes the common
+            // obligation, without changing the literal information in our hand.
+            let alternative = step(&line, 2, 1, 2, StepKind::Finesse);
+            line.interpretations.records[0].hypotheses.push(Hypothesis {
+                focus_card: card(3),
+                steps: vec![alternative, focus],
+                tier: Tier::Direct,
+            });
+            line.refresh_derived();
+            assert!(line.hands.slot(0, 0).promised.is_none());
+            assert_eq!(line.play(), None);
+        }
     }
 
     #[test]
