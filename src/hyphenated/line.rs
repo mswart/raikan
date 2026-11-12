@@ -1288,6 +1288,19 @@ impl Line {
                     && !finesse_slots.contains(&step.slot)
                 {
                     finesse_slots.push(step.slot);
+                    // Finesses implicitly touch their connecting cards. A clue
+                    // must not also protect another copy, even when the focus
+                    // is still ambiguous and the connection is not yet locked.
+                    if (1..self.hands.num_players).any(|player| {
+                        self.hands.iter_hand(player).any(|(_, slot)| {
+                            slot.id != step.slot
+                                && slot.clued
+                                && !slot.trash
+                                && slot.card == step.card
+                        })
+                    }) {
+                        errors += 2;
+                    }
                 }
                 let layers = self.layer_slots(record, truth, step);
                 if step.holder != 0 && layers.len() != step.layers as usize {

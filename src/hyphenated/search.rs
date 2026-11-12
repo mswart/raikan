@@ -545,6 +545,93 @@ mod tests {
         }
     }
 
+    fn table_9355_turn_four(ancillary_blue_rank: u8) -> HyphenatedPlayer {
+        use Suit::*;
+        let mut bot = HyphenatedPlayer::new(false);
+        bot.init(4, 3);
+        // Initial draws in server order. Bot3's own cards remain hidden.
+        for (player, hand) in [
+            [
+                (Blue(), 3),
+                (Blue(), ancillary_blue_rank),
+                (Yellow(), 1),
+                (Red(), 4),
+            ],
+            [(Purple(), 3), (Green(), 4), (Red(), 2), (Blue(), 2)],
+            [(Purple(), 1), (Yellow(), 1), (Green(), 2), (Red(), 4)],
+        ]
+        .iter()
+        .enumerate()
+        {
+            for &(suit, rank) in hand {
+                bot.drawn(player + 1, card(suit, rank));
+            }
+        }
+        for _ in 0..4 {
+            bot.own_drawn();
+        }
+        let mut ones = PositionSet::new(4);
+        ones.add(2);
+        ones.add(3);
+        bot.clued(1, 3, Clue::Rank(1), ones);
+        let mut yellow = PositionSet::new(4);
+        yellow.add(2);
+        bot.clued(2, 0, Clue::Color(Suit::Yellow().clue_color()), yellow);
+        bot.played(3, 3, card(Purple(), 1), true);
+        bot.drawn(3, card(Blue(), 1));
+        bot
+    }
+
+    #[test]
+    fn table_9355_turn_four_only_gives_a_two_or_three_clue() {
+        let mut bot = table_9355_turn_four(2);
+        let status = GameStatus {
+            turn: 3,
+            score: 1,
+            ..status(6)
+        };
+        let action = bot.act(&status);
+        assert!(
+            matches!(action, Move::Clue(_, Clue::Rank(2 | 3))),
+            "bot3 must give a rank 2 or rank 3 clue, got {action:?}"
+        );
+        assert_eq!(
+            action,
+            choose_action_with_pruning(&bot.line(), &status, false, false),
+            "pruning must preserve the corrected decision"
+        );
+        assert!(
+            bot.line()
+                .clue(1, Clue::Color(Suit::Blue().clue_color()))
+                .unwrap()
+                .has_errors(),
+            "blue touches a duplicate of the connecting b2 finesse"
+        );
+        for rank in [2, 3] {
+            assert!(
+                !bot.line().clue(1, Clue::Rank(rank)).unwrap().has_errors(),
+                "rank {rank} must remain a valid finesse clue"
+            );
+        }
+    }
+
+    #[test]
+    fn multi_card_color_finesse_without_a_duplicate_remains_valid() {
+        // Replace the ancillary b2 with b4: blue now gets two useful cards
+        // without duplicating the b2 needed to connect to the focused b3.
+        let bot = table_9355_turn_four(4);
+        let blue = bot
+            .line()
+            .clue(1, Clue::Color(Suit::Blue().clue_color()))
+            .unwrap();
+        let three = bot.line().clue(1, Clue::Rank(3)).unwrap();
+        assert!(!blue.has_errors(), "{blue:?}");
+        assert!(
+            blue > three,
+            "the extra useful touch should retain its value"
+        );
+    }
+
     #[test]
     fn pruning_preserves_every_decision_in_seeded_games() {
         #[derive(Debug)]
