@@ -17,18 +17,28 @@
 use super::stall::{StallKind, StallSeverity};
 use super::{Line, LineScore};
 use crate::{
-    PositionSet, Variant,
+    Variant,
     game::{Card, CardPlayState, Clue, GameStatus, Move},
 };
+use smallvec::SmallVec;
 
 const LOST_POINT_COST: f64 = 25.0;
 const STRIKE_COST: f64 = 50.0;
 const STRIKEOUT_COST: f64 = 1000.0;
 
 pub(super) fn choose_action(line: &Line, status: &GameStatus, debug: bool) -> Move {
-    let mut position = line.clone();
-    position.context.clues = status.clues;
-    let line = &position;
+    choose_action_with_pruning(line, status, debug, true)
+}
+
+fn choose_action_with_pruning(line: &Line, status: &GameStatus, debug: bool, prune: bool) -> Move {
+    let mut position;
+    let line = if line.context.clues == status.clues {
+        line
+    } else {
+        position = line.clone();
+        position.context.clues = status.clues;
+        &position
+    };
     let severity = line.stall_severity(0);
     let baseline = line.score(0);
     let mut normal_clue_available = false;
@@ -36,7 +46,24 @@ pub(super) fn choose_action(line: &Line, status: &GameStatus, debug: bool) -> Mo
     let mut best = None;
     let mut preferred: Option<(Move, Evaluation)> = None;
     for action in candidates(line, status.clues) {
-        let Some(evaluation) = evaluate(line, status, action) else {
+        let stall = match action {
+            Move::Clue(receiver, clue) => line.clue_stall(receiver, clue).filter(|kind| {
+                !(kind.is_general_save() && line.saves_critical_chop(receiver, clue))
+            }),
+            _ => None,
+        };
+        let Some(evaluation) = evaluate_filtered(line, status, action, &baseline, |upper| {
+            debug
+                || !prune
+                || stall.is_some()
+                || best.is_none_or(|(_, value)| upper.utility() as f64 > value)
+                || preferred.as_ref().is_none_or(|(previous, evaluation)| {
+                    !matches!(previous, Move::Play(_)) && *upper > evaluation.priority
+                })
+                || (!normal_clue_available
+                    && *upper > baseline
+                    && upper.no_more_errors_than(&baseline))
+        }) else {
             continue;
         };
         if debug {
@@ -46,10 +73,8 @@ pub(super) fn choose_action(line: &Line, status: &GameStatus, debug: bool) -> Mo
         if best.is_none_or(|(_, previous)| value > previous) {
             best = Some((action, value));
         }
-        if let Move::Clue(receiver, clue) = action {
-            if let Some(kind) = line.clue_stall(receiver, clue)
-                && !(kind.is_general_save() && line.saves_critical_chop(receiver, clue))
-            {
+        if let Move::Clue(receiver, _) = action {
+            if let Some(kind) = stall {
                 if evaluation.urgent == 0.0 && evaluation.priority.no_more_errors_than(&baseline) {
                     let distance = if kind == StallKind::Five {
                         line.five_stall_distance(receiver)
@@ -109,21 +134,20 @@ pub(super) fn choose_action(line: &Line, status: &GameStatus, debug: bool) -> Mo
         if status.clues == 8 {
             Move::Play(0)
         } else {
-            line.clone().discard()
+            line.discard()
         }
     })
 }
 
-fn candidates(line: &Line, clues: u8) -> Vec<Move> {
-    let mut own_view = line.clone();
-    let mut actions = Vec::new();
+fn candidates(line: &Line, clues: u8) -> SmallVec<[Move; 42]> {
+    let mut actions = SmallVec::new();
     // Keep the convention's play order and discard position. Arbitrarily choosing
     // another slot could itself communicate an unsupported convention.
-    if let Some(action) = own_view.play() {
+    if let Some(action) = line.next_play() {
         actions.push(action);
     }
     if clues < 8 {
-        actions.push(own_view.discard());
+        actions.push(line.discard());
     }
     if clues > 0 {
         for player in 1..line.hands.num_players {
@@ -154,25 +178,41 @@ struct Evaluation {
     urgent: f64,
 }
 
+#[cfg(test)]
 fn evaluate(line: &Line, status: &GameStatus, action: Move) -> Option<Evaluation> {
+    evaluate_filtered(line, status, action, &line.score(0), |_| true)
+}
+
+fn evaluate_filtered(
+    line: &Line,
+    status: &GameStatus,
+    action: Move,
+    baseline: &LineScore,
+    accept: impl FnOnce(&LineScore) -> bool,
+) -> Option<Evaluation> {
     match action {
         Move::Clue(receiver, clue) => {
-            let (mut forecast, priority) = Forecast::clue(line, status, receiver, clue)?;
-            let gets_new_card = (0..line.hands.num_players).any(|player| {
-                line.hands.iter_hand(player).any(|(pos, before)| {
-                    let after = forecast.views[0].hands.slot(player, pos);
-                    !before.clued
-                        && before.promised.is_none()
-                        && (after.clued || after.promised.is_some())
-                })
-            });
-            // Minimum clue value: ordinary tempo clues must not replace a
-            // discard. Fixes and stalls have their own reason to spend a clue;
-            // a re-clue that gets a new finesse also meets the principle.
-            if !gets_new_card
-                && line.clue_stall(receiver, clue).is_none()
-                && line.score(0).no_more_errors_than(&priority)
-            {
+            let mut needs_fix = false;
+            let (mut forecast, priority) =
+                Forecast::clue_filtered(line, status, receiver, clue, |after, upper| {
+                    let gets_new_card = (0..line.hands.num_players).any(|player| {
+                        line.hands.iter_hand(player).any(|(pos, before)| {
+                            let after = after.hands.slot(player, pos);
+                            !before.clued
+                                && before.promised.is_none()
+                                && (after.clued || after.promised.is_some())
+                        })
+                    });
+                    // Minimum clue value: ordinary tempo clues must not replace a
+                    // discard. Fixes and stalls have their own reason to spend a clue;
+                    // a re-clue that gets a new finesse also meets the principle.
+                    needs_fix = !gets_new_card && line.clue_stall(receiver, clue).is_none();
+                    if needs_fix && baseline.no_more_errors_than(upper) {
+                        return false;
+                    }
+                    accept(upper)
+                })?;
+            if needs_fix && baseline.no_more_errors_than(&priority) {
                 return None;
             }
             let quality = priority.utility() as f64;
@@ -194,7 +234,7 @@ fn evaluate(line: &Line, status: &GameStatus, action: Move) -> Option<Evaluation
             let mut value = 0.0;
             let mut danger = 0.0;
             let mut urgent = 0.0;
-            let priority = line.score(0);
+            let priority = baseline.clone();
             for (card, weight) in outcomes {
                 let mut forecast = Forecast::own_card(line, status, action, card);
                 let slot = line.hands.slot(0, pos);
@@ -231,7 +271,7 @@ fn evaluate(line: &Line, status: &GameStatus, action: Move) -> Option<Evaluation
     }
 }
 
-fn own_card_outcomes(line: &Line, pos: u8) -> Vec<(Card, u8)> {
+fn own_card_outcomes(line: &Line, pos: u8) -> SmallVec<[(Card, u8); 25]> {
     let slot = line.hands.slot(0, pos);
     let options = |hard: bool| {
         line.card_states
@@ -248,7 +288,7 @@ fn own_card_outcomes(line: &Line, pos: u8) -> Vec<(Card, u8)> {
                     .saturating_sub(state.tracked_count);
                 (possible && remaining > 0).then_some((card, remaining))
             })
-            .collect::<Vec<_>>()
+            .collect::<SmallVec<[(Card, u8); 25]>>()
     };
     let inferred = options(false);
     // Known duplicates can have an empty soft set. Literal clue information
@@ -262,6 +302,10 @@ fn own_card_outcomes(line: &Line, pos: u8) -> Vec<(Card, u8)> {
 
 struct Forecast {
     views: Vec<Line>,
+    // Card-action forecasts often stop at the next seat. Build later views
+    // only if reached, replaying the same public events from this initial view.
+    initial: Option<Line>,
+    actions: SmallVec<[(u8, Move, Card, bool); 5]>,
     clues: u8,
     strikes: u8,
     new_strikes: u8,
@@ -271,12 +315,13 @@ struct Forecast {
 impl Forecast {
     fn from_line(mut line: Line, clues: u8, strikes: u8) -> Self {
         line.context.clues = clues;
-        let mut views = vec![line];
-        for player in 1..views[0].hands.num_players {
-            views.push(views[0].decision_view(player));
-        }
+        let initial = Some(line.clone());
+        let mut views = Vec::with_capacity(line.hands.num_players as usize);
+        views.push(line);
         Self {
             views,
+            initial,
+            actions: SmallVec::new(),
             clues,
             strikes,
             new_strikes: 0,
@@ -284,41 +329,31 @@ impl Forecast {
         }
     }
 
+    #[cfg(test)]
     fn clue(
         before: &Line,
         status: &GameStatus,
         receiver: u8,
         clue: Clue,
     ) -> Option<(Self, LineScore)> {
-        let mut position = before.clone();
-        position.context.clues = status.clues;
-        let before = &position;
-        let mut touched = PositionSet::new(before.hands.hand_sizes[receiver as usize]);
-        for (pos, slot) in before.hands.iter_hand(receiver) {
-            if slot.card.affected(clue) {
-                touched.add(pos);
-            }
-        }
+        Self::clue_filtered(before, status, receiver, clue, |_, _| true)
+    }
+
+    fn clue_filtered(
+        before: &Line,
+        status: &GameStatus,
+        receiver: u8,
+        clue: Clue,
+        accept: impl FnOnce(&Line, &LineScore) -> bool,
+    ) -> Option<(Self, LineScore)> {
         let mut after = before.clone();
         after.context.clues = status.clues;
-        let score = after.clue(receiver as usize, clue)?;
-        let players = before.hands.num_players;
-        let mut views = vec![after];
-        // Interpret from each seat BEFORE the clue. Rotating only the resulting
-        // giver view would incorrectly share the giver's interpretation.
-        for player in 1..players {
-            let mut view = before.receiver_view(player);
-            view.clued(
-                (players - player) as usize,
-                ((players + receiver - player) % players) as usize,
-                clue,
-                touched,
-            );
-            views.push(view);
-        }
+        let (score, views) = after.clue_views(receiver as usize, clue, accept)?;
         Some((
             Self {
                 views,
+                initial: None,
+                actions: SmallVec::new(),
                 clues: status.clues - 1,
                 strikes: status.num_strikes,
                 new_strikes: 0,
@@ -358,7 +393,8 @@ impl Forecast {
     }
 
     fn rollout(&mut self) {
-        for player in 1..self.views.len() {
+        let players = self.views[0].hands.num_players as usize;
+        for player in 1..players {
             if self.strikes >= 3
                 || self.views[0]
                     .card_states
@@ -366,6 +402,22 @@ impl Forecast {
                     .all(|(_, state)| state.play == CardPlayState::Trash())
             {
                 break;
+            }
+            if player == self.views.len() {
+                let mut view = self
+                    .initial
+                    .as_ref()
+                    .expect("lazy card forecast")
+                    .decision_view(player as u8);
+                for &(holder, action, card, successful) in &self.actions {
+                    let relative = (players + holder as usize - player) % players;
+                    match action {
+                        Move::Play(pos) => view.played(relative, pos as usize, card, successful),
+                        Move::Discard(pos) => view.discarded(relative, pos as usize, card),
+                        Move::Clue(..) => unreachable!(),
+                    }
+                }
+                self.views.push(view);
             }
             let action = if let Some(action) = self.views[player].play() {
                 action
@@ -386,10 +438,15 @@ impl Forecast {
             Move::Clue(..) => unreachable!(),
         };
         let card = self.views[0].hands.slot(player, pos).card;
-        let before = self.views[0].clone();
-        let success = before.card_states.play_quantum.contains(&card);
-        let players = self.views.len();
+        let before = self.views[0].card_states.clone();
+        let success = before.play_quantum.contains(&card);
+        let players = self.views[0].hands.num_players as usize;
         for (observer, view) in self.views.iter_mut().enumerate() {
+            // This bounded forecast never revisits a seat. Keep the root and
+            // future decision-makers current; spent seats need no deductions.
+            if observer != 0 && observer <= player as usize {
+                continue;
+            }
             let holder = (players + player as usize - observer) % players;
             match action {
                 Move::Play(_) => view.played(holder, pos as usize, card, success),
@@ -397,7 +454,10 @@ impl Forecast {
                 Move::Clue(..) => unreachable!(),
             }
         }
-        self.lost_points += newly_dead(&before, &self.views[0]);
+        self.lost_points += newly_dead_states(&before, &self.views[0].card_states);
+        if self.initial.is_some() {
+            self.actions.push((player, action, card, success));
+        }
         match action {
             Move::Play(_) if !success => {
                 self.strikes += 1;
@@ -406,6 +466,9 @@ impl Forecast {
             Move::Play(_) if card.rank == 5 => self.clues = (self.clues + 1).min(8),
             Move::Discard(_) => self.clues += 1,
             _ => {}
+        }
+        for view in &mut self.views {
+            view.context.clues = self.clues;
         }
     }
 
@@ -421,12 +484,17 @@ impl Forecast {
 }
 
 fn newly_dead(before: &Line, after: &Line) -> u8 {
+    newly_dead_states(&before.card_states, &after.card_states)
+}
+
+fn newly_dead_states(
+    before: &super::card_states::CardStates,
+    after: &super::card_states::CardStates,
+) -> u8 {
     before
-        .card_states
         .iter()
         .filter(|(card, state)| {
-            state.play != CardPlayState::Dead()
-                && after.card_states[card].play == CardPlayState::Dead()
+            state.play != CardPlayState::Dead() && after[card].play == CardPlayState::Dead()
         })
         .count() as u8
 }
@@ -435,7 +503,7 @@ fn newly_dead(before: &Line, after: &Line) -> u8 {
 mod tests {
     use super::*;
     use crate::{
-        CardQuantum,
+        CardQuantum, PositionSet,
         game::{Game, PlayerStrategy, Suit},
         hyphenated::HyphenatedPlayer,
     };
@@ -452,6 +520,54 @@ mod tests {
             num_strikes: 0,
             clues,
             blind_plays: 0,
+        }
+    }
+
+    #[test]
+    fn pruning_preserves_every_decision_in_seeded_games() {
+        #[derive(Debug)]
+        struct CheckedPlayer(HyphenatedPlayer);
+
+        impl PlayerStrategy for CheckedPlayer {
+            fn init(&mut self, count: u8, own: u8) {
+                self.0.init(count, own);
+            }
+            fn drawn(&mut self, player: usize, card: Card) {
+                self.0.drawn(player, card);
+            }
+            fn own_drawn(&mut self) {
+                self.0.own_drawn();
+            }
+            fn played(&mut self, player: usize, pos: usize, card: Card, successful: bool) {
+                self.0.played(player, pos, card, successful);
+            }
+            fn discarded(&mut self, player: usize, pos: usize, card: Card) {
+                self.0.discarded(player, pos, card);
+            }
+            fn clued(&mut self, who: usize, whom: usize, clue: Clue, touched: PositionSet) {
+                self.0.clued(who, whom, clue, touched);
+            }
+            fn act(&mut self, status: &GameStatus) -> Move {
+                let line = self.0.line();
+                let pruned = choose_action_with_pruning(&line, status, false, true);
+                let exhaustive = choose_action_with_pruning(&line, status, false, false);
+                assert_eq!(pruned, exhaustive, "turn {}", status.turn);
+                pruned
+            }
+        }
+
+        for count in 2..=5 {
+            for seed in 0..3 {
+                let mut bots: Vec<_> = (0..count)
+                    .map(|_| CheckedPlayer(HyphenatedPlayer::new(false)))
+                    .collect();
+                let mut players: Vec<&mut dyn PlayerStrategy> = bots
+                    .iter_mut()
+                    .map(|bot| bot as &mut dyn PlayerStrategy)
+                    .collect();
+                let mut game = Game::new(&mut players, false, seed);
+                game.run(&mut players);
+            }
         }
     }
 
@@ -519,6 +635,32 @@ mod tests {
                 .iter()
                 .all(|view| view.context.clues == played.clues)
         );
+    }
+
+    #[test]
+    fn lazy_forecasts_match_eager_player_views() {
+        for clues in 0..=2 {
+            let mut line = position();
+            know(&mut line, 1, 0, card(Suit::Red(), 1));
+            // A known play followed by an unknown hand exercises both replay
+            // of earlier actions and stopping before unused seats are built.
+            for (identity, _) in own_card_outcomes(&line, 0) {
+                for action in [Move::Play(0), Move::Discard(0)] {
+                    let status = status(clues);
+                    let mut lazy = Forecast::own_card(&line, &status, action, identity);
+                    let mut eager = Forecast::own_card(&line, &status, action, identity);
+                    let initial = eager.initial.take().unwrap();
+                    for player in 1..initial.hands.num_players {
+                        eager.views.push(initial.decision_view(player));
+                    }
+                    lazy.rollout();
+                    eager.rollout();
+                    assert_eq!(lazy.views[0], eager.views[0]);
+                    assert_eq!(lazy.clues, eager.clues);
+                    assert_eq!(lazy.danger(), eager.danger());
+                }
+            }
+        }
     }
 
     #[test]

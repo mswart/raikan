@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Reduce simulation allocations with shared immutable clue history, inline
+  connection chains and scratch buffers, and compact card-possibility bitsets.
+- Reuse clue interpretations, skip provably dominated forecasts, and build
+  later player views only when the search reaches them. Enable release LTO.
+- Add a deterministic simulation benchmark with replay checksums and optional
+  allocation counting, plus comparisons against exhaustive action evaluation.
+
 ### Fixed
+
+- Deal four cards per player in five-player games and replays, matching the
+  game engine's hand layout.
 
 - Complete standard-game level-2 connection handling, including prompt
   confirmation, declined connections, and mixed chains of up to four links.

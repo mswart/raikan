@@ -71,12 +71,14 @@ impl Line {
         if self.context.clues == 0 {
             return Normal;
         }
-        let mut view = if giver == 0 {
-            self.clone()
+        let rotated;
+        let view = if giver == 0 {
+            self
         } else {
-            self.decision_view(giver)
+            rotated = self.decision_view(giver);
+            &rotated
         };
-        if view.play().is_some() {
+        if view.next_play().is_some() {
             return Normal;
         }
         if self.context.clues == 8 && self.context.actions_taken > 0 {
@@ -911,7 +913,7 @@ mod tests {
                 hypotheses: vec![Hypothesis {
                     focus_card: c(Suit::Blue(), 5),
                     tier: Tier::Direct,
-                    steps: vec![
+                    steps: smallvec::smallvec![
                         Step {
                             fallback: None,
                             card: c(Suit::Blue(), 4),

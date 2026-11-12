@@ -21,22 +21,21 @@ impl Variant {
     }
 
     pub fn suit_index(&self, suit: &game::Suit) -> usize {
-        let suits = self.suits();
-        for (index, _suit) in suits.iter().enumerate() {
-            if suits[index] == *suit {
-                return index;
-            }
+        match suit {
+            game::Suit::Red() => 0,
+            game::Suit::Yellow() => 1,
+            game::Suit::Green() => 2,
+            game::Suit::Blue() => 3,
+            game::Suit::Purple() => 4,
         }
-        0
     }
 }
 
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub struct CardQuantum {
     variant: Variant,
-    hard_cards: [u8; 6],
-    soft_size: u8,
-    soft_cards: [u8; 6],
+    hard_cards: u32,
+    soft_cards: u32,
 }
 
 impl std::fmt::Display for CardQuantum {
@@ -44,9 +43,9 @@ impl std::fmt::Display for CardQuantum {
         for (index, suit) in self.variant.suits().iter().enumerate() {
             for (bit, char) in ['1', '2', '3', '4', '5'].iter().enumerate() {
                 std::fmt::Display::fmt(
-                    &if (1 << bit) & self.soft_cards[index] > 0 {
+                    &if (1 << (index * 5 + bit)) & self.soft_cards > 0 {
                         char.to_string().color(suit.color()).bold()
-                    } else if (1 << bit) & self.hard_cards[index] > 0 {
+                    } else if (1 << (index * 5 + bit)) & self.hard_cards > 0 {
                         char.to_string()
                             .color(colored::Color::BrightBlack)
                             .strikethrough()
@@ -65,223 +64,137 @@ impl std::fmt::Display for CardQuantum {
 }
 
 impl CardQuantum {
+    const ALL: u32 = (1 << 25) - 1;
+    const ONES: u32 = 1 | (1 << 5) | (1 << 10) | (1 << 15) | (1 << 20);
+
     pub fn new(variant: Variant) -> Self {
-        let mut hard_cards = [255; 6];
-        let mut soft_cards = [255; 6];
-        for i in 0..variant.len() {
-            hard_cards[i] = 0b11111;
-            soft_cards[i] = 0b11111;
-        }
         Self {
             variant,
-            hard_cards,
-            soft_cards,
-            soft_size: variant.len() as u8 * 5,
+            hard_cards: Self::ALL,
+            soft_cards: Self::ALL,
         }
     }
 
-    /// Unset all possible cards. Use this function if you want to manually
-    /// define the set of possible cards with `.add_card`
+    /// Remove all identities, including literal possibilities.
     pub fn clear(&mut self) {
-        for i in 0..self.variant.len() {
-            self.hard_cards[i] = 0;
-            self.soft_cards[i] = 0;
-        }
-        self.soft_size = 0;
+        self.hard_cards = 0;
+        self.soft_cards = 0;
+    }
+
+    fn limit(&mut self, mask: u32, effect: bool) {
+        let allowed = if effect { mask } else { !mask };
+        self.hard_cards &= allowed;
+        self.soft_cards &= allowed;
     }
 
     pub fn limit_by_suit(&mut self, suit: &game::Suit, effect: bool) {
-        let index = self.variant.suit_index(suit);
-        if effect {
-            self.soft_size = self.soft_cards[index].count_ones() as u8;
-        } else {
-            self.soft_size -= self.soft_cards[index].count_ones() as u8;
-        }
-        for i in 0..self.variant.len() {
-            if (i != index) == effect {
-                self.hard_cards[i] = 0;
-                self.soft_cards[i] = 0;
-            }
-        }
+        self.limit(0b11111 << (self.variant.suit_index(suit) * 5), effect);
     }
 
     pub fn limit_by_rank(&mut self, rank: usize, effect: bool) {
-        let rank_bit = 1 << (rank - 1);
-        let rank_modifier = if effect {
-            self.soft_size = 0;
-            rank_bit
-        } else {
-            !rank_bit
-        };
-        for i in 0..self.variant.len() {
-            self.hard_cards[i] &= rank_modifier;
-            if self.soft_cards[i] & rank_bit > 0 {
-                if effect {
-                    self.soft_size += 1;
-                } else {
-                    self.soft_size -= 1;
-                }
-            }
-            self.soft_cards[i] &= rank_modifier;
-        }
+        self.limit(Self::ONES << (rank - 1), effect);
+    }
+
+    fn bit(&self, card: &game::Card) -> u32 {
+        1 << (self.variant.suit_index(&card.suit) * 5 + card.rank as usize - 1)
     }
 
     pub fn add_card(&mut self, card: &game::Card, soft: bool) {
-        let index = self.variant.suit_index(&card.suit);
-        let rank_bit = 1 << (card.rank - 1);
-        if self.soft_cards[index] & rank_bit == 0 {
-            self.soft_size += 1;
-        }
-        self.soft_cards[index] |= rank_bit;
+        let bit = self.bit(card);
+        self.soft_cards |= bit;
         if !soft {
-            self.hard_cards[index] |= rank_bit;
+            self.hard_cards |= bit;
         }
     }
 
     pub fn remove_card(&mut self, card: &game::Card, soft: bool) {
-        let index = self.variant.suit_index(&card.suit);
-        let rank_bit = 1 << (card.rank - 1);
-        if self.soft_cards[index] & rank_bit > 0 {
-            self.soft_size -= 1;
-        }
-        let rank_mask = !rank_bit;
-        self.soft_cards[index] &= rank_mask;
+        let bit = self.bit(card);
+        self.soft_cards &= !bit;
         if !soft {
-            self.hard_cards[index] &= rank_mask;
+            self.hard_cards &= !bit;
         }
     }
 
     pub fn contains(&self, card: &game::Card) -> bool {
-        let index = self.variant.suit_index(&card.suit);
-        let rank_bit = 1 << (card.rank - 1);
-        self.soft_cards[index] & rank_bit > 0
+        self.soft_cards & self.bit(card) != 0
     }
 
     pub fn contains_hard(&self, card: &game::Card) -> bool {
-        let index = self.variant.suit_index(&card.suit);
-        let rank_bit = 1 << (card.rank - 1);
-        self.hard_cards[index] & rank_bit > 0
+        self.hard_cards & self.bit(card) != 0
     }
 
     pub fn is_rank(&self, rank: u8) -> bool {
-        let bit_test = !(1 << (rank - 1));
-        for suit_index in 0..self.variant.suits().len() {
-            if self.soft_cards[suit_index] & bit_test > 0 {
-                return false;
-            }
-        }
-        true
+        self.soft_cards & !(Self::ONES << (rank - 1)) == 0
     }
 
     pub fn size(&self) -> u8 {
-        self.soft_size
+        self.soft_cards.count_ones() as u8
     }
-
     pub fn hard_size(&self) -> u8 {
-        let mut set = 0;
-        for suit_index in 0..self.variant.suits().len() {
-            set += self.hard_cards[suit_index].count_ones()
-        }
-        set as u8
+        self.hard_cards.count_ones() as u8
     }
-
     pub fn reset_soft(&mut self) {
-        for suit_index in 0..self.variant.suits().len() {
-            self.soft_cards[suit_index] = self.hard_cards[suit_index];
-        }
-        self.update_soft_count();
+        self.soft_cards = self.hard_cards;
     }
-
-    fn update_soft_count(&mut self) {
-        self.soft_size = 0;
-        for suit_index in 0..self.variant.suits().len() {
-            self.soft_size += self.soft_cards[suit_index].count_ones() as u8
-        }
-    }
-
     pub fn soft_clear(&mut self) {
-        for suit_index in 0..self.variant.suits().len() {
-            self.soft_cards[suit_index] = 0;
-        }
-        self.soft_size = 0;
+        self.soft_cards = 0;
+    }
+    pub fn soft_limit(&mut self, other: Self) {
+        self.soft_cards &= other.soft_cards;
     }
 
-    pub fn soft_limit(&mut self, other: Self) {
-        for suit_index in 0..self.variant.suits().len() {
-            self.soft_cards[suit_index] &= other.soft_cards[suit_index];
-        }
-        self.update_soft_count();
+    /// Exclude inferred identities while retaining literal clue evidence.
+    pub(crate) fn soft_exclude(&mut self, other: Self) {
+        self.soft_cards &= !other.soft_cards;
     }
 
     pub fn superset(&self, set: Self) -> bool {
-        for suit_index in 0..self.variant.suits().len() {
-            if !self.soft_cards[suit_index] & set.soft_cards[suit_index] > 0 {
-                return false;
-            }
-        }
-        true
+        set.soft_cards & !self.soft_cards == 0
     }
-
     pub fn interset(&self, set: Self) -> bool {
-        for suit_index in 0..self.variant.suits().len() {
-            if self.soft_cards[suit_index] & set.soft_cards[suit_index] > 0 {
-                return true;
-            }
-        }
-        false
+        self.soft_cards & set.soft_cards != 0
     }
-
     pub fn to_vec(&self) -> Vec<game::Card> {
         self.iter().collect()
     }
-}
 
-impl<'a> CardQuantum {
-    pub fn iter(&'a self) -> CardIterator<'a> {
+    pub fn iter(&self) -> CardIterator<'_> {
         CardIterator {
             variant: &self.variant,
-            cards: &self.soft_cards,
-            current_card: game::Card {
-                suit: self.variant.suits()[0],
-                rank: 0,
-            },
+            cards: self.soft_cards,
         }
     }
 }
 
+#[derive(Clone)]
 pub struct CardIterator<'a> {
     variant: &'a Variant,
-    cards: &'a [u8; 6],
-    current_card: game::Card,
+    cards: u32,
 }
-impl<'a> Iterator for CardIterator<'a> {
+
+impl Iterator for CardIterator<'_> {
     type Item = game::Card;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut current_index = self.variant.suit_index(&self.current_card.suit);
+        if self.cards == 0 {
+            return None;
+        }
+        let index = self.cards.trailing_zeros();
+        self.cards &= self.cards - 1;
+        Some(game::Card {
+            suit: self.variant.suits()[index as usize / 5],
+            rank: (index % 5) as u8 + 1,
+        })
+    }
 
-        let remaining_bits = self.cards[current_index] >> self.current_card.rank;
-        if remaining_bits != 0 {
-            // card in same suit in quantum
-            self.current_card.rank += remaining_bits.trailing_zeros() as u8 + 1;
-            return Some(self.current_card);
-        }
-        let suits = self.variant.suits();
-        // switch to next suits
-        while current_index + 1 < suits.len() {
-            current_index += 1;
-            if self.cards[current_index] == 0 {
-                continue;
-            }
-            self.current_card = game::Card {
-                suit: self.variant.suits()[current_index],
-                rank: self.cards[current_index].trailing_zeros() as u8 + 1,
-            };
-            return Some(self.current_card);
-        }
-        None
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.cards.count_ones() as usize;
+        (len, Some(len))
     }
 }
+
+impl ExactSizeIterator for CardIterator<'_> {}
+impl std::iter::FusedIterator for CardIterator<'_> {}
 
 #[cfg(test)]
 mod tests {
@@ -291,43 +204,25 @@ mod tests {
     fn it_initials_with_everything() {
         let variant = Variant {};
         let c = CardQuantum::new(variant);
-        assert_eq!(c.soft_cards[0], 0b11111);
-        assert_eq!(c.soft_cards[1], 0b11111);
-        assert_eq!(c.soft_cards[2], 0b11111);
-        assert_eq!(c.soft_cards[3], 0b11111);
-        assert_eq!(c.soft_cards[4], 0b11111);
-        assert_eq!(c.hard_cards[0], 0b11111);
-        assert_eq!(c.hard_cards[1], 0b11111);
-        assert_eq!(c.hard_cards[2], 0b11111);
-        assert_eq!(c.hard_cards[3], 0b11111);
-        assert_eq!(c.hard_cards[4], 0b11111);
+        assert_eq!(c.size(), 25);
+        assert_eq!(c.hard_size(), 25);
+        for suit in variant.suits() {
+            for rank in 1..=5 {
+                assert!(c.contains(&game::Card { suit, rank }));
+                assert!(c.contains_hard(&game::Card { suit, rank }));
+            }
+        }
     }
 
     #[test]
     fn it_clears() {
-        let variant = Variant {};
-        let mut c = CardQuantum::new(variant);
-        assert_eq!(c.soft_cards[0], 0b11111);
-        assert_eq!(c.soft_cards[1], 0b11111);
-        assert_eq!(c.soft_cards[2], 0b11111);
-        assert_eq!(c.soft_cards[3], 0b11111);
-        assert_eq!(c.soft_cards[4], 0b11111);
-        assert_eq!(c.hard_cards[0], 0b11111);
-        assert_eq!(c.hard_cards[1], 0b11111);
-        assert_eq!(c.hard_cards[2], 0b11111);
-        assert_eq!(c.hard_cards[3], 0b11111);
-        assert_eq!(c.hard_cards[4], 0b11111);
+        let mut c = CardQuantum::new(Variant {});
         c.clear();
-        assert_eq!(c.soft_cards[0], 0);
-        assert_eq!(c.soft_cards[1], 0);
-        assert_eq!(c.soft_cards[2], 0);
-        assert_eq!(c.soft_cards[3], 0);
-        assert_eq!(c.soft_cards[4], 0);
-        assert_eq!(c.hard_cards[0], 0);
-        assert_eq!(c.hard_cards[1], 0);
-        assert_eq!(c.hard_cards[2], 0);
-        assert_eq!(c.hard_cards[3], 0);
-        assert_eq!(c.hard_cards[4], 0);
+        assert_eq!(c.size(), 0);
+        assert_eq!(c.hard_size(), 0);
+        assert_eq!(c.iter().next(), None);
+        c.reset_soft();
+        assert_eq!(c.size(), 0);
     }
 
     #[test]
@@ -366,5 +261,47 @@ mod tests {
             true,
         );
         assert_eq!(c.size(), 1);
+    }
+
+    #[test]
+    fn literal_clues_survive_soft_exclusion_and_reset() {
+        for suit in (Variant {}).suits() {
+            for rank in 1..=5 {
+                let expected = game::Card { suit, rank };
+                let mut quantum = CardQuantum::new(Variant {});
+                quantum.limit_by_suit(&suit, true);
+                quantum.limit_by_rank(rank as usize, false);
+                assert!(!quantum.contains_hard(&expected));
+                assert_eq!(quantum.size(), 4);
+                let literal = quantum.to_vec();
+                let mut trash = CardQuantum::new(Variant {});
+                trash.limit_by_rank((rank % 5 + 1) as usize, true);
+                quantum.soft_exclude(trash);
+                assert_eq!(quantum.size(), 3);
+                assert_eq!(quantum.hard_size(), 4);
+                quantum.reset_soft();
+                assert_eq!(quantum.to_vec(), literal);
+                quantum.limit_by_rank(rank as usize, true);
+                assert_eq!(quantum.size(), 0);
+                assert_eq!(quantum.hard_size(), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn iteration_preserves_suit_rank_order_and_remaining_length() {
+        let quantum = CardQuantum::new(Variant {});
+        let mut iter = quantum.iter();
+        let mut remaining = 25;
+        for suit in (Variant {}).suits() {
+            for rank in 1..=5 {
+                assert_eq!(iter.len(), remaining);
+                assert_eq!(iter.next(), Some(game::Card { suit, rank }));
+                remaining -= 1;
+            }
+        }
+        assert_eq!(iter.len(), 0);
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next(), None);
     }
 }

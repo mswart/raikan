@@ -21,6 +21,7 @@
 //! self-finesse interpretation (higher tier) becomes active.
 
 use crate::{CardQuantum, game};
+use smallvec::SmallVec;
 
 use super::slot::SlotId;
 
@@ -70,7 +71,7 @@ pub struct Step {
 pub struct Hypothesis {
     pub focus_card: game::Card,
     /// steps in play order; the last step is the focus card
-    pub steps: Vec<Step>,
+    pub steps: SmallVec<[Step; 5]>,
     pub tier: Tier,
 }
 
@@ -114,6 +115,19 @@ pub struct ClueRecord {
     pub hypotheses: Vec<Hypothesis>,
 }
 
+#[derive(Clone, Copy)]
+struct ActiveMeanings {
+    tier: Option<Tier>,
+    direct: bool,
+}
+
+impl ActiveMeanings {
+    fn contains(self, hypothesis: &Hypothesis) -> bool {
+        Some(hypothesis.tier) == self.tier
+            && !(self.direct && hypothesis.pending_steps().any(|s| s.layers > 0))
+    }
+}
+
 impl ClueRecord {
     /// Lowest tier with live hypotheses
     pub fn active_tier(&self) -> Option<Tier> {
@@ -121,13 +135,44 @@ impl ClueRecord {
     }
 
     /// Hypotheses which are currently considered (Occam's razor)
-    pub fn active(&self) -> impl Iterator<Item = &Hypothesis> {
+    pub fn active(&self) -> impl Iterator<Item = &Hypothesis> + Clone {
+        let active = self.active_meanings();
+        self.hypotheses.iter().filter(move |h| active.contains(h))
+    }
+
+    fn active_meanings(&self) -> ActiveMeanings {
         let tier = self.active_tier();
         let direct = self.hypotheses.iter().any(|h| {
             Some(h.tier) == tier && h.expected_now().is_some_and(|s| s.kind == StepKind::Focus)
         });
+        ActiveMeanings { tier, direct }
+    }
+
+    /// Meanings relevant to a holder: observers can condition on the visible
+    /// focus, while its receiver must consider every active identity.
+    pub(super) fn for_player(
+        &self,
+        player: u8,
+        known: Option<game::Card>,
+    ) -> impl Iterator<Item = &Hypothesis> + Clone {
+        let known = known.filter(|_| player != self.receiver);
+        let tier = if let Some(card) = known {
+            self.hypotheses
+                .iter()
+                .filter(|h| h.focus_card == card)
+                .map(|h| h.tier)
+                .min()
+        } else {
+            self.active_tier()
+        };
+        let direct = known.is_none()
+            && self.hypotheses.iter().any(|h| {
+                Some(h.tier) == tier && h.expected_now().is_some_and(|s| s.kind == StepKind::Focus)
+            });
         self.hypotheses.iter().filter(move |h| {
-            Some(h.tier) == tier && !(direct && h.pending_steps().any(|s| s.layers > 0))
+            Some(h.tier) == tier
+                && known.is_none_or(|card| h.focus_card == card)
+                && !(direct && h.pending_steps().any(|s| s.layers > 0))
         })
     }
 
@@ -181,15 +226,15 @@ impl Interpretations {
     }
 
     /// Slots reserved as finesse targets by any pending step, excluding one record
-    fn reserved_finesse_slots(&self, skip_record: usize) -> Vec<SlotId> {
-        let mut reserved = Vec::new();
+    fn reserved_finesse_slots(&self, skip_record: usize) -> SmallVec<[SlotId; 20]> {
+        let mut reserved = SmallVec::new();
         for (index, record) in self.records.iter().enumerate() {
             if index == skip_record {
                 continue;
             }
             for hypothesis in record.hypotheses.iter() {
                 for step in hypothesis.pending_steps() {
-                    if step.kind == StepKind::Finesse {
+                    if step.kind == StepKind::Finesse && !reserved.contains(&step.slot) {
                         reserved.push(step.slot);
                     }
                 }
@@ -223,8 +268,18 @@ impl Interpretations {
             .map(|record| record.turn)
             .min();
         for record_index in 0..self.records.len() {
-            let reserved = self.reserved_finesse_slots(record_index);
+            let needs_reservations = self.records[record_index].hypotheses.iter().any(|h| {
+                h.pending_steps().any(|s| {
+                    s.holder == player && (s.layers > 0 || (s.slot == slot && s.card != card))
+                })
+            });
+            let reserved = if needs_reservations {
+                self.reserved_finesse_slots(record_index)
+            } else {
+                SmallVec::new()
+            };
             let record = &mut self.records[record_index];
+            let active = record.active_meanings();
             let record_turn = record.turn;
             let matches_play = |step: &Step| {
                 (step.slot == slot && step.card == card)
@@ -244,24 +299,20 @@ impl Interpretations {
                                 && matches_play(s)
                         })
                 });
-            let declined: Vec<_> = record
-                .active()
-                .filter(|h| {
-                    successful
-                        && prior_obligation.is_none()
-                        && h.expected_now().is_some_and(|s| {
-                            s.holder == player
-                                && s.layers == 0
-                                && (s.kind == StepKind::Finesse
-                                    || (s.kind == StepKind::Prompt && player != record.receiver))
-                                && s.slot != slot
-                                && !matches_play(s)
-                        })
-                })
-                .cloned()
-                .collect();
+            let receiver = record.receiver;
             record.hypotheses.retain_mut(|hypothesis| {
-                if declined.contains(hypothesis) {
+                let declined = active.contains(hypothesis)
+                    && successful
+                    && prior_obligation.is_none()
+                    && hypothesis.expected_now().is_some_and(|s| {
+                        s.holder == player
+                            && s.layers == 0
+                            && (s.kind == StepKind::Finesse
+                                || (s.kind == StepKind::Prompt && player != receiver))
+                            && s.slot != slot
+                            && !matches_play(s)
+                    });
+                if declined {
                     return false;
                 }
                 if confirmed && !hypothesis.pending_steps().any(&matches_play) {
@@ -311,25 +362,34 @@ impl Interpretations {
     /// discard). Eliminate active meanings whose next connection belongs to
     /// them. Later links and inactive fallback meanings are not obligations.
     pub fn on_non_play(&mut self, player: u8) -> Outcome {
+        self.apply_non_play(player).0
+    }
+
+    pub(super) fn non_play_changed(&mut self, player: u8) -> bool {
+        self.apply_non_play(player).1
+    }
+
+    fn apply_non_play(&mut self, player: u8) -> (Outcome, bool) {
+        let mut changed = false;
         for record in self.records.iter_mut() {
             // An old queued play can wait. A new prompt on another player,
             // like a finesse, must be tried before a self-connection fallback.
-            let rejected: Vec<_> = record
-                .active()
-                .filter(|hypothesis| {
-                    hypothesis.expected_now().is_some_and(|step| {
+            let active = record.active_meanings();
+            let receiver = record.receiver;
+            let previous = record.hypotheses.len();
+            record.hypotheses.retain(|hypothesis| {
+                !(active.contains(hypothesis)
+                    && hypothesis.expected_now().is_some_and(|step| {
                         step.holder == player
                             && (step.kind == StepKind::Finesse
-                                || (step.kind == StepKind::Prompt && player != record.receiver))
-                    })
-                })
-                .cloned()
-                .collect();
-            record
-                .hypotheses
-                .retain(|hypothesis| !rejected.contains(hypothesis));
+                                || (step.kind == StepKind::Prompt && player != receiver))
+                    }))
+            });
+            changed |= previous != record.hypotheses.len();
         }
-        self.prune()
+        let outcome = self.prune();
+        changed |= !outcome.dead.is_empty() || !outcome.completed.is_empty();
+        (outcome, changed)
     }
 
     /// Drop hypotheses for which `consistent` returns false for any pending
@@ -447,7 +507,7 @@ fn retarget_finesses(
     };
     let expected = hypothesis.steps[index].card;
     let prompt = hypothesis.steps[index].kind != StepKind::Finesse;
-    let mut used = reserved.to_vec();
+    let mut used = SmallVec::<[SlotId; 20]>::from_slice(reserved);
     for step in &hypothesis.steps[..index] {
         if !step.done {
             used.push(step.slot);
@@ -536,7 +596,7 @@ mod tests {
             hypotheses: vec![
                 Hypothesis {
                     focus_card: card(R, 2),
-                    steps: vec![
+                    steps: smallvec::smallvec![
                         step(card(R, 1), 1, StepKind::Finesse, 10),
                         step(card(R, 2), 0, StepKind::Focus, 1),
                     ],
@@ -544,7 +604,7 @@ mod tests {
                 },
                 Hypothesis {
                     focus_card: card(R, 2),
-                    steps: vec![
+                    steps: smallvec::smallvec![
                         step(card(R, 1), 0, StepKind::Finesse, 3),
                         step(card(R, 2), 0, StepKind::Focus, 1),
                     ],
@@ -616,7 +676,7 @@ mod tests {
             focus: 20,
             hypotheses: vec![Hypothesis {
                 focus_card: card(R, 2),
-                steps: vec![
+                steps: smallvec::smallvec![
                     step(card(R, 1), 0, StepKind::Finesse, 3),
                     step(card(R, 2), 2, StepKind::Focus, 20),
                 ],
@@ -645,7 +705,7 @@ mod tests {
             focus: 30,
             hypotheses: vec![Hypothesis {
                 focus_card: card(B, 1),
-                steps: vec![
+                steps: smallvec::smallvec![
                     step(card(B, 1), 0, StepKind::Finesse, 6),
                     step(card(B, 1), 1, StepKind::Focus, 30),
                 ],
@@ -659,7 +719,7 @@ mod tests {
             focus: 20,
             hypotheses: vec![Hypothesis {
                 focus_card: card(R, 3),
-                steps: vec![
+                steps: smallvec::smallvec![
                     step(card(R, 1), 0, StepKind::Finesse, 3),
                     step(card(R, 2), 0, StepKind::Finesse, 4),
                     step(card(R, 3), 2, StepKind::Focus, 20),
@@ -718,7 +778,7 @@ mod tests {
         let mut record = finesse_record();
         record.hypotheses.push(Hypothesis {
             focus_card: card(B, 1),
-            steps: vec![step(card(B, 1), 0, StepKind::Focus, 1)],
+            steps: smallvec::smallvec![step(card(B, 1), 0, StepKind::Focus, 1)],
             tier: Tier::Direct,
         });
         i.add(record);

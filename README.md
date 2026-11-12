@@ -187,6 +187,37 @@ for deeper expectimax or robust minimax. Such an extension would need joint hand
 beliefs, draw outcomes, and the final-turn counter. Teammates remain cooperative;
 minimization would apply to uncertain outcomes, not opposing players.
 
+## Performance and benchmarking
+
+Run simulations with an optimized build:
+
+```sh
+cargo build --release
+time target/release/raikan stats > /tmp/raikan-stats.list
+```
+
+The default runs 100,000 seeded games using the available CPU threads. Redirect
+the per-game output when timing it so terminal rendering does not dominate.
+Release builds use thin LTO and a single code generation unit.
+
+A deterministic single-thread benchmark supports smaller comparisons:
+
+```sh
+cargo bench --bench simulation -- 100 4
+cargo bench --bench simulation -- 100 4 --allocations
+```
+
+The arguments are game count and player count. The replay checksum covers every
+move, so equal checksums verify that an optimization preserved the sampled games.
+Allocation counts include reallocations; requested bytes are cumulative, not
+peak memory. Use the run without allocation counting for timing.
+
+Search shares immutable clue-history snapshots, keeps short connection chains
+and scratch buffers inline, and represents card possibilities as bitsets.
+Candidate clues reuse interpreted player views. An optimistic score bound skips
+full safety checks and forecasts only when the clue cannot affect action
+selection, stall precedence, or minimum clue value.
+
 ## Use as library
 
 Raikan (as a library) offers a few different functions:

@@ -749,6 +749,7 @@ dependencies = [
  "serde_json",
  "slog",
  "slog-term",
+ "smallvec",
  "tungstenite",
 ]
 
