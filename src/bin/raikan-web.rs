@@ -212,14 +212,37 @@ struct TableListMessage {
     tables: Vec<TableState>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum ChatAuthor {
+    User {
+        username: String,
+    },
+    /// The Discord server, whose messages the lobby mirrors.
+    Discord,
+    Server,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum ChatKind {
+    /// A message to everyone in the lobby or at the table.
+    Public { author: ChatAuthor },
+    /// A message to one user.
+    Private {
+        author: ChatAuthor,
+        recipient: String,
+    },
+    /// Server-provided table settings; the bot ignores the payload.
+    Suggestion,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ChatMessage {
     text: String,
-    source: String,
-    username: Option<String>,
     table_id: Option<usize>,
-    recipient: Option<String>,
+    kind: ChatKind,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -242,7 +265,7 @@ struct ViewMode {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct GameOptions {
-    variant_name: String,
+    variant_id: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -262,8 +285,15 @@ struct GameActionMessage {
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum ClueMessage {
-    Color { value: u8 },
-    Rank { value: u8 },
+    // The server uses variant-specific fields; accept `value` in older histories.
+    Color {
+        #[serde(alias = "value")]
+        color: u8,
+    },
+    Rank {
+        #[serde(alias = "value")]
+        rank: u8,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
@@ -549,68 +579,74 @@ impl HanabClient {
 
     fn on_chat(&mut self, json: &str) -> Result<(), serde_json::Error> {
         let chat: ChatMessage = serde_json::from_str(json)?;
-        if chat.source != "user" {
-            return Ok(());
-        }
-        if chat.recipient.as_deref() == Some(self.username.as_str()) {
-            if let "/join" = chat.text.as_str() {
-                if let Some((_user, user)) = self.user_states.iter().find(|(_user_id, user)| {
-                    Some(user.username.as_str()) == chat.username.as_deref()
-                }) {
-                    println!("Join request by {}", user.username);
-                    match user.activity {
-                        UserActivity::Pregame { table_id } => {
-                            self.table_id = table_id;
-                            let table_ref = TableJoinMessage {
-                                table_id,
-                                password: "secret".to_string(),
-                            };
-                            self.send("tableJoin", &serde_json::to_string(&table_ref)?);
-                        }
-                        UserActivity::Playing { table_id }
-                            if self
-                                .table_states
-                                .get(&table_id)
-                                .is_some_and(|table| table.has_active_player(&self.username)) =>
-                        {
-                            self.table_id = table_id;
-                            self.send(
-                                "tableReattend",
-                                &serde_json::to_string(&TableIdMessage { table_id })?,
-                            );
-                        }
-                        UserActivity::Playing { table_id }
-                        | UserActivity::Spectating { table_id }
-                        | UserActivity::SharedReplay { table_id } => {
-                            self.table_id = table_id;
-                            let table_ref = SpectateMessage {
-                                table_id,
-                                shadowing_player_index: None,
-                            };
-                            self.send("tableSpectate", &serde_json::to_string(&table_ref)?);
-                        }
-                        UserActivity::Lobby | UserActivity::Replay => {}
-                    }
+        match chat.kind {
+            ChatKind::Private {
+                author: ChatAuthor::User { username },
+                recipient,
+            } if recipient == self.username => {
+                if chat.text != "/join" {
+                    eprintln!("Unknown message content {}", chat.text);
+                    return Ok(());
                 }
-            } else {
-                eprintln!("Unknown message content {}", chat.text);
-            }
-        } else if chat.table_id == Some(self.table_id) {
-            if let "dump" = chat.text.as_str() {
-                if let Some(game) = &mut self.game {
-                    if let Some(segment) = self.replay_segment {
-                        game.reset();
-                        for action in self.game_actions.iter() {
-                            game.process_action(action);
-                            if game.status.turn >= segment {
-                                break;
-                            }
-                        }
-                        println!("player: {:?}", game.player);
-                        println!("line: {:?}", game.player.line());
+
+                let Some(user) = self
+                    .user_states
+                    .values()
+                    .find(|user| user.username == username)
+                else {
+                    return Ok(());
+                };
+                println!("Join request by {}", user.username);
+                match user.activity {
+                    UserActivity::Pregame { table_id } => {
+                        self.table_id = table_id;
+                        let table_ref = TableJoinMessage {
+                            table_id,
+                            password: "secret".to_string(),
+                        };
+                        self.send("tableJoin", &serde_json::to_string(&table_ref)?);
                     }
+                    UserActivity::Playing { table_id }
+                        if self
+                            .table_states
+                            .get(&table_id)
+                            .is_some_and(|table| table.has_active_player(&self.username)) =>
+                    {
+                        self.table_id = table_id;
+                        self.send(
+                            "tableReattend",
+                            &serde_json::to_string(&TableIdMessage { table_id })?,
+                        );
+                    }
+                    UserActivity::Playing { table_id }
+                    | UserActivity::Spectating { table_id }
+                    | UserActivity::SharedReplay { table_id } => {
+                        self.table_id = table_id;
+                        let table_ref = SpectateMessage {
+                            table_id,
+                            shadowing_player_index: None,
+                        };
+                        self.send("tableSpectate", &serde_json::to_string(&table_ref)?);
+                    }
+                    UserActivity::Lobby | UserActivity::Replay => {}
                 }
             }
+            ChatKind::Public {
+                author: ChatAuthor::User { .. },
+            } if chat.table_id == Some(self.table_id) && chat.text == "dump" => {
+                if let (Some(game), Some(segment)) = (&mut self.game, self.replay_segment) {
+                    game.reset();
+                    for action in &self.game_actions {
+                        game.process_action(action);
+                        if game.status.turn >= segment {
+                            break;
+                        }
+                    }
+                    println!("player: {:?}", game.player);
+                    println!("line: {:?}", game.player.line());
+                }
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -645,9 +681,9 @@ impl HanabClient {
         let table_id = TableIdMessage {
             table_id: init.table_id as usize,
         };
-        if init.options.variant_name != "No Variant" {
+        if init.options.variant_id != 0 {
             self.game = None;
-            eprintln!("Unsupported game variant: {}", init.options.variant_name);
+            eprintln!("Unsupported game variant: {}", init.options.variant_id);
             return Ok(());
         }
         self.game = Some(HanabGame::from_message(&init));
@@ -674,9 +710,9 @@ impl HanabClient {
             let table_id = TableIdMessage {
                 table_id: state.table_id as usize,
             };
-            // The server marks us connected and sends live events only after
-            // this acknowledgement, which must precede our opening move.
-            self.send("loaded", &serde_json::to_string(&table_id)?);
+            // gameLoaded marks us connected and enables live events; it must
+            // precede our opening move. The old "loaded" command is rejected.
+            self.send("gameLoaded", &serde_json::to_string(&table_id)?);
             self.act()?;
         } else {
             eprintln!("Received game state before game initialization");
@@ -832,14 +868,14 @@ impl HanabGame {
                 target: (self.own_player + player) % self.player_names.len() as u8,
                 clue: match clue {
                     game::Clue::Color(color) => ClueMessage::Color {
-                        value: self
+                        color: self
                             .variant
                             .suits()
                             .iter()
                             .position(|&s| s == color.suit())
                             .unwrap() as u8,
                     },
-                    game::Clue::Rank(value) => ClueMessage::Rank { value },
+                    game::Clue::Rank(rank) => ClueMessage::Rank { rank },
                 },
             },
         };
@@ -985,9 +1021,9 @@ impl HanabGame {
                     }
                 }
                 let clue = match clue_message {
-                    ClueMessage::Rank { value } => game::Clue::Rank(*value),
-                    ClueMessage::Color { value } => {
-                        game::Clue::Color(self.variant.suits()[*value as usize].clue_color())
+                    ClueMessage::Rank { rank } => game::Clue::Rank(*rank),
+                    ClueMessage::Color { color } => {
+                        game::Clue::Color(self.variant.suits()[*color as usize].clue_color())
                     }
                 };
                 self.status.clues = self.status.clues.saturating_sub(1);
@@ -1222,7 +1258,7 @@ mod protocol_tests {
     fn init(mode: Value) -> InitMessage {
         serde_json::from_value(json!({
             "tableId":42, "playerNames":["test bot","Alice"],
-            "mode":mode, "options":{"variantName":"No Variant"},
+            "mode":mode, "options":{"variantId":0},
             "hasCustomSeed":false, "startedAt":1234, "characters":[], "pauseQueued":false
         }))
         .unwrap()
@@ -1267,13 +1303,13 @@ mod protocol_tests {
                 "tableList",
                 json!({"tables":[{"tableId":42,"joined":false,
                 "phase":"sharedReplay","playerNames":["Alice","Bob"],
-                "settings":{"name":"Test table","options":{"variantName":"No Variant"}},
+                "settings":{"name":"Test table","options":{"variantId":0}},
                 "progress":50,"numPlayers":2}]}),
             ),
             ("lobbyStatus", json!({"type":"loading"})),
             (
                 "chat",
-                json!({"text":"Welcome!","source":"server","sentAt":1234}),
+                json!({"text":"Welcome!","kind":{"type":"public","author":{"type":"server"}},"sentAt":1234}),
             ),
             ("lobbyStatus", json!({"type":"ready","totalGames":42})),
             (
@@ -1305,13 +1341,13 @@ mod protocol_tests {
         bot.process_message("user", r#"{"userId":7,"username":"Alice","activity":{"type":"pregame","tableId":42},"inactive":false}"#).unwrap();
         bot.process_message(
             "chat",
-            r#"{"text":"/join","source":"server","username":"Alice","recipient":"test bot"}"#,
+            r#"{"text":"/join","kind":{"type":"private","author":{"type":"server"},"recipient":"test bot"}}"#,
         )
         .unwrap();
         assert_eq!(bot.table_id, 0);
         bot.process_message(
             "chat",
-            r#"{"text":"/join","source":"user","username":"Alice","recipient":"test bot"}"#,
+            r#"{"text":"/join","kind":{"type":"private","author":{"type":"user","username":"Alice"},"recipient":"test bot"}}"#,
         )
         .unwrap();
         assert_eq!(
@@ -1322,13 +1358,99 @@ mod protocol_tests {
             .unwrap();
         assert_eq!(bot.table_id, 42);
 
-        bot.process_message("user", r#"{"userId":7,"username":"Alice","activity":{"type":"spectating","tableId":43},"inactive":false}"#).unwrap();
+        for activity in ["playing", "spectating", "sharedReplay"] {
+            bot.process_message("user", &json!({
+                "userId":7,"username":"Alice","activity":{"type":activity,"tableId":43},"inactive":false
+            }).to_string()).unwrap();
+            bot.process_message(
+                "chat",
+                r#"{"text":"/join","kind":{"type":"private","author":{"type":"user","username":"Alice"},"recipient":"test bot"}}"#,
+            )
+            .unwrap();
+            assert_eq!(receive(&mut server, "tableSpectate"), json!({"tableId":43}));
+            assert_eq!(bot.table_id, 43);
+        }
+
+        bot.process_message("user", r#"{"userId":7,"username":"Alice","activity":{"type":"playing","tableId":44},"inactive":false}"#).unwrap();
         bot.process_message(
-            "chat",
-            r#"{"text":"/join","source":"user","username":"Alice","recipient":"test bot"}"#,
+            "table",
+            r#"{"tableId":44,"phase":"playing","playerNames":["Alice","test bot"]}"#,
         )
         .unwrap();
-        assert_eq!(receive(&mut server, "tableSpectate"), json!({"tableId":43}));
+        bot.process_message(
+            "chat",
+            r#"{"text":"/join","kind":{"type":"private","author":{"type":"user","username":"Alice"},"recipient":"test bot"}}"#,
+        )
+        .unwrap();
+        assert_eq!(receive(&mut server, "tableReattend"), json!({"tableId":44}));
+        assert_eq!(bot.table_id, 44);
+        assert_no_message(&mut server);
+    }
+
+    #[test]
+    fn chat_ignores_join_requests_without_a_known_user_addressing_the_bot() {
+        let (mut bot, mut server) = connection();
+        bot.process_message("user", r#"{"userId":7,"username":"Alice","activity":{"type":"pregame","tableId":42},"inactive":false}"#).unwrap();
+        for kind in [
+            json!({"type":"private","author":{"type":"user","username":"Alice"},"recipient":"Bob"}),
+            json!({"type":"private","author":{"type":"user","username":"Unknown"},"recipient":"test bot"}),
+            json!({"type":"private","author":{"type":"server"},"recipient":"test bot"}),
+            json!({"type":"private","author":{"type":"discord","username":"Alice"},"recipient":"test bot"}),
+            json!({"type":"public","author":{"type":"user","username":"Alice"}}),
+            json!({"type":"public","author":{"type":"discord"}}),
+            json!({"type":"suggestion","recipient":"test bot","settings":{"name":"Suggested table","options":{"variantId":0}}}),
+        ] {
+            bot.process_message("chat", &json!({"text":"/join","kind":kind}).to_string())
+                .unwrap();
+            assert_eq!(bot.table_id, 0);
+            assert_no_message(&mut server);
+        }
+    }
+
+    #[test]
+    fn public_dump_replays_only_user_messages_at_the_current_table() {
+        let (mut bot, mut server) = connection();
+        bot.table_id = 42;
+        bot.game = Some(dealt_game());
+        bot.game.as_mut().unwrap().status.turn = 9;
+        bot.game_actions = initial_events()
+            .into_iter()
+            .map(|event| serde_json::from_value(event).unwrap())
+            .collect();
+        for turn in 1..=2 {
+            bot.game_actions.push(GameAction::Turn {
+                turn,
+                current_player_index: Some(1),
+            });
+        }
+        bot.replay_segment = Some(1);
+
+        for (table_id, author) in [
+            (None, json!({"type":"user","username":"Alice"})),
+            (Some(43), json!({"type":"user","username":"Alice"})),
+            (Some(42), json!({"type":"server"})),
+            (Some(42), json!({"type":"discord","username":"Alice"})),
+        ] {
+            bot.process_message(
+                "chat",
+                &json!({
+                    "text":"dump","tableId":table_id,"kind":{"type":"public","author":author}
+                })
+                .to_string(),
+            )
+            .unwrap();
+            assert_eq!(bot.game.as_ref().unwrap().status.turn, 9);
+        }
+
+        bot.process_message(
+            "chat",
+            r#"{"text":"dump","tableId":42,"kind":{"type":"public","author":{"type":"user","username":"Alice"}}}"#,
+        )
+        .unwrap();
+        let game = bot.game.as_ref().unwrap();
+        assert_eq!(game.status.turn, 1);
+        assert!(game.hands.iter().all(|hand| hand.len() == 5));
+        assert_no_message(&mut server);
     }
 
     #[test]
@@ -1409,7 +1531,7 @@ mod protocol_tests {
             include_str!("../../tests/fixtures/hanabi-live-game-state.json"),
         )
         .unwrap();
-        assert_eq!(receive(&mut server, "loaded"), json!({"tableId":9282}));
+        assert_eq!(receive(&mut server, "gameLoaded"), json!({"tableId":9282}));
         let action = receive(&mut server, "playerAction");
         assert_eq!(action["tableId"], 9282);
         assert_eq!(action["action"]["type"], "clue");
@@ -1433,6 +1555,71 @@ mod protocol_tests {
     }
 
     #[test]
+    fn reported_four_player_state_acknowledges_loading_and_waits_for_own_turn() {
+        let (mut bot, mut server) = connection();
+        bot.process_message(
+            "gameInit",
+            &json!({
+                "tableId":9355,"playerNames":["Alice","test bot","Bob","Carol"],
+                "mode":{"type":"playing","ourPlayerIndex":1},"options":{"variantId":0}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            receive(&mut server, "gameStateLoad"),
+            json!({"tableId":9355})
+        );
+        bot.process_message(
+            "gameState",
+            &json!({"tableId":9355,"events":[
+                {"type":"draw","playerIndex":0,"order":0,"identity":{"suitIndex":3,"rank":3}},
+                {"type":"draw","playerIndex":0,"order":1,"identity":{"suitIndex":3,"rank":2}},
+                {"type":"draw","playerIndex":0,"order":2,"identity":{"suitIndex":1,"rank":1}},
+                {"type":"draw","playerIndex":0,"order":3,"identity":{"suitIndex":0,"rank":4}},
+                {"type":"draw","playerIndex":1,"order":4},
+                {"type":"draw","playerIndex":1,"order":5},
+                {"type":"draw","playerIndex":1,"order":6},
+                {"type":"draw","playerIndex":1,"order":7},
+                {"type":"draw","playerIndex":2,"order":8,"identity":{"suitIndex":4,"rank":1}},
+                {"type":"draw","playerIndex":2,"order":9,"identity":{"suitIndex":1,"rank":1}},
+                {"type":"draw","playerIndex":2,"order":10,"identity":{"suitIndex":2,"rank":2}},
+                {"type":"draw","playerIndex":2,"order":11,"identity":{"suitIndex":0,"rank":4}},
+                {"type":"draw","playerIndex":3,"order":12,"identity":{"suitIndex":4,"rank":3}},
+                {"type":"draw","playerIndex":3,"order":13,"identity":{"suitIndex":1,"rank":2}},
+                {"type":"draw","playerIndex":3,"order":14,"identity":{"suitIndex":4,"rank":5}},
+                {"type":"draw","playerIndex":3,"order":15,"identity":{"suitIndex":3,"rank":3}}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(receive(&mut server, "gameLoaded"), json!({"tableId":9355}));
+        let game = bot.game.as_ref().unwrap();
+        assert_eq!(game.current_player_index, Some(0));
+        assert!(game.hands.iter().all(|hand| hand.len() == 4));
+        assert_eq!(bot.game_actions.len(), 16);
+        assert_no_message(&mut server);
+
+        // Once the opening player clues, the next live turn lets the bot act.
+        bot.process_message(
+            "gameEvent",
+            r#"{"tableId":9355,"event":{"type":"clue","playerIndex":0,"receiverIndex":2,"orders":[8,9],"clue":{"type":"rank","rank":1}}}"#,
+        )
+        .unwrap();
+        assert_no_message(&mut server);
+        bot.process_message(
+            "gameEvent",
+            r#"{"tableId":9355,"event":{"type":"turn","turn":1,"currentPlayerIndex":1}}"#,
+        )
+        .unwrap();
+        let action: ActionMessage =
+            serde_json::from_value(receive(&mut server, "playerAction")).unwrap();
+        assert_eq!(action.table_id, 9355);
+        bot.act().unwrap();
+        assert_no_message(&mut server);
+    }
+
+    #[test]
     fn current_game_state_loads_observers_without_sending_moves() {
         for mode in [
             json!({"type":"spectating"}),
@@ -1447,7 +1634,7 @@ mod protocol_tests {
             bot.process_message("gameState", &json!({
                 "tableId":42,"events":initial_events(),"notes":[],"connected":[false,false],"spectators":[]
             }).to_string()).unwrap();
-            assert_eq!(receive(&mut server, "loaded"), json!({"tableId":42}));
+            assert_eq!(receive(&mut server, "gameLoaded"), json!({"tableId":42}));
             assert_eq!(bot.game_actions.len(), 10);
             assert_no_message(&mut server);
         }
@@ -1541,7 +1728,7 @@ mod protocol_tests {
             )
             .unwrap();
             // Readiness precedes the move, and only the opening player acts.
-            assert_eq!(receive(&mut server, "loaded"), json!({"tableId":42}));
+            assert_eq!(receive(&mut server, "gameLoaded"), json!({"tableId":42}));
             if own_player == 0 {
                 let action = receive(&mut server, "playerAction");
                 assert_eq!(action["tableId"], 42);
@@ -1581,7 +1768,7 @@ mod protocol_tests {
         // A repeated snapshot replaces, rather than duplicates, the state.
         for _ in 0..2 {
             bot.process_message("gameState", &history).unwrap();
-            assert_eq!(receive(&mut server, "loaded"), json!({"tableId":42}));
+            assert_eq!(receive(&mut server, "gameLoaded"), json!({"tableId":42}));
             assert_eq!(bot.game_actions.len(), 11);
             assert_eq!(bot.game.as_ref().unwrap().hands[0].len(), 5);
             assert_no_message(&mut server);
@@ -1626,11 +1813,11 @@ mod protocol_tests {
             (game::Move::Discard(4), json!({"type":"discard","order":0})),
             (
                 game::Move::Clue(1, game::Clue::Rank(1)),
-                json!({"type":"clue","receiverIndex":1,"clue":{"type":"rank","value":1}}),
+                json!({"type":"clue","receiverIndex":1,"clue":{"type":"rank","rank":1}}),
             ),
             (
                 game::Move::Clue(1, game::Clue::Color(game::Suit::Green().clue_color())),
-                json!({"type":"clue","receiverIndex":1,"clue":{"type":"color","value":2}}),
+                json!({"type":"clue","receiverIndex":1,"clue":{"type":"color","color":2}}),
             ),
         ] {
             assert_eq!(
@@ -1657,7 +1844,7 @@ mod protocol_tests {
         // The reported reconnect payload, with only the table ID normalized.
         let history = include_str!("../../tests/fixtures/hanabi-live-reconnect.json");
         bot.process_message("gameState", history).unwrap();
-        assert_eq!(receive(&mut server, "loaded"), json!({"tableId":42}));
+        assert_eq!(receive(&mut server, "gameLoaded"), json!({"tableId":42}));
         let action: ActionMessage =
             serde_json::from_value(receive(&mut server, "playerAction")).unwrap();
         assert!(
@@ -1687,11 +1874,67 @@ mod protocol_tests {
     }
 
     #[test]
+    fn current_and_legacy_clues_load_from_history_and_live_events() {
+        for legacy in [false, true] {
+            let (mut bot, mut server) = connection();
+            bot.process_message(
+                "gameInit",
+                &serde_json::to_string(&init(json!({"type":"playing","ourPlayerIndex":0})))
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(receive(&mut server, "gameStateLoad"), json!({"tableId":42}));
+
+            let rank_field = if legacy { "value" } else { "rank" };
+            let color_field = if legacy { "value" } else { "color" };
+            let rank_clue = json!({"type":"clue","playerIndex":0,"receiverIndex":1,
+                "orders":[5],"clue":{"type":"rank",rank_field:1}});
+            let color_clue = json!({"type":"clue","playerIndex":0,"receiverIndex":1,
+                "orders":[5,6,7,8,9],"clue":{"type":"color",color_field:0}});
+            let mut events = initial_events();
+            events.push(rank_clue.clone());
+            events.push(color_clue.clone());
+            events.push(json!({"type":"turn","turn":3,"currentPlayerIndex":1}));
+            bot.process_message(
+                "gameState",
+                &json!({"tableId":42,"events":events}).to_string(),
+            )
+            .unwrap();
+            assert_eq!(receive(&mut server, "gameLoaded"), json!({"tableId":42}));
+            assert_eq!(bot.game.as_ref().unwrap().status.clues, 6);
+
+            for event in [rank_clue, color_clue] {
+                bot.process_message(
+                    "gameEvent",
+                    &json!({"tableId":42,"event":event}).to_string(),
+                )
+                .unwrap();
+            }
+            assert_eq!(bot.game.as_ref().unwrap().status.clues, 4);
+            // Both formats produce the current wire format when serialized.
+            for (history_index, live_index, clue) in [
+                (10, 13, json!({"type":"rank","rank":1})),
+                (11, 14, json!({"type":"color","color":0})),
+            ] {
+                for index in [history_index, live_index] {
+                    assert_eq!(
+                        serde_json::to_value(&bot.game_actions[index]).unwrap()["clue"],
+                        clue
+                    );
+                }
+            }
+            assert_no_message(&mut server);
+        }
+    }
+
+    #[test]
     fn current_and_legacy_events_update_the_same_game_state() {
-        for (receiver_field, failed_event) in [("receiverIndex", "misplay"), ("target", "discard")]
-        {
+        for (receiver_field, failed_event, rank_field) in [
+            ("receiverIndex", "misplay", "rank"),
+            ("target", "discard", "value"),
+        ] {
             let mut game = dealt_game();
-            let clue = json!({"type":"clue","playerIndex":0,receiver_field:1,"orders":[5],"clue":{"type":"rank","value":1}});
+            let clue = json!({"type":"clue","playerIndex":0,receiver_field:1,"orders":[5],"clue":{"type":"rank",rank_field:1}});
             game_event(&mut game, clue);
             game_event(
                 &mut game,
