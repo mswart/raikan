@@ -776,32 +776,39 @@ fn dont_reclue_uselessly() {
 }
 
 #[test]
-#[ignore = "level 3: fix clues revealing a different inferred identity"]
 fn fix_clue_revealing_real_identity() {
-    // shared replay 37630
-    let mut line = replay_game(
-        11,
-        "415qiwbhdnvrygexohsdxwpfmsfnbuurkpfajquicmgctaklvapkl",
-        "05ibafbiDcbavcbrpc7dDdatocbbbeauvcodbgbkbn6dbhiba00dbwpbubbca3bxbpDdb1bziabs6db66cbv6ca9bm6cb51dbE6cb80dicb4vaoauaaIuabBb2bCbyblibbJ6cqc",
-        "0",
-    ).line;
-    assert_eq!(line.hands.slot(3, 2).quantum.size(), 1);
+    // The old replay's 2-save no longer implies b2 under the level-1 rules.
+    // Give an off-chop 2 play clue instead: only blue 2 can play, but the
+    // receiver actually holds yellow 2. A color fix must replace that inference.
+    let mut replay = replay_from_deck("r3 r4 g3 b1  p3 p4 g4 y4  p3 g3 y3 y2  b3 b4 g4 y4");
+    replay.play(0, None);
+    replay.clue(2, game::Clue::Rank(2));
+    let receiver = replay.lines[2].hands.slot(0, 0);
     assert_eq!(
-        line.hands
-            .slot(3, 2)
-            .quantum
-            .iter()
-            .next()
-            .expect("size is 1"),
-        game::Card {
+        receiver.quantum.to_vec(),
+        vec![game::Card {
             rank: 2,
             suit: game::Suit::Blue()
-        }
+        }]
     );
-    line.clue(3, game::Clue::Color(game::ClueColor::Yellow()));
-    println!("=> {:?}", line);
-    assert_eq!(line.hands.slot(3, 2).quantum.size(), 1);
-    assert!(line.hands.slot(3, 2).fixed);
+    // Donald corrects Cathy, without relying on the giver's knowledge of her card.
+    let mut touched = PositionSet::new(4);
+    touched.add(0);
+    touched.add(1);
+    let line = &mut replay.lines[2];
+    line.clued(1, 0, game::Clue::Color(game::ClueColor::Yellow()), touched);
+    let slot = line.hands.slot(0, 0);
+    assert!(slot.fixed);
+    assert_eq!(
+        slot.quantum.to_vec(),
+        vec![game::Card {
+            rank: 2,
+            suit: game::Suit::Yellow()
+        }]
+    );
+    assert!(!slot.play && slot.delayed == 0);
+    assert!(!line.hands.slot(0, 1).play);
+    assert!(line.interpretations.records.is_empty());
 }
 
 #[test]
@@ -2131,20 +2138,15 @@ fn move_promised_card_to_next_clued_card() {
         "05pcDaak1a6bahaj1b7c7daqucbc0aaibmauucavboab6dbtapvbbrvdawbdaguab2a5afoda71dbe0aa4a8b3aswc",
         "0",
     );
-    let slot = replay.slot_perspectives(2, 2)[2];
-    assert_eq!(
-        slot.quantum.iter().collect::<Vec<game::Card>>(),
-        vec![game::Card {
-            rank: 1,
-            suit: game::Suit::Green(),
-        }],
-        "Player 2 missed that the finess promised g1 somewhere"
-    );
-    assert_eq!(
-        slot.promised,
-        Some(4),
-        "Player 2 missed that they must continue to search for g1"
-    );
+    // Level 3 starts with the oldest 1. The green connection remains possible
+    // alongside the blue interpretation; the clue must not move a younger 1
+    // ahead of the established play order.
+    let slot = replay.slot_perspectives(2, 3)[2];
+    assert!(slot.quantum.contains(&game::Card {
+        rank: 1,
+        suit: game::Suit::Green()
+    }));
+    assert_eq!(replay.lines[2].clone().play(), Some(game::Move::Play(3)));
 
     // play r1 thinking it is g1:
     let replay = replay_game(
@@ -2154,12 +2156,11 @@ fn move_promised_card_to_next_clued_card() {
         "0",
     );
     let slot = replay.slot_perspectives(2, 3)[2];
-    assert_eq!(
-        slot.quantum.iter().collect::<Vec<game::Card>>(),
-        vec![game::Card {
+    assert!(
+        slot.quantum.contains(&game::Card {
             rank: 1,
             suit: game::Suit::Green(),
-        }],
+        }),
         "Player 2 missed that the finess promised g1 somewhere"
     );
     assert_eq!(

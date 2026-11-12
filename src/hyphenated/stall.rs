@@ -120,6 +120,9 @@ impl Line {
         clue: Clue,
         touched: PositionSet,
     ) -> Option<StallKind> {
+        if self.fix_kind(receiver, clue, touched).is_some() {
+            return None;
+        }
         let severity = self.stall_severity(giver);
         if severity == StallSeverity::Normal || touched.is_empty() {
             return None;

@@ -4,6 +4,7 @@ use crate::{
     card_quantum::{CardQuantum, Variant},
 };
 
+use super::basic_strategy::{Fix, SarcasticTransfer};
 use super::card_states::CardStates;
 use super::interpretation::{
     ClueRecord, HandEntry, Hypothesis, Interpretations, Step, StepKind, Tier,
@@ -118,6 +119,7 @@ pub struct Line {
     score: u8,
     own_player: u8,
     pub interpretations: Interpretations,
+    pub(super) sarcastic: SmallVec<[SarcasticTransfer; 2]>,
     pub(super) context: TurnContext,
     clue_history: Option<Arc<ClueSnapshot>>,
     logger: slog::Logger,
@@ -141,6 +143,7 @@ impl PartialEq for Line {
             && self.score == other.score
             && self.own_player == other.own_player
             && self.interpretations == other.interpretations
+            && self.sarcastic == other.sarcastic
             && self.context == other.context
             && self.clue_history == other.clue_history
     }
@@ -765,13 +768,22 @@ impl PlayEvaluation {
                             continue 'rank_loop;
                         }
                     }
-                    if let Some((found_pos, slot)) =
-                        line.hands.iter_hand(0).find(|(other_pos, slot)| {
+                    if let Some((found_pos, slot)) = line
+                        .hands
+                        .iter_hand(0)
+                        .filter(|(other_pos, slot)| {
                             !self.marked_cards[0_usize].contains(*other_pos)
                                 && (slot.clued || slot.promised.is_some())
                                 && slot.quantum.contains(&previous_card)
                                 && (self.who != 0 || slot.quantum.size() == 1)
                                 && (slot.play || slot.delayed > 0)
+                        })
+                        .min_by_key(|(pos, slot)| {
+                            if previous_card.rank == 1 && slot.quantum.is_rank(1) {
+                                line.one_order(0, *pos)
+                            } else {
+                                (0, *pos)
+                            }
                         })
                     {
                         slog::debug!(
@@ -872,6 +884,9 @@ impl Line {
         let variant = Variant {};
         let empty_slot = Slot {
             id: 0,
+            starting: true,
+            one_chop_focus: false,
+            stopped: false,
             quantum: CardQuantum::new(variant),
             base_quantum: CardQuantum::new(variant),
             play: false,
@@ -912,6 +927,7 @@ impl Line {
             score: 0,
             own_player,
             interpretations: Interpretations::new(),
+            sarcastic: SmallVec::new(),
             context: TurnContext::default(),
             clue_history: None,
             logger,
@@ -928,6 +944,7 @@ impl Line {
 
     /// Rebuild the inferred view from clue evidence and the remaining meanings.
     fn refresh_derived(&mut self) {
+        self.refresh_sarcastic();
         for player in 0..self.hands.num_players {
             for (_, slot) in self.hands.iter_hand_mut(player) {
                 if slot.clued {
@@ -945,6 +962,7 @@ impl Line {
             }
         }
         if self.interpretations.is_empty() {
+            self.apply_sarcastic_ambiguity();
             return;
         }
         for record in &self.interpretations.records {
@@ -1118,6 +1136,7 @@ impl Line {
                 }
             }
         }
+        self.apply_sarcastic_ambiguity();
     }
 
     fn refresh_clued_cards(&mut self) {
@@ -1348,7 +1367,8 @@ impl Line {
                             {
                                 duplicated_self = true;
                             }
-                            if !duplicated_self {
+                            if !duplicated_self && !self.protected_duplicate(player, pos, slot.card)
+                            {
                                 if cfg!(debug_assertions) {
                                     println!(
                                         "Error 2: trash card {:?} ({card_state:?}, {}) is NOT trash",
@@ -1471,6 +1491,9 @@ impl Line {
             player,
             Slot {
                 id: 0,
+                starting: self.context.actions_taken == 0,
+                one_chop_focus: false,
+                stopped: false,
                 quantum,
                 base_quantum: quantum,
                 card,
@@ -1493,6 +1516,9 @@ impl Line {
     pub fn own_drawn(&mut self) {
         let mut hand = Slot {
             id: 0,
+            starting: self.context.actions_taken == 0,
+            one_chop_focus: false,
+            stopped: false,
             quantum: CardQuantum::new(self.variant),
             base_quantum: CardQuantum::new(self.variant),
             play: false,
@@ -1661,9 +1687,13 @@ impl Line {
                     slot.base_quantum.soft_limit(previous.base_quantum);
                     slot.locked = previous.locked;
                     slot.fixed = previous.fixed;
+                    slot.stopped = previous.stopped;
+                    slot.one_chop_focus = previous.one_chop_focus;
                 } else {
                     slot.locked = false;
                     slot.fixed = false;
+                    slot.stopped = false;
+                    slot.one_chop_focus = false;
                 }
             }
         }
@@ -1675,6 +1705,9 @@ impl Line {
     }
 
     pub fn played(&mut self, player: usize, pos: usize, card: game::Card, successful: bool) {
+        if successful {
+            self.sarcastic.retain(|transfer| transfer.card != card);
+        }
         self.context.actions_taken += 1;
         self.context.last_loss = (!successful).then_some((player as u8, card));
         if successful && card.rank == 5 {
@@ -1691,6 +1724,8 @@ impl Line {
                 clued: slot.clued,
                 quantum: slot.base_quantum,
                 turn: slot.turn,
+                starting: slot.starting,
+                one_chop_focus: slot.one_chop_focus,
             })
             .collect();
         if !successful {
@@ -1731,6 +1766,7 @@ impl Line {
     }
 
     pub fn discarded(&mut self, player: usize, pos: usize, card: game::Card) {
+        self.receive_sarcastic(player as u8, pos as u8, card);
         self.context.actions_taken += 1;
         let slot = self.hands.slot(player as u8, pos as u8);
         if !slot.clued && slot.promised.is_none() && !slot.trash {
@@ -1798,9 +1834,19 @@ impl Line {
         }));
         let old_chop = self.chop(whom as u8);
         let newly_clued = self.newly_touched(whom as u8, touched);
-        let focus = self
+        let fix = self.fix_kind(whom as u8, clue, touched);
+        let mut focus = self
             .clue_focus(whom as u8, touched)
             .expect("empty clues are not implemented");
+        if clue == game::Clue::Rank(1) {
+            focus = old_chop
+                .filter(|pos| newly_clued.contains(*pos))
+                .or_else(|| self.first_one(whom as u8, touched))
+                .expect("nonempty rank-1 clue");
+            if fix.is_none() && old_chop == Some(focus) && newly_clued.contains(focus) {
+                self.hands.slot_mut(whom as u8, focus).one_chop_focus = true;
+            }
+        }
         let mut save_options = CardQuantum::new(self.variant);
         save_options.clear();
         if old_chop == Some(focus) && newly_clued.contains(focus) {
@@ -1810,7 +1856,11 @@ impl Line {
                 }
             }
         }
-        let stall = self.stall_kind(who as u8, whom as u8, clue, touched);
+        let stall = if fix.is_some() {
+            None
+        } else {
+            self.stall_kind(who as u8, whom as u8, clue, touched)
+        };
         let tempo_focus = (stall == Some(StallKind::Tempo))
             .then(|| self.stall_focus(whom as u8, touched))
             .flatten();
@@ -1840,7 +1890,7 @@ impl Line {
             let old_size = slot.quantum.size();
             let previsous_first_quantum_card = slot.quantum.iter().next();
             slot.apply_clue(clue, touched.contains(pos));
-            if old_size != 0 && slot.quantum.size() == 0 && slot.quantum.hard_size() == 1 {
+            if matches!(fix, Some(Fix::Literal(conflicts)) if conflicts.contains(pos)) {
                 slot.quantum.reset_soft();
                 slot.base_quantum.reset_soft();
                 if old_size == 1 {
@@ -1848,6 +1898,8 @@ impl Line {
                         .clued = None;
                 }
                 slot.fixed = true;
+                slot.locked = false;
+                slot.stopped = false;
             }
             if touched.contains(pos) {
                 slot.clued = true;
@@ -1917,6 +1969,41 @@ impl Line {
                 hands.slot(player, pos).quantum.contains_hard(&step.card)
             })
         });
+        if let Some(fix) = fix {
+            if let Fix::Literal(conflicts) = fix {
+                let corrected: SmallVec<[SlotId; 5]> = conflicts
+                    .iter()
+                    .map(|pos| self.hands.slot(whom as u8, pos).id)
+                    .collect();
+                self.interpretations
+                    .retain_consistent(|step| !corrected.contains(&step.slot));
+            }
+            if let Fix::Stop(pos) = fix {
+                let options = self.stop_options(whom as u8, pos);
+                let slot = self.hands.slot_mut(whom as u8, pos);
+                slot.stopped = true;
+                slot.fixed = true;
+                slot.base_quantum = options;
+                let id = slot.id;
+                self.interpretations
+                    .retain_consistent(|step| step.slot != id);
+            }
+            // A correction never promises ancillary cards as new plays. Keep
+            // their literal information and apply only ordinary good touch.
+            for pos in newly_clued.iter() {
+                let slot = self.hands.slot_mut(whom as u8, pos);
+                for (card, state) in self.card_states.iter_clued() {
+                    if state.clued != Some(whom as u8)
+                        && state.locked != Some((whom as u8, slot.turn))
+                    {
+                        slot.remove_card(&card, true);
+                    }
+                }
+            }
+            self.refresh_derived();
+            self.refresh_clued_cards();
+            return error;
+        }
         self.refresh_derived();
         if stall.is_some() {
             // Tempo promises an immediate play of the focus only. Other stalls
@@ -1966,10 +2053,8 @@ impl Line {
                 }
                 error += 1;
             }
-            if !slot.fixed {
-                slot.play = true;
-                error += self.resolve_play_clue(who, whom, focus, touched);
-            }
+            slot.play = true;
+            error += self.resolve_play_clue(who, whom, focus, touched);
             self.refresh_derived();
             self.refresh_clued_cards();
             return error;
@@ -1977,6 +2062,10 @@ impl Line {
 
         // somebody else was clued -> remember which cards are clued
         for pos in newly_clued.iter_first(focus) {
+            let duplicate =
+                (pos == focus && save_options.size() == 0 && matches!(clue, game::Clue::Rank(_)))
+                    .then(|| self.duplicated_play(whom as u8, pos))
+                    .flatten();
             let slot = self.hands.slot_mut(whom as u8, pos);
             if !slot.locked {
                 for (card, state) in self.card_states.iter_clued() {
@@ -1990,7 +2079,13 @@ impl Line {
                 }
             }
             if pos == focus {
-                if save_options.interset(slot.quantum)
+                if let Some(card) = duplicate {
+                    slot.base_quantum.soft_clear();
+                    slot.base_quantum.add_card(&card, true);
+                    slot.quantum = slot.base_quantum;
+                    // Recover from duplicates, but do not reward giving them.
+                    error += 1;
+                } else if save_options.interset(slot.quantum)
                     && (whom == 0 || !(slot.card.rank == 5 && clue != game::Clue::Rank(5)))
                 {
                     for potential_card in slot.quantum.clone().iter() {
@@ -2291,6 +2386,20 @@ impl Line {
         let players = self.hands.num_players;
         let mut views = initial.to_vec();
         for player in 1..players {
+            if let Some(game::Move::Discard(pos)) = views[player as usize]
+                .sarcastic_discard()
+                .filter(|_| views[player as usize].context.clues < 8)
+            {
+                let card = self.hands.slot(player, pos).card;
+                for (observer, view) in views.iter_mut().enumerate() {
+                    view.discarded(
+                        ((players + player - observer as u8) % players) as usize,
+                        pos as usize,
+                        card,
+                    );
+                }
+                continue;
+            }
             if let Some(game::Move::Play(pos)) = views[player as usize].play() {
                 let card = self.hands.slot(player, pos).card;
                 if !views[0].card_states.play_quantum.contains(&card) {
@@ -2386,6 +2495,9 @@ impl Line {
     }
 
     pub fn discard(&self) -> game::Move {
+        if let Some(action) = self.sarcastic_discard() {
+            return action;
+        }
         // look for trash
         let mut chop = -1;
         for (pos, slot) in self.hands.iter_hand(0) {
@@ -2414,35 +2526,11 @@ impl Line {
     }
 
     pub fn play(&mut self) -> Option<game::Move> {
-        for (pos, slot) in self.hands.iter_hand_mut(0) {
-            if slot.trash {
-                continue;
-            }
-            if slot.clued {
-                slot.update_slot_attributes(&self.card_states);
-            }
-            if slot.play
-                && slot.delayed == 0
-                && self.card_states.play_quantum.interset(slot.quantum)
-            {
-                return Some(game::Move::Play(pos));
-            }
-        }
-        None
+        self.next_play()
     }
 
     pub(super) fn next_play(&self) -> Option<game::Move> {
-        self.hands.iter_hand(0).find_map(|(pos, original)| {
-            let mut slot = *original;
-            if slot.trash {
-                return None;
-            }
-            if slot.clued {
-                slot.update_slot_attributes(&self.card_states);
-            }
-            (slot.play && slot.delayed == 0 && self.card_states.play_quantum.interset(slot.quantum))
-                .then_some(game::Move::Play(pos))
-        })
+        self.next_play_for(0).map(game::Move::Play)
     }
 
     pub fn print_interpretations(&self, prefix: &str) {

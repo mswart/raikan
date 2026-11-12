@@ -40,7 +40,7 @@ supported; variant-specific rules are not implemented.
 | --- | --- |
 | [1 — Fundamentals](https://hanabi.github.io/level-1) | Implemented for the standard five-suit game |
 | [2 — Basic Moves](https://hanabi.github.io/level-2) | Implemented for the standard five-suit game |
-| [3 — Basic Strategy](https://hanabi.github.io/level-3) | Partial |
+| [3 — Basic Strategy](https://hanabi.github.io/level-3) | Implemented for the standard five-suit game |
 | [4 — Chop Moves](https://hanabi.github.io/level-4) | Not implemented |
 | [5 — Intermediate Finesses](https://hanabi.github.io/level-5) | Partial |
 | [6 — Tempo Clues](https://hanabi.github.io/level-6) | Partial |
@@ -90,19 +90,35 @@ connection and recovery limitations described under later levels still apply.
 
 Focused coverage is in [basic_moves.rs](src/hyphenated/basic_moves.rs), including
 all supported player counts and seat rotations, with additional replay cases in
-[line_tests.rs](tests/line_tests.rs). The remaining ignored replay concerns a
-level-3 fix clue.
+[line_tests.rs](tests/line_tests.rs).
 
 ### Level 3 — Basic Strategy
 
-* **Implemented:** Basic fix clues can restore a card's identity when an inference
-  conflicts with literal information. Action selection can prioritize a fix over
-  the bot's own play to prevent a predicted misplay. Clue scoring rewards useful
-  touches and connecting plays, and penalizes errors and critical-card losses.
-* **Gaps:** The special play order for starting-hand and freshly drawn 1s is
-  missing; the bot normally chooses its leftmost playable card. Sarcastic discards
-  do not transfer information. Stop clues and fixes that also introduce new cards
-  do not have complete convention handling.
+* **Playing 1s:** Starting-hand 1s play oldest first; fresh 1s play newest first
+  and precede starting-hand 1s. A newly clued chop 1 takes precedence over both.
+  Rank-1 clue focus and simulated plays use the same order, with card provenance
+  preserved through hand shifts and seat rotations.
+* **Fixes and stops:** Literal corrections can break an incorrect inference
+  without revealing a full identity. They cancel obsolete connections and do
+  not promise plays from ancillary new touches. Repeating a clue with no new
+  information on its touched cards can stop the next queued play; only that card
+  becomes discardable. Delayed cards retain their ordinary re-clue meaning.
+* **Sarcastic discards:** Discarding a clued, useful duplicate transfers its
+  identity to compatible clued cards. A unique target is identified immediately;
+  ambiguous targets remain a group until later evidence resolves them. Stable
+  card IDs prevent a draw from inheriting the signal. Known duplicates can be
+  discarded before ordinary plays when tokens permit it; forecasts follow suit.
+* **Strategy and information locks:** Fixes take priority over an ordinary play
+  when they safely reduce inference errors, including errors that are not yet
+  about to misplay. Scoring rewards useful touches and connecting plays while
+  charging for strikes and critical losses. Established identities, alternative
+  identities, and connecting cards stay constrained until evidence narrows them
+  or a direct conflict requires correction; literal evidence remains intact.
+
+Focused coverage is in [basic_strategy_tests.rs](src/hyphenated/basic_strategy_tests.rs),
+including independent player views and all supported player counts for 1s order.
+The action search remains bounded; level 3 does not add the dedicated end-game
+planning described under level 8.
 
 ### Level 4 — Chop Moves
 

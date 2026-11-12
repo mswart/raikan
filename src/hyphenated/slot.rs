@@ -10,6 +10,12 @@ pub type SlotId = u16;
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub struct Slot {
     pub id: SlotId,
+    /// Starting-hand membership survives draws, seat rotations, and hand shifts.
+    pub starting: bool,
+    /// A rank-1 clue on chop takes precedence over the fresh-1 order.
+    pub one_chop_focus: bool,
+    /// Explicit stop clues remain in force when derived knowledge is rebuilt.
+    pub stopped: bool,
     pub card: game::Card,
     pub clued: bool,
     pub play: bool,
@@ -40,6 +46,13 @@ impl Slot {
     }
 
     pub fn update_slot_attributes(&mut self, card_states: &CardStates) {
+        if self.stopped {
+            self.trash = true;
+            self.play = false;
+            self.delayed = 0;
+            self.promised = None;
+            return;
+        }
         if self.delayed > 0 {
             return;
         }

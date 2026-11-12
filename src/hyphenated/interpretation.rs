@@ -194,6 +194,8 @@ pub struct HandEntry {
     pub quantum: CardQuantum,
     /// turn the card was drawn
     pub turn: i8,
+    pub starting: bool,
+    pub one_chop_focus: bool,
 }
 
 /// Records removed by an update
@@ -527,7 +529,20 @@ fn retarget_finesses(
                     && !used.contains(&entry.id)
                     && entry.quantum.contains_hard(&step.card)
             })
-            .find(|entry| prompt && step.card == expected && entry.clued)
+            .filter(|entry| prompt && step.card == expected && entry.clued)
+            .min_by_key(|entry| {
+                let pos = hand_after
+                    .iter()
+                    .position(|other| other.id == entry.id)
+                    .unwrap();
+                if step.card.rank != 1 || !entry.quantum.is_rank(1) || entry.one_chop_focus {
+                    (0, pos)
+                } else if !entry.starting {
+                    (1, pos)
+                } else {
+                    (2, usize::MAX - pos)
+                }
+            })
             .or_else(|| {
                 hand_after.iter().find(|entry| {
                     !entry.clued
@@ -578,6 +593,8 @@ mod tests {
                 clued: *clued,
                 quantum: CardQuantum::new(crate::card_quantum::Variant {}),
                 turn: 0,
+                starting: false,
+                one_chop_focus: false,
             })
             .collect()
     }
@@ -770,6 +787,23 @@ mod tests {
         };
         i.on_play(1, 10, card(B, 1), true, &after);
         assert_eq!(i.records[0].hypotheses[0].steps[0].slot, 13);
+    }
+
+    #[test]
+    fn color_prompts_keep_leftmost_order_when_the_rank_is_unknown() {
+        let mut record = finesse_record();
+        record.hypotheses.truncate(1);
+        record.hypotheses[0].steps[0].kind = StepKind::Prompt;
+        let mut after = hand(&[(11, true), (12, true)]);
+        for entry in &mut after {
+            entry.starting = true;
+            entry.quantum.limit_by_suit(&R, true);
+        }
+        let mut interpretations = Interpretations {
+            records: vec![record],
+        };
+        interpretations.on_play(1, 10, card(B, 1), true, &after);
+        assert_eq!(interpretations.records[0].hypotheses[0].steps[0].slot, 11);
     }
 
     #[test]

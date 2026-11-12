@@ -45,6 +45,7 @@ fn choose_action_with_pruning(line: &Line, status: &GameStatus, debug: bool, pru
     let mut best_stall: Option<(StallKind, u8, Move, Evaluation)> = None;
     let mut best = None;
     let mut preferred: Option<(Move, Evaluation)> = None;
+    let mut best_fix: Option<(Move, f64)> = None;
     for action in candidates(line, status.clues) {
         let stall = match action {
             Move::Clue(receiver, clue) => line.clue_stall(receiver, clue).filter(|kind| {
@@ -55,6 +56,7 @@ fn choose_action_with_pruning(line: &Line, status: &GameStatus, debug: bool, pru
         let Some(evaluation) = evaluate_filtered(line, status, action, &baseline, |upper| {
             debug
                 || !prune
+                || !baseline.no_more_errors_than(upper)
                 || stall.is_some()
                 || best.is_none_or(|(_, value)| upper.utility() as f64 > value)
                 || preferred.as_ref().is_none_or(|(previous, evaluation)| {
@@ -73,7 +75,14 @@ fn choose_action_with_pruning(line: &Line, status: &GameStatus, debug: bool, pru
         if best.is_none_or(|(_, previous)| value > previous) {
             best = Some((action, value));
         }
-        if let Move::Clue(receiver, _) = action {
+        if let Move::Clue(receiver, clue) = action {
+            if !baseline.no_more_errors_than(&evaluation.priority)
+                && line.clue_fixes(receiver, clue)
+                && evaluation.urgent == 0.0
+                && best_fix.is_none_or(|(_, previous)| value > previous)
+            {
+                best_fix = Some((action, value));
+            }
             if let Some(kind) = stall {
                 if evaluation.urgent == 0.0 && evaluation.priority.no_more_errors_than(&baseline) {
                     let distance = if kind == StallKind::Five {
@@ -101,7 +110,10 @@ fn choose_action_with_pruning(line: &Line, status: &GameStatus, debug: bool, pru
         }
         // Preserve expected play order when it is safe. Skipping a promised play
         // can retract a teammate's connection, so only an emergency warrants it.
-        if matches!(action, Move::Play(_)) && evaluation.danger == 0.0 {
+        if ((matches!(action, Move::Play(_)) && !baseline.has_errors())
+            || (status.clues < 8 && Some(action) == line.sarcastic_discard()))
+            && evaluation.danger == 0.0
+        {
             return action;
         }
         if preferred
@@ -112,6 +124,9 @@ fn choose_action_with_pruning(line: &Line, status: &GameStatus, debug: bool, pru
         {
             preferred = Some((action, evaluation));
         }
+    }
+    if let Some((action, _)) = best_fix {
+        return action;
     }
     if !normal_clue_available
         && (severity >= StallSeverity::DoubleDiscard
@@ -143,7 +158,9 @@ fn candidates(line: &Line, clues: u8) -> SmallVec<[Move; 42]> {
     let mut actions = SmallVec::new();
     // Keep the convention's play order and discard position. Arbitrarily choosing
     // another slot could itself communicate an unsupported convention.
-    if let Some(action) = line.next_play() {
+    if let Some(action) = line.next_play()
+        && (clues == 8 || line.sarcastic_discard().is_none())
+    {
         actions.push(action);
     }
     if clues < 8 {
@@ -419,7 +436,12 @@ impl Forecast {
                 }
                 self.views.push(view);
             }
-            let action = if let Some(action) = self.views[player].play() {
+            let action = if let Some(action) = self.views[player]
+                .sarcastic_discard()
+                .filter(|_| self.clues < 8)
+            {
+                action
+            } else if let Some(action) = self.views[player].play() {
                 action
             } else if self.clues == 0 {
                 self.views[player].discard()

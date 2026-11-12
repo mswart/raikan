@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Complete standard-game level-3 conventions: starting and fresh 1s play order
+  with the chop-focus exception, literal fixes with ancillary touches, stop clues,
+  and sarcastic discard transfers with persistent ambiguous targets.
+- Prioritize safe fixes before ordinary plays, recognize duplicate rank-play
+  clues for discard recovery, and use the same ordering and discard signals in
+  action forecasts. Preserve literal evidence when correcting information locks.
+- Add level-3 regression coverage and replace the obsolete ignored fix-clue
+  replay setup with an active regression under the current save rules.
+
 - Reduce simulation allocations with shared immutable clue history, inline
   connection chains and scratch buffers, and compact card-possibility bitsets.
 - Reuse clue interpretations, skip provably dominated forecasts, and build
