@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Complete standard-game level-2 connection handling, including prompt
+  confirmation, declined connections, and mixed chains of up to four links.
+- Recover wrong prompts using the original finesse position, including subsequent
+  links; otherwise withdraw deductions since the mistaken clue without losing
+  literal evidence or earlier saves.
+- Fix hand removal at the end of the five-player slot array.
+- Add level-2 regression coverage across player counts and seat rotations, and
+  enable three replay tests with current convention expectations and an actual
+  prompt-misplay recovery scenario.
 - Apply level-1 clue focus consistently, including implicit clues on finessed
   cards, and protect those cards when selecting chop.
 - Support double-chop 2 saves while preserving the visible rule in each player's

@@ -117,7 +117,16 @@ pub struct Line {
     own_player: u8,
     pub interpretations: Interpretations,
     pub(super) context: TurnContext,
+    clue_history: Vec<ClueSnapshot>,
     logger: slog::Logger,
+}
+
+/// Soft information before a clue, keyed by stable card IDs. Literal evidence
+/// continues to accumulate independently and is never undone after a strike.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ClueSnapshot {
+    turn: i8,
+    slots: Vec<Slot>,
 }
 
 impl PartialEq for Line {
@@ -130,6 +139,7 @@ impl PartialEq for Line {
             && self.own_player == other.own_player
             && self.interpretations == other.interpretations
             && self.context == other.context
+            && self.clue_history == other.clue_history
     }
 }
 impl Eq for Line {}
@@ -171,7 +181,7 @@ impl Hands {
         let offset = player * self.max_hand_size as usize;
         let old_pos = self.hand_slots[offset + pos as usize];
         self.next_slot = Some(old_pos);
-        for i in offset + pos as usize..offset + self.hand_sizes[player] as usize {
+        for i in offset + pos as usize..offset + self.hand_sizes[player] as usize - 1 {
             self.hand_slots[i] = self.hand_slots[i + 1];
         }
         self.hand_sizes[player] -= 1;
@@ -372,11 +382,24 @@ struct PlayEvaluation {
 
 impl PlayEvaluation {
     fn add_step(&mut self, line: &Line, card: game::Card, holder: u8, pos: u8, kind: StepKind) {
+        let fallback = (kind == StepKind::Prompt)
+            .then(|| {
+                line.hands
+                    .iter_hand(holder)
+                    .find(|(position, slot)| {
+                        !slot.clued
+                            && slot.promised.is_none()
+                            && !self.marked_cards[holder as usize].contains(*position)
+                    })
+                    .map(|(_, slot)| slot.id)
+            })
+            .flatten();
         self.steps.push(Step {
             card,
             holder,
             kind,
             slot: line.hands.slot(holder, pos).id,
+            fallback,
             layers: 0,
             done: false,
         });
@@ -615,7 +638,12 @@ impl PlayEvaluation {
                             .expect("clued = Some(255) should also lock the slot, or?");
                         for (pos, slot) in line.hands.iter_hand(player) {
                             if slot.turn == turn {
-                                self.add_step(line, previous_card, player, pos, StepKind::Prompt);
+                                let kind = if slot.play || slot.delayed > 0 {
+                                    StepKind::Queued
+                                } else {
+                                    StepKind::Prompt
+                                };
+                                self.add_step(line, previous_card, player, pos, kind);
                                 slog::debug!(
                                     self.logger,
                                     "Looking for {:?}: clued on {player}'s hand: {slot:?}",
@@ -653,11 +681,11 @@ impl PlayEvaluation {
                         {
                             continue;
                         }
-                        if line
+                        let blocking_prompt = line
                             .hands
                             .iter_hand(finess_player)
-                            .any(|(other_pos, slot)| {
-                                !self.marked_cards[finess_player as usize].contains(other_pos)
+                            .find(|(other_pos, slot)| {
+                                !self.marked_cards[finess_player as usize].contains(*other_pos)
                                     && slot.clued
                                     && slot.quantum.contains(&previous_card)
                                     && !matches!(
@@ -666,10 +694,7 @@ impl PlayEvaluation {
                                             | CardPlayState::CriticalPlayable()
                                     )
                             })
-                        {
-                            // clued card would play first
-                            continue;
-                        }
+                            .map(|(pos, _)| pos);
                         // ensure how clued card would be played earlier:
                         let mut layers = 0;
                         let mut layer_cards = Vec::new();
@@ -702,6 +727,22 @@ impl PlayEvaluation {
                                     continue;
                                 }
                                 break;
+                            }
+                            if let Some(prompt_pos) = blocking_prompt {
+                                // Even a mistaken clue prompts the leftmost
+                                // matching clued card first. Retain that meaning
+                                // so all observers can recognize a wrong prompt.
+                                self.marked_cards[finess_player as usize].add(prompt_pos);
+                                self.add_step(
+                                    line,
+                                    previous_card,
+                                    finess_player,
+                                    prompt_pos,
+                                    StepKind::Prompt,
+                                );
+                                self.marked_cards[finess_player as usize].add(other_pos);
+                                allowed_self_search = FirstAction::SelfFiness();
+                                continue 'rank_loop;
                             }
                             slog::debug!(
                                 self.logger,
@@ -872,6 +913,7 @@ impl Line {
             own_player,
             interpretations: Interpretations::new(),
             context: TurnContext::default(),
+            clue_history: Vec::new(),
             logger,
         }
     }
@@ -1461,6 +1503,156 @@ impl Line {
         self.hands.insert_slot(0, hand);
     }
 
+    fn recover_strike(&mut self, player: u8, played_slot: Slot, hand_after: &[HandEntry]) {
+        let played = played_slot.id;
+        let affected: Vec<_> = self
+            .interpretations
+            .records
+            .iter()
+            .filter(|record| {
+                record.hypotheses.iter().any(|h| {
+                    h.pending_steps().any(|step| {
+                        step.slot == played
+                            || (step.holder == player
+                                && self.layer_slots(record, h, step).contains(&played))
+                    })
+                })
+            })
+            .cloned()
+            .collect();
+        let suspected = (!played_slot.clued)
+            .then(|| {
+                self.interpretations
+                    .records
+                    .iter()
+                    .filter(|record| {
+                        record.giver != player
+                            && record.receiver != player
+                            && record.active().any(|h| {
+                                h.expected_now()
+                                    .is_some_and(|step| step.kind == StepKind::Focus)
+                            })
+                    })
+                    .map(|r| r.turn)
+                    .min()
+            })
+            .flatten();
+        let Some(turn) = affected
+            .iter()
+            .map(|r| r.turn)
+            .min()
+            .or(suspected)
+            .or_else(|| self.clue_history.last().map(|s| s.turn))
+        else {
+            return;
+        };
+
+        // A wrong prompt is the only exception to withdrawing the mistaken
+        // clue. Require its original finesse card to still exist and respect
+        // all literal clues; never substitute the card drawn after the bomb.
+        let mut recovered = Vec::new();
+        for mut record in affected {
+            record.hypotheses.retain_mut(|h| {
+                let Some(step) = h.expected_now() else {
+                    return false;
+                };
+                if step.slot != played || step.kind != StepKind::Prompt {
+                    return false;
+                }
+                let Some(fallback) = step.fallback else {
+                    return false;
+                };
+                let Some(entry) = hand_after.iter().find(|entry| entry.id == fallback) else {
+                    return false;
+                };
+                if entry.clued
+                    || !entry.quantum.contains_hard(&step.card)
+                    || !self.card_states.play_quantum.contains(&step.card)
+                {
+                    return false;
+                }
+                if player != 0
+                    && self
+                        .hands
+                        .find(fallback)
+                        .is_some_and(|(p, pos)| self.hands.slot(p, pos).card != step.card)
+                {
+                    return false;
+                }
+                let step = h
+                    .steps
+                    .iter_mut()
+                    .find(|s| !s.done && s.slot == played)
+                    .unwrap();
+                step.slot = fallback;
+                step.kind = StepKind::Finesse;
+                step.fallback = None;
+                step.layers = 0;
+                // In the holder's view a later finesse may have occupied the
+                // same unknown slot. Shift that suffix across the original
+                // hand, leaving fixed prompts and other clues' cards reserved.
+                let mut used: Vec<_> = h
+                    .pending_steps()
+                    .filter(|s| s.kind != StepKind::Finesse || s.holder != player)
+                    .map(|s| s.slot)
+                    .collect();
+                used.extend(
+                    self.interpretations
+                        .records
+                        .iter()
+                        .filter(|r| r.turn < turn)
+                        .flat_map(|r| r.active())
+                        .flat_map(|other| other.pending_steps())
+                        .map(|s| s.slot),
+                );
+                if used.contains(&fallback) {
+                    return false;
+                }
+                for step in h
+                    .steps
+                    .iter_mut()
+                    .filter(|s| !s.done && s.holder == player && s.kind == StepKind::Finesse)
+                {
+                    if used.contains(&step.slot) {
+                        let Some(next) = hand_after.iter().find(|entry| {
+                            !entry.clued && entry.turn <= record.turn && !used.contains(&entry.id)
+                        }) else {
+                            return false;
+                        };
+                        if !next.quantum.contains_hard(&step.card) {
+                            return false;
+                        }
+                        step.slot = next.id;
+                    }
+                    used.push(step.slot);
+                }
+                true
+            });
+            if !record.hypotheses.is_empty() {
+                recovered.push(record);
+            }
+        }
+        let snapshot = self.clue_history.iter().find(|s| s.turn >= turn);
+        for player in 0..self.hands.num_players {
+            for (_, slot) in self.hands.iter_hand_mut(player) {
+                slot.base_quantum.reset_soft();
+                if let Some(previous) =
+                    snapshot.and_then(|s| s.slots.iter().find(|old| old.id == slot.id))
+                {
+                    slot.base_quantum.soft_limit(previous.base_quantum);
+                    slot.locked = previous.locked;
+                    slot.fixed = previous.fixed;
+                } else {
+                    slot.locked = false;
+                    slot.fixed = false;
+                }
+            }
+        }
+        self.interpretations.records.retain(|r| r.turn < turn);
+        self.interpretations.records.extend(recovered);
+        self.clue_history.retain(|s| s.turn <= turn);
+    }
+
     pub fn played(&mut self, player: usize, pos: usize, card: game::Card, successful: bool) {
         self.context.actions_taken += 1;
         self.context.last_loss = (!successful).then_some((player as u8, card));
@@ -1468,11 +1660,11 @@ impl Line {
             self.context.clues = (self.context.clues + 1).min(8);
         }
         self.turn += 1;
-        let slot_index = self.hands.remove_slot(player, pos as u8);
-        let slot = self.hands.slots[slot_index];
+        let slot = *self.hands.slot(player as u8, pos as u8);
         let hand_after: Vec<_> = self
             .hands
             .iter_hand(player as u8)
+            .filter(|(position, _)| *position as usize != pos)
             .map(|(_, slot)| HandEntry {
                 id: slot.id,
                 clued: slot.clued,
@@ -1480,27 +1672,12 @@ impl Line {
                 turn: slot.turn,
             })
             .collect();
+        if !successful {
+            self.recover_strike(player as u8, slot, &hand_after);
+        }
+        self.hands.remove_slot(player, pos as u8);
         self.interpretations
             .on_play(player as u8, slot.id, card, successful, &hand_after);
-        if !successful && !slot.clued && pos == 0 {
-            // A failed blind play withdraws our own
-            // pending blind plays, or the immediate play inferred from that clue.
-            let mut cancelled: Vec<_> = self
-                .hands
-                .iter_hand(0)
-                .filter(|(_, s)| !s.clued && s.promised.is_some())
-                .map(|(_, s)| s.id)
-                .collect();
-            if cancelled.is_empty() {
-                if let Some((_, s)) = self.hands.iter_hand(0).find(|(_, s)| {
-                    s.clued && s.play && s.quantum.interset(self.card_states.play_quantum)
-                }) {
-                    cancelled.push(s.id);
-                }
-            }
-            self.interpretations
-                .retain_consistent(|step| !cancelled.contains(&step.slot));
-        }
         if player == 0 {
             self.track_card(card, -1, -2);
             if slot.clued && successful {
@@ -1593,6 +1770,12 @@ impl Line {
         clue: game::Clue,
         touched: game::PositionSet,
     ) -> u8 {
+        self.clue_history.push(ClueSnapshot {
+            turn: self.turn + 1,
+            slots: (0..self.hands.num_players)
+                .flat_map(|player| self.hands.iter_hand(player).map(|(_, slot)| *slot))
+                .collect(),
+        });
         let old_chop = self.chop(whom as u8);
         let newly_clued = self.newly_touched(whom as u8, touched);
         let focus = self
@@ -2238,6 +2421,7 @@ mod tests {
             holder,
             kind,
             slot: line.hands.slot(holder, pos).id,
+            fallback: None,
             layers: 0,
             done: false,
         }

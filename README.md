@@ -39,7 +39,7 @@ supported; variant-specific rules are not implemented.
 | H-Group level | Status |
 | --- | --- |
 | [1 — Fundamentals](https://hanabi.github.io/level-1) | Implemented for the standard five-suit game |
-| [2 — Basic Moves](https://hanabi.github.io/level-2) | Partial |
+| [2 — Basic Moves](https://hanabi.github.io/level-2) | Implemented for the standard five-suit game |
 | [3 — Basic Strategy](https://hanabi.github.io/level-3) | Partial |
 | [4 — Chop Moves](https://hanabi.github.io/level-4) | Not implemented |
 | [5 — Intermediate Finesses](https://hanabi.github.io/level-5) | Partial |
@@ -72,13 +72,26 @@ connection and recovery limitations described under later levels still apply.
 
 ### Level 2 — Basic Moves
 
-* **Implemented:** Early-game off-chop 5 stalls; chains of prompts and finesses,
-  including mixed prompt/finesse chains, reverse finesses, and self-finesses.
-  Alternative interpretations remain pending until plays or non-plays distinguish
-  them. Misplays can cancel dependent instructions while preserving literal clues.
-* **Gaps:** Ambiguous connections and recovery after a misplayed prompt are not
-  complete; ignored regression tests still cover unresolved cases. The bot does
-  not guarantee correct handling of every multi-step combination.
+* **Basic moves:** Early-game off-chop 5 stalls; double, triple, and quadruple
+  prompts and finesses; mixed prompt/finesse chains; reverse and self-finesses.
+  Prompts take precedence over blind plays, and original card identities survive
+  draws and hand shifts throughout a chain.
+* **Ambiguity:** Receivers wait for possible connecting plays, including later
+  links on the same hand. Plays, clues, discards, and unrelated plays distinguish
+  competing connections. Existing queued plays can take their turn first.
+* **Strike recovery:** Withdraw the mistaken clue's instructions and subsequent
+  deductions, preserving earlier knowledge and all positive and negative literal
+  clues. A wrong prompt instead requests the original finesse position when it
+  remains possible; recovery can continue a multi-step chain and never substitutes
+  a newly drawn card for a missing original target.
+* **General principles:** Played cards, blocked suits, and protected duplicates
+  are trash. One-away cards need a valid connection to receive a play clue.
+  Cluing an existing finesse must add value to justify spending a token.
+
+Focused coverage is in [basic_moves.rs](src/hyphenated/basic_moves.rs), including
+all supported player counts and seat rotations, with additional replay cases in
+[line_tests.rs](tests/line_tests.rs). The remaining ignored replay concerns a
+level-3 fix clue.
 
 ### Level 3 — Basic Strategy
 

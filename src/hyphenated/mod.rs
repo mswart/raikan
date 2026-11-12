@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod basic_moves;
 mod card_states;
 mod fundamentals;
 pub mod interpretation;

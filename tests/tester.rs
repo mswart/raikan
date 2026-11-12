@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 use raikan::game;
 
+#[derive(Default)]
 pub struct InstructedPlayer {
     actions: VecDeque<game::Move>,
     default: Option<game::Move>,

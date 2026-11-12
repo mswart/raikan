@@ -913,6 +913,7 @@ mod tests {
                     tier: Tier::Direct,
                     steps: vec![
                         Step {
+                            fallback: None,
                             card: c(Suit::Blue(), 4),
                             holder: connector,
                             kind: StepKind::Prompt,
@@ -921,6 +922,7 @@ mod tests {
                             done: false,
                         },
                         Step {
+                            fallback: None,
                             card: c(Suit::Blue(), 5),
                             holder: receiver,
                             kind: StepKind::Focus,

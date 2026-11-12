@@ -57,6 +57,8 @@ pub struct Step {
     pub kind: StepKind,
     /// slot expected to contain the card. For finesses it moves on layered plays.
     pub slot: SlotId,
+    /// Original finesse position if this prompt bombs (the wrong-prompt rule).
+    pub fallback: Option<SlotId>,
     /// number of (playable) unclued cards in front of the target which the
     /// holder will blind play first (layered finesse). Only known to players
     /// seeing the holder's hand.
@@ -207,6 +209,19 @@ impl Interpretations {
         successful: bool,
         hand_after: &[HandEntry],
     ) -> Outcome {
+        // Playing an unrelated card also declines a connection. Another
+        // outstanding instruction can legitimately take this turn instead.
+        let prior_obligation = self
+            .records
+            .iter()
+            .filter(|record| {
+                record.active().any(|h| {
+                    h.expected_now()
+                        .is_some_and(|step| step.holder == player && step.slot == slot)
+                })
+            })
+            .map(|record| record.turn)
+            .min();
         for record_index in 0..self.records.len() {
             let reserved = self.reserved_finesse_slots(record_index);
             let record = &mut self.records[record_index];
@@ -224,10 +239,31 @@ impl Interpretations {
                         || record
                             .active()
                             .any(|active| active.focus_card == h.focus_card))
-                        && h.expected_now()
-                            .is_some_and(|s| s.kind == StepKind::Finesse && matches_play(s))
+                        && h.expected_now().is_some_and(|s| {
+                            matches!(s.kind, StepKind::Finesse | StepKind::Prompt)
+                                && matches_play(s)
+                        })
                 });
+            let declined: Vec<_> = record
+                .active()
+                .filter(|h| {
+                    successful
+                        && prior_obligation.is_none()
+                        && h.expected_now().is_some_and(|s| {
+                            s.holder == player
+                                && s.layers == 0
+                                && (s.kind == StepKind::Finesse
+                                    || (s.kind == StepKind::Prompt && player != record.receiver))
+                                && s.slot != slot
+                                && !matches_play(s)
+                        })
+                })
+                .cloned()
+                .collect();
             record.hypotheses.retain_mut(|hypothesis| {
+                if declined.contains(hypothesis) {
+                    return false;
+                }
                 if confirmed && !hypothesis.pending_steps().any(&matches_play) {
                     return false;
                 }
@@ -272,19 +308,20 @@ impl Interpretations {
     }
 
     /// `player` used their turn for something else than a play (clue or
-    /// discard). Eliminate active meanings whose next blind play belongs to
+    /// discard). Eliminate active meanings whose next connection belongs to
     /// them. Later links and inactive fallback meanings are not obligations.
     pub fn on_non_play(&mut self, player: u8) -> Outcome {
         for record in self.records.iter_mut() {
-            // Only blind obligations compel a play: a clued card can be held
-            // while its owner waits for another player's interpretation.
-            // Urgent saves can exempt blind obligations once supported.
+            // An old queued play can wait. A new prompt on another player,
+            // like a finesse, must be tried before a self-connection fallback.
             let rejected: Vec<_> = record
                 .active()
                 .filter(|hypothesis| {
-                    hypothesis
-                        .expected_now()
-                        .is_some_and(|step| step.holder == player && step.kind == StepKind::Finesse)
+                    hypothesis.expected_now().is_some_and(|step| {
+                        step.holder == player
+                            && (step.kind == StepKind::Finesse
+                                || (step.kind == StepKind::Prompt && player != record.receiver))
+                    })
                 })
                 .cloned()
                 .collect();
@@ -468,6 +505,7 @@ mod tests {
             holder,
             kind,
             slot,
+            fallback: None,
             layers: 0,
             done: false,
         }
