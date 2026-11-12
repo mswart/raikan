@@ -147,11 +147,20 @@ struct UserState {
 )]
 enum UserActivity {
     Lobby,
-    Pregame { table_id: usize },
-    Playing { table_id: usize },
-    Spectating { table_id: usize },
-    SharedReplay { table_id: usize },
-    Replay,
+    Pregame {
+        table_id: usize,
+    },
+    Playing {
+        table_id: usize,
+    },
+    Spectating {
+        table_id: usize,
+    },
+    SharedReplay {
+        table_id: usize,
+    },
+    #[serde(alias = "replay")]
+    SoloReplay,
 }
 
 #[derive(Deserialize)]
@@ -192,17 +201,46 @@ struct TableJoinMessage {
     password: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 struct TableState {
     table_id: usize,
-    phase: String,
+    #[serde(deserialize_with = "deserialize_table_phase")]
+    phase: TablePhase,
     player_names: Vec<String>,
+}
+
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum TablePhase {
+    Pregame,
+    Playing,
+    SharedReplay,
+}
+
+fn deserialize_table_phase<'de, D>(deserializer: D) -> Result<TablePhase, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Payload {
+        // Shared replays may also carry a gameId, which the bot does not need.
+        Current {
+            #[serde(rename = "type")]
+            phase: TablePhase,
+        },
+        Legacy(TablePhase),
+    }
+
+    Ok(match Payload::deserialize(deserializer)? {
+        Payload::Current { phase } | Payload::Legacy(phase) => phase,
+    })
 }
 
 impl TableState {
     fn has_active_player(&self, username: &str) -> bool {
-        matches!(self.phase.as_str(), "pregame" | "playing")
+        matches!(self.phase, TablePhase::Pregame | TablePhase::Playing)
             && self.player_names.iter().any(|name| name == username)
     }
 }
@@ -469,9 +507,23 @@ impl HanabClient {
             "gameEvent" => self.on_action(json),
 
             "replayAction" => self.on_replay_segment(json),
-            "clock" | "connected" | "noteList" | "noteListPlayer" | "spectators"
-            | "cardIdentities" | "gameFinished" | "hypothetical" | "note" | "voteChanged"
-            | "voteChange" => Ok(()),
+            "clock"
+            | "connections"
+            | "connected"
+            | "noteList"
+            | "noteListPlayer"
+            | "spectators"
+            | "cardIdentities"
+            | "gameFinished"
+            | "hypothetical"
+            | "note"
+            | "voteChanged"
+            | "voteChange"
+            | "votes"
+            | "tableOwner"
+            | "tableRestartDecliners"
+            | "tableRestartDeclined"
+            | "tableSuggestion" => Ok(()),
 
             _ => {
                 println!("Received unhandled message: {command} / {json}");
@@ -539,7 +591,8 @@ impl HanabClient {
             .find(|table| table.has_active_player(&self.username))
             .or_else(|| {
                 tables.tables.iter().find(|table| {
-                    table.phase == "sharedReplay" && table.player_names.contains(&self.username)
+                    table.phase == TablePhase::SharedReplay
+                        && table.player_names.contains(&self.username)
                 })
             });
         if self.table_id == 0 {
@@ -628,7 +681,7 @@ impl HanabClient {
                         };
                         self.send("tableSpectate", &serde_json::to_string(&table_ref)?);
                     }
-                    UserActivity::Lobby | UserActivity::Replay => {}
+                    UserActivity::Lobby | UserActivity::SoloReplay => {}
                 }
             }
             ChatKind::Public {
@@ -710,8 +763,8 @@ impl HanabClient {
             let table_id = TableIdMessage {
                 table_id: state.table_id as usize,
             };
-            // gameLoaded marks us connected and enables live events; it must
-            // precede our opening move. The old "loaded" command is rejected.
+            // The server sends live events after this snapshot. gameLoaded
+            // marks us connected and must still precede our opening move.
             self.send("gameLoaded", &serde_json::to_string(&table_id)?);
             self.act()?;
         } else {
@@ -1289,6 +1342,65 @@ mod protocol_tests {
     }
 
     #[test]
+    fn current_protocol_reconnects_plays_once_and_finishes_in_shared_replay() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/hanabi-live-current-protocol.json"
+        ))
+        .unwrap();
+        let (mut bot, mut server) = connection();
+        for message in fixture["messages"].as_array().unwrap() {
+            let command = message["command"].as_str().unwrap();
+            let payload = &message["payload"];
+            bot.process_message(command, &payload.to_string())
+                .unwrap_or_else(|error| panic!("{command}: {error}"));
+            match command {
+                "userList" => {
+                    assert_eq!(bot.user_states.len(), 7);
+                    assert!(matches!(
+                        bot.user_states[&3].activity,
+                        UserActivity::SoloReplay
+                    ));
+                }
+                "tableList" => {
+                    assert_eq!(bot.table_states.len(), 4);
+                    assert_eq!(bot.table_id, 42);
+                    assert_eq!(receive(&mut server, "tableReattend"), json!({"tableId":42}));
+                }
+                "tableStarted" => {
+                    assert_eq!(receive(&mut server, "gameInitLoad"), json!({"tableId":42}));
+                }
+                "gameInit" => {
+                    assert_eq!(receive(&mut server, "gameStateLoad"), json!({"tableId":42}));
+                }
+                "gameState" => {
+                    assert_eq!(receive(&mut server, "gameLoaded"), json!({"tableId":42}));
+                    assert_eq!(bot.game_actions.len(), 12);
+                    assert_eq!(bot.game.as_ref().unwrap().current_player_index, Some(1));
+                }
+                "gameEvent" if payload["event"]["turn"] == 2 => {
+                    let action: ActionMessage =
+                        serde_json::from_value(receive(&mut server, "playerAction")).unwrap();
+                    assert_eq!(action.table_id, 42);
+                    bot.act().unwrap();
+                }
+                _ => {}
+            }
+            assert_no_message(&mut server);
+        }
+        assert_eq!(bot.table_states[&42].phase, TablePhase::SharedReplay);
+        assert!(!bot.table_states[&42].has_active_player("test bot"));
+        let game = bot.game.as_ref().unwrap();
+        assert_eq!(
+            (game.status.turn, game.status.score, game.status.clues),
+            (3, 1, 7)
+        );
+        assert!(game.hands.iter().all(|hand| hand.len() == 5));
+        assert_eq!(bot.game_actions.len(), 17);
+        bot.act().unwrap();
+        assert_no_message(&mut server);
+    }
+
+    #[test]
     fn lobby_payloads_from_log_update_state_and_accept_server_chat() {
         let (mut bot, _server) = connection();
         // Minimized, anonymized shapes from bot.log, including fields we ignore.
@@ -1326,7 +1438,7 @@ mod protocol_tests {
         }
         assert!(bot.user_states[&7].inactive);
         assert!(matches!(bot.user_states[&7].activity, UserActivity::Lobby));
-        assert_eq!(bot.table_states[&42].phase, "pregame");
+        assert_eq!(bot.table_states[&42].phase, TablePhase::Pregame);
         assert_eq!(bot.table_id, 0);
         bot.process_message("userLeft", r#"{"userId":7}"#).unwrap();
         bot.process_message("tableGone", r#"{"tableId":42}"#)
@@ -1374,7 +1486,7 @@ mod protocol_tests {
         bot.process_message("user", r#"{"userId":7,"username":"Alice","activity":{"type":"playing","tableId":44},"inactive":false}"#).unwrap();
         bot.process_message(
             "table",
-            r#"{"tableId":44,"phase":"playing","playerNames":["Alice","test bot"]}"#,
+            r#"{"tableId":44,"phase":{"type":"playing"},"playerNames":["Alice","test bot"]}"#,
         )
         .unwrap();
         bot.process_message(
@@ -1385,6 +1497,33 @@ mod protocol_tests {
         assert_eq!(receive(&mut server, "tableReattend"), json!({"tableId":44}));
         assert_eq!(bot.table_id, 44);
         assert_no_message(&mut server);
+    }
+
+    #[test]
+    fn solo_replay_activity_updates_do_not_join_a_private_table() {
+        let (mut bot, mut server) = connection();
+        bot.process_message("user", r#"{"userId":7,"username":"Alice","activity":{"type":"pregame","tableId":42},"inactive":false}"#).unwrap();
+        for activity in ["soloReplay", "replay"] {
+            bot.process_message(
+                "user",
+                &json!({
+                    "userId":7,"username":"Alice","activity":{"type":activity},"inactive":false
+                })
+                .to_string(),
+            )
+            .unwrap();
+            bot.process_message(
+                "chat",
+                r#"{"text":"/join","kind":{"type":"private","author":{"type":"user","username":"Alice"},"recipient":"test bot"}}"#,
+            )
+            .unwrap();
+            assert!(matches!(
+                bot.user_states[&7].activity,
+                UserActivity::SoloReplay
+            ));
+            assert_eq!(bot.table_id, 0);
+            assert_no_message(&mut server);
+        }
     }
 
     #[test]
@@ -1455,12 +1594,20 @@ mod protocol_tests {
 
     #[test]
     fn reconnect_without_joined_flag_prefers_active_membership_over_old_replays() {
-        for phase in ["pregame", "playing"] {
+        for (replay_phase, phase) in [
+            (json!("sharedReplay"), json!("pregame")),
+            (json!("sharedReplay"), json!("playing")),
+            (
+                json!({"type":"sharedReplay","gameId":123}),
+                json!({"type":"pregame"}),
+            ),
+            (json!({"type":"sharedReplay"}), json!({"type":"playing"})),
+        ] {
             let (mut bot, mut server) = connection();
             bot.process_message(
                 "tableList",
                 &json!({"tables":[
-                    {"tableId":41,"phase":"sharedReplay","playerNames":["test bot","Alice"]},
+                    {"tableId":41,"phase":replay_phase,"playerNames":["test bot","Alice"]},
                     {"tableId":42,"phase":phase,"playerNames":["test bot","Alice"]}
                 ]})
                 .to_string(),
@@ -1475,18 +1622,24 @@ mod protocol_tests {
 
     #[test]
     fn reconnect_spectates_old_replay_when_no_active_membership_exists() {
-        let (mut bot, mut server) = connection();
-        bot.process_message(
-            "tableList",
-            &json!({"tables":[
-                {"tableId":41,"phase":"playing","playerNames":["Alice","Bob"]},
-                {"tableId":42,"phase":"sharedReplay","playerNames":["test bot","Alice"]}
-            ]})
-            .to_string(),
-        )
-        .unwrap();
-        assert_eq!(receive(&mut server, "tableSpectate"), json!({"tableId":42}));
-        assert_no_message(&mut server);
+        for phase in [
+            json!("sharedReplay"),
+            json!({"type":"sharedReplay","gameId":123}),
+            json!({"type":"sharedReplay"}),
+        ] {
+            let (mut bot, mut server) = connection();
+            bot.process_message(
+                "tableList",
+                &json!({"tables":[
+                    {"tableId":41,"phase":{"type":"playing"},"playerNames":["Alice","Bob"]},
+                    {"tableId":42,"phase":phase,"playerNames":["test bot","Alice"]}
+                ]})
+                .to_string(),
+            )
+            .unwrap();
+            assert_eq!(receive(&mut server, "tableSpectate"), json!({"tableId":42}));
+            assert_no_message(&mut server);
+        }
     }
 
     #[test]
@@ -1625,6 +1778,8 @@ mod protocol_tests {
             json!({"type":"spectating"}),
             json!({"type":"shadowing","ourPlayerIndex":0}),
             json!({"type":"replay","ourPlayerIndex":0}),
+            json!({"type":"soloReplay","gameId":123,"ourPlayerIndex":0}),
+            json!({"type":"soloReplay"}),
             json!({"type":"sharedReplay","ourPlayerIndex":0,"sharedReplay":{"turn":0}}),
         ] {
             let (mut bot, mut server) = connection();
@@ -2030,6 +2185,8 @@ mod protocol_tests {
             json!({"type":"spectating"}),
             json!({"type":"shadowing","ourPlayerIndex":1}),
             json!({"type":"replay","ourPlayerIndex":0}),
+            json!({"type":"soloReplay","gameId":123,"ourPlayerIndex":0}),
+            json!({"type":"soloReplay"}),
             json!({"type":"sharedReplay","ourPlayerIndex":0,"sharedReplay":{"turn":0}}),
         ] {
             let mut game = HanabGame::from_message(&init(mode));
