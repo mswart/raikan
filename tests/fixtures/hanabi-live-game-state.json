@@ -1,0 +1,29 @@
+{
+  "tableId": 9282,
+  "events": [
+    {"type":"draw","playerIndex":0,"order":0},
+    {"type":"draw","playerIndex":0,"order":1},
+    {"type":"draw","playerIndex":0,"order":2},
+    {"type":"draw","playerIndex":0,"order":3},
+    {"type":"draw","playerIndex":0,"order":4},
+    {"type":"draw","playerIndex":1,"order":5,"identity":{"suitIndex":2,"rank":2}},
+    {"type":"draw","playerIndex":1,"order":6,"identity":{"suitIndex":1,"rank":1}},
+    {"type":"draw","playerIndex":1,"order":7,"identity":{"suitIndex":3,"rank":1}},
+    {"type":"draw","playerIndex":1,"order":8,"identity":{"suitIndex":0,"rank":2}},
+    {"type":"draw","playerIndex":1,"order":9,"identity":{"suitIndex":1,"rank":2}},
+    {"type":"draw","playerIndex":2,"order":10,"identity":{"suitIndex":4,"rank":1}},
+    {"type":"draw","playerIndex":2,"order":11,"identity":{"suitIndex":3,"rank":3}},
+    {"type":"draw","playerIndex":2,"order":12,"identity":{"suitIndex":3,"rank":4}},
+    {"type":"draw","playerIndex":2,"order":13,"identity":{"suitIndex":2,"rank":4}},
+    {"type":"draw","playerIndex":2,"order":14,"identity":{"suitIndex":1,"rank":4}}
+  ],
+  "notes": [{
+    "username": "hustenated1",
+    "notes": ["","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","",""],
+    "spectator": false
+  }],
+  "votes": {"voted":false,"numVotes":0,"numVotesNeeded":2},
+  "connected": [false,false,true],
+  "clocks": {"playerTimesMs":[0,0,0],"currentPlayerIndex":0,"turnElapsedMs":0},
+  "spectators": []
+}

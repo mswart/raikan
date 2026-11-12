@@ -196,9 +196,15 @@ struct TableJoinMessage {
 #[serde(rename_all = "camelCase")]
 struct TableState {
     table_id: usize,
-    joined: bool,
     phase: String,
     player_names: Vec<String>,
+}
+
+impl TableState {
+    fn has_active_player(&self, username: &str) -> bool {
+        matches!(self.phase.as_str(), "pregame" | "playing")
+            && self.player_names.iter().any(|name| name == username)
+    }
 }
 
 #[derive(Deserialize)]
@@ -241,7 +247,7 @@ struct GameOptions {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct GameActionListMessage {
+struct GameStateMessage {
     table_id: u64,
     events: Vec<GameAction>,
 }
@@ -419,25 +425,26 @@ impl HanabClient {
             "userList" => self.on_user_list(json),
             "user" => self.on_user(json),
             "userInactive" => self.on_user_inactive(json),
-            "userLeft" => self.on_user_left(json),
+            "userRemoved" | "userLeft" => self.on_user_left(json),
 
             "tableList" => self.on_table_list(json),
             "table" => self.on_table(json),
-            "tableGone" => self.on_table_gone(json),
+            "tableRemoved" | "tableGone" => self.on_table_gone(json),
 
             "tableJoined" => self.on_joined(json),
-            "tableLeft" | "tableBoot" => self.on_left(json),
+            "tableLeft" | "tableBooted" | "tableBoot" => self.on_left(json),
             "tableStarted" => self.on_table_start(json),
-            "init" => self.on_init(json),
-            "gameEventList" => self.on_game_action_list(json),
+            "gameInit" | "init" => self.on_init(json),
+            "gameState" | "gameEventList" => self.on_game_state(json),
             "gameEvent" => self.on_action(json),
 
             "replayAction" => self.on_replay_segment(json),
             "clock" | "connected" | "noteList" | "noteListPlayer" | "spectators"
-            | "cardIdentities" | "gameFinished" | "hypothetical" => Ok(()),
+            | "cardIdentities" | "gameFinished" | "hypothetical" | "note" | "voteChanged"
+            | "voteChange" => Ok(()),
 
             _ => {
-                println!("Recived message: {command} / {json}");
+                println!("Received unhandled message: {command} / {json}");
                 Ok(())
             }
         }
@@ -496,15 +503,19 @@ impl HanabClient {
     fn on_table_list(&mut self, json: &str) -> Result<(), serde_json::Error> {
         let tables: TableListMessage = serde_json::from_str(json)?;
         // Prefer an active membership over a replay when reconnecting.
-        let selected = tables.tables.iter().find(|table| table.joined).or_else(|| {
-            tables.tables.iter().find(|table| {
-                table.phase == "sharedReplay" && table.player_names.contains(&self.username)
-            })
-        });
+        let selected = tables
+            .tables
+            .iter()
+            .find(|table| table.has_active_player(&self.username))
+            .or_else(|| {
+                tables.tables.iter().find(|table| {
+                    table.phase == "sharedReplay" && table.player_names.contains(&self.username)
+                })
+            });
         if self.table_id == 0 {
             if let Some(table) = selected {
                 self.table_id = table.table_id;
-                let command = if table.joined {
+                let command = if table.has_active_player(&self.username) {
                     "tableReattend"
                 } else {
                     "tableSpectate"
@@ -560,7 +571,7 @@ impl HanabClient {
                             if self
                                 .table_states
                                 .get(&table_id)
-                                .is_some_and(|table| table.joined) =>
+                                .is_some_and(|table| table.has_active_player(&self.username)) =>
                         {
                             self.table_id = table_id;
                             self.send(
@@ -646,25 +657,29 @@ impl HanabClient {
         Ok(())
     }
 
-    fn on_game_action_list(&mut self, json: &str) -> Result<(), serde_json::Error> {
-        let action_list: GameActionListMessage = serde_json::from_str(json)?;
-        if action_list.table_id != self.table_id as u64 {
+    fn on_game_state(&mut self, json: &str) -> Result<(), serde_json::Error> {
+        // gameState bundles the event history with notes, votes, clocks, and
+        // presence. Public events provide all the state our strategy needs.
+        let state: GameStateMessage = serde_json::from_str(json)?;
+        if state.table_id != self.table_id as u64 {
             return Ok(());
         }
         if let Some(game) = &mut self.game {
             game.reset();
             self.game_actions.clear();
-            for action in action_list.events.iter() {
+            for action in state.events.iter() {
                 game.process_action(action);
                 self.game_actions.push(action.clone());
             }
             let table_id = TableIdMessage {
-                table_id: action_list.table_id as usize,
+                table_id: state.table_id as usize,
             };
+            // The server marks us connected and sends live events only after
+            // this acknowledgement, which must precede our opening move.
             self.send("loaded", &serde_json::to_string(&table_id)?);
             self.act()?;
         } else {
-            eprintln!("Retrieved game action list but I aren't in a game");
+            eprintln!("Received game state before game initialization");
         }
         Ok(())
     }
@@ -1317,15 +1332,178 @@ mod protocol_tests {
     }
 
     #[test]
-    fn reconnect_prefers_joined_game_over_old_replays() {
+    fn reconnect_without_joined_flag_prefers_active_membership_over_old_replays() {
+        for phase in ["pregame", "playing"] {
+            let (mut bot, mut server) = connection();
+            bot.process_message(
+                "tableList",
+                &json!({"tables":[
+                    {"tableId":41,"phase":"sharedReplay","playerNames":["test bot","Alice"]},
+                    {"tableId":42,"phase":phase,"playerNames":["test bot","Alice"]}
+                ]})
+                .to_string(),
+            )
+            .unwrap();
+            assert_eq!(receive(&mut server, "tableReattend"), json!({"tableId":42}));
+            assert_eq!(bot.table_id, 42);
+            assert_eq!(bot.table_states.len(), 2);
+            assert_no_message(&mut server);
+        }
+    }
+
+    #[test]
+    fn reconnect_spectates_old_replay_when_no_active_membership_exists() {
         let (mut bot, mut server) = connection();
-        bot.process_message("tableList", &json!({"tables":[
-            {"tableId":41,"joined":false,"phase":"sharedReplay","playerNames":["test bot","Alice"]},
-            {"tableId":42,"joined":true,"phase":"playing","playerNames":["test bot","Alice"]}
-        ]}).to_string()).unwrap();
-        assert_eq!(receive(&mut server, "tableReattend"), json!({"tableId":42}));
-        assert_eq!(bot.table_id, 42);
-        assert_eq!(bot.table_states.len(), 2);
+        bot.process_message(
+            "tableList",
+            &json!({"tables":[
+                {"tableId":41,"phase":"playing","playerNames":["Alice","Bob"]},
+                {"tableId":42,"phase":"sharedReplay","playerNames":["test bot","Alice"]}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(receive(&mut server, "tableSpectate"), json!({"tableId":42}));
+        assert_no_message(&mut server);
+    }
+
+    #[test]
+    fn reported_game_state_acknowledges_loading_then_sends_the_opening_move() {
+        let (mut bot, mut server) = connection();
+        bot.process_message(
+            "welcome",
+            r#"{"userId":75582,"username":"hustenated1","muted":false}"#,
+        )
+        .unwrap();
+        bot.process_message(
+            "tableList",
+            &json!({"tables":[
+                {"tableId":9282,"phase":"playing","playerNames":["hustenated1","Alice","Bob"]}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            receive(&mut server, "tableReattend"),
+            json!({"tableId":9282})
+        );
+        bot.process_message("tableStarted", r#"{"tableId":9282,"stage":"inProgress"}"#)
+            .unwrap();
+        assert_eq!(
+            receive(&mut server, "gameInitLoad"),
+            json!({"tableId":9282})
+        );
+        let mut game_init = init(json!({"type":"playing","ourPlayerIndex":0}));
+        game_init.table_id = 9282;
+        game_init.player_names = vec!["hustenated1".into(), "Alice".into(), "Bob".into()];
+        bot.process_message("gameInit", &serde_json::to_string(&game_init).unwrap())
+            .unwrap();
+        assert_eq!(
+            receive(&mut server, "gameStateLoad"),
+            json!({"tableId":9282})
+        );
+        assert_no_message(&mut server);
+
+        bot.process_message(
+            "gameState",
+            include_str!("../../tests/fixtures/hanabi-live-game-state.json"),
+        )
+        .unwrap();
+        assert_eq!(receive(&mut server, "loaded"), json!({"tableId":9282}));
+        let action = receive(&mut server, "playerAction");
+        assert_eq!(action["tableId"], 9282);
+        assert_eq!(action["action"]["type"], "clue");
+        let game = bot.game.as_ref().unwrap();
+        assert_eq!(game.status.turn, 0);
+        assert!(game.hands.iter().all(|hand| hand.len() == 5));
+        assert_eq!(bot.game_actions.len(), 15);
+
+        bot.process_message(
+            "connected",
+            r#"{"tableId":9282,"connected":[true,false,true]}"#,
+        )
+        .unwrap();
+        bot.process_message(
+            "clock",
+            r#"{"tableId":9282,"playerTimesMs":[0,0,0],"currentPlayerIndex":0,"turnElapsedMs":0}"#,
+        )
+        .unwrap();
+        bot.act().unwrap();
+        assert_no_message(&mut server);
+    }
+
+    #[test]
+    fn current_game_state_loads_observers_without_sending_moves() {
+        for mode in [
+            json!({"type":"spectating"}),
+            json!({"type":"shadowing","ourPlayerIndex":0}),
+            json!({"type":"replay","ourPlayerIndex":0}),
+            json!({"type":"sharedReplay","ourPlayerIndex":0,"sharedReplay":{"turn":0}}),
+        ] {
+            let (mut bot, mut server) = connection();
+            bot.process_message("gameInit", &serde_json::to_string(&init(mode)).unwrap())
+                .unwrap();
+            assert_eq!(receive(&mut server, "gameStateLoad"), json!({"tableId":42}));
+            bot.process_message("gameState", &json!({
+                "tableId":42,"events":initial_events(),"notes":[],"connected":[false,false],"spectators":[]
+            }).to_string()).unwrap();
+            assert_eq!(receive(&mut server, "loaded"), json!({"tableId":42}));
+            assert_eq!(bot.game_actions.len(), 10);
+            assert_no_message(&mut server);
+        }
+    }
+
+    #[test]
+    fn renamed_removal_and_boot_messages_clear_only_matching_state() {
+        for (user_removed, table_removed, table_booted) in [
+            ("userRemoved", "tableRemoved", "tableBooted"),
+            ("userLeft", "tableGone", "tableBoot"),
+        ] {
+            let (mut bot, mut server) = connection();
+            bot.process_message(
+                "user",
+                r#"{"userId":7,"username":"Alice","activity":{"type":"lobby"},"inactive":false}"#,
+            )
+            .unwrap();
+            bot.process_message(
+                "table",
+                r#"{"tableId":42,"phase":"playing","playerNames":["test bot","Alice"]}"#,
+            )
+            .unwrap();
+            bot.process_message(
+                "gameInit",
+                &serde_json::to_string(&init(json!({"type":"playing","ourPlayerIndex":0})))
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(receive(&mut server, "gameStateLoad"), json!({"tableId":42}));
+            bot.game_actions.push(GameAction::Turn {
+                turn: 1,
+                current_player_index: Some(1),
+            });
+            bot.replay_segment = Some(1);
+
+            for _ in 0..2 {
+                bot.process_message(user_removed, r#"{"userId":7}"#)
+                    .unwrap();
+            }
+            assert!(bot.user_states.is_empty());
+            bot.process_message(table_removed, r#"{"tableId":42}"#)
+                .unwrap();
+            assert!(bot.table_states.is_empty());
+            // Removing a lobby listing does not mean that we left the table.
+            assert!(bot.game.is_some());
+            bot.process_message(table_booted, r#"{"tableId":99}"#)
+                .unwrap();
+            assert!(bot.game.is_some());
+            bot.process_message(table_booted, r#"{"tableId":42}"#)
+                .unwrap();
+            assert_eq!(bot.table_id, 0);
+            assert!(bot.game.is_none());
+            assert!(bot.game_actions.is_empty());
+            assert!(bot.replay_segment.is_none());
+            assert_no_message(&mut server);
+        }
     }
 
     #[test]
@@ -1402,7 +1580,7 @@ mod protocol_tests {
         let history = json!({"tableId":42,"events":events}).to_string();
         // A repeated snapshot replaces, rather than duplicates, the state.
         for _ in 0..2 {
-            bot.process_message("gameEventList", &history).unwrap();
+            bot.process_message("gameState", &history).unwrap();
             assert_eq!(receive(&mut server, "loaded"), json!({"tableId":42}));
             assert_eq!(bot.game_actions.len(), 11);
             assert_eq!(bot.game.as_ref().unwrap().hands[0].len(), 5);
@@ -1478,7 +1656,7 @@ mod protocol_tests {
         assert_eq!(receive(&mut server, "gameStateLoad"), json!({"tableId":42}));
         // The reported reconnect payload, with only the table ID normalized.
         let history = include_str!("../../tests/fixtures/hanabi-live-reconnect.json");
-        bot.process_message("gameEventList", history).unwrap();
+        bot.process_message("gameState", history).unwrap();
         assert_eq!(receive(&mut server, "loaded"), json!({"tableId":42}));
         let action: ActionMessage =
             serde_json::from_value(receive(&mut server, "playerAction")).unwrap();
