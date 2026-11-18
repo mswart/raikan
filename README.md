@@ -29,6 +29,12 @@ The web client supports one table at a time, using the standard `No Variant`
 rules. It uses Hanabi Live's current lobby and game-event protocol; spectators
 and replay viewers do not send moves.
 
+The client follows the [November 14, 2026 protocol contracts](https://github.com/Hanabi-Live/hanabi-live/tree/1701eb99677f/server/protocol/src).
+WebSocket requests use JSON frames with request IDs and correlated replies.
+The client loads game setup after `tableJoined`, applies each batch of live
+events before choosing a move, and replaces its history with the complete
+replay when `gameFinished` arrives. Paused games wait for a resume notification.
+
 ## H-Group rule support
 
 Support is partial and varies by convention. This overview covers levels 1–9,

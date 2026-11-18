@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Update the web client for Hanabi Live's November 12–14 protocol changes:
+  JSON request/reply frames, game setup replies, staged table entry, batched
+  game events, nested replay/pause state, and complete finished-game histories.
+- Ignore stale setup replies after leaving or changing tables, report refused
+  requests, and cover the current wire protocol with a reconnect/play/replay fixture.
+
 - Deal four cards per player in five-player games and replays, matching the
   game engine's hand layout.
 

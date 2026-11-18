@@ -51,6 +51,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         game: None,
         game_actions: Vec::with_capacity(256),
         replay_segment: None,
+        next_request_id: 1,
+        pending_requests: BTreeMap::new(),
     };
     client.run();
     Ok(())
@@ -121,6 +123,27 @@ struct ServerNotice {
     message: String,
 }
 
+// Each WebSocket frame is a JSON object. Replies identify the request, not
+// its command or table; retain that context until the reply arrives.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ServerFrame {
+    Event {
+        event: String,
+        data: serde_json::Value,
+    },
+    Reply {
+        reply: u64,
+        data: Option<serde_json::Value>,
+        error: Option<ServerNotice>,
+    },
+}
+
+struct PendingRequest {
+    command: String,
+    table_id: Option<usize>,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct WelcomeMessage {
@@ -185,6 +208,23 @@ struct UserLeftMessage {
 #[serde(rename_all = "camelCase")]
 struct TableIdMessage {
     table_id: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TableJoinedMessage {
+    table_id: usize,
+    // Older notifications did not include a stage.
+    stage: Option<TableStage>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum TableStage {
+    Pregame,
+    JustStarted,
+    Playing,
+    Replay,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -286,6 +326,9 @@ struct ChatMessage {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct InitMessage {
+    // Legacy gameInit events included the table; current replies get it from
+    // the matching gameInitLoad request instead.
+    #[serde(default)]
     table_id: u64,
     player_names: Vec<String>,
     mode: ViewMode,
@@ -311,13 +354,66 @@ struct GameOptions {
 struct GameStateMessage {
     table_id: u64,
     events: Vec<GameAction>,
+    phase: Option<GamePhase>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct GameActionMessage {
     table_id: u64,
-    event: GameAction,
+    #[serde(flatten)]
+    batch: GameEventBatch,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+enum GameEventBatch {
+    Current { events: Vec<GameAction> },
+    Legacy { event: GameAction },
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+enum GamePhase {
+    Playing {
+        pause: PauseState,
+    },
+    Replay {
+        shared_replay: Option<SharedReplayState>,
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct SharedReplayState {
+    turn: u8,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct PauseState {
+    pausing_player_index: Option<u8>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PauseMessage {
+    table_id: u64,
+    #[serde(flatten)]
+    pause: PauseState,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GameFinishedMessage {
+    table_id: u64,
+    // The current server sends the entire unhidden history on completion.
+    // Older servers sent only replay metadata.
+    events: Option<Vec<GameAction>>,
+    shared_replay: SharedReplayState,
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
@@ -438,6 +534,8 @@ struct HanabClient {
     game: Option<HanabGame>,
     game_actions: Vec<GameAction>,
     replay_segment: Option<u8>,
+    next_request_id: u64,
+    pending_requests: BTreeMap<u64, PendingRequest>,
 }
 
 impl HanabClient {
@@ -453,16 +551,8 @@ impl HanabClient {
                         }
                     },
                     Message::Text(text) => {
-                        let (command, json) = text
-                            .split_once(' ')
-                            .expect("Websocket message must be 'command JSON'");
-                        match self.process_message(command, json) {
-                            Ok(_) => {}
-                            Err(error) => {
-                                println!(
-                                    "Failed to process {command} message: {error} from {json}"
-                                );
-                            }
+                        if let Err(error) = self.process_frame(&text) {
+                            eprintln!("Failed to process WebSocket frame: {error}");
                         }
                     }
                     _ => {
@@ -475,6 +565,38 @@ impl HanabClient {
                     println!("Error recving message {}", error);
                     return;
                 }
+            }
+        }
+    }
+
+    fn process_frame(&mut self, text: &str) -> Result<(), serde_json::Error> {
+        match serde_json::from_str::<ServerFrame>(text)? {
+            ServerFrame::Event { event, data } => self.process_message(&event, &data.to_string()),
+            ServerFrame::Reply { reply, data, error } => {
+                let Some(request) = self.pending_requests.remove(&reply) else {
+                    // A reply can outlive the table it initialized.
+                    return Ok(());
+                };
+                if let Some(error) = error {
+                    eprintln!("Request {} failed: {}", request.command, error.message);
+                    if request.table_id == Some(self.table_id)
+                        && self.game.is_none()
+                        && matches!(
+                            request.command.as_str(),
+                            "tableJoin" | "tableReattend" | "tableSpectate"
+                        )
+                    {
+                        self.table_id = 0;
+                    }
+                    return Ok(());
+                }
+                if request.command == "gameInitLoad" && request.table_id == Some(self.table_id) {
+                    let mut init: InitMessage =
+                        serde_json::from_value(data.unwrap_or(serde_json::Value::Null))?;
+                    init.table_id = self.table_id as u64;
+                    self.initialize_game(init)?;
+                }
+                Ok(())
             }
         }
     }
@@ -505,6 +627,8 @@ impl HanabClient {
             "gameInit" | "init" => self.on_init(json),
             "gameState" | "gameEventList" => self.on_game_state(json),
             "gameEvent" => self.on_action(json),
+            "gameFinished" => self.on_game_finished(json),
+            "pause" => self.on_pause(json),
 
             "replayAction" => self.on_replay_segment(json),
             "clock"
@@ -514,7 +638,6 @@ impl HanabClient {
             | "noteListPlayer"
             | "spectators"
             | "cardIdentities"
-            | "gameFinished"
             | "hypothetical"
             | "note"
             | "voteChanged"
@@ -523,7 +646,15 @@ impl HanabClient {
             | "tableOwner"
             | "tableRestartDecliners"
             | "tableRestartDeclined"
-            | "tableSuggestion" => Ok(()),
+            | "tableSuggestion"
+            | "tableSettingsSuggestion"
+            | "chatDeleted"
+            | "gameHistoryAdded"
+            | "friends"
+            | "blocked"
+            | "idleWarning"
+            | "idleReset"
+            | "serverShutdown" => Ok(()),
 
             _ => {
                 println!("Received unhandled message: {command} / {json}");
@@ -705,18 +836,36 @@ impl HanabClient {
     }
 
     fn on_joined(&mut self, json: &str) -> Result<(), serde_json::Error> {
-        let table: TableIdMessage = serde_json::from_str(json)?;
+        let table: TableJoinedMessage = serde_json::from_str(json)?;
+        self.clear_game();
         self.table_id = table.table_id;
+        if matches!(
+            table.stage,
+            Some(TableStage::JustStarted | TableStage::Playing | TableStage::Replay)
+        ) {
+            self.send(
+                "gameInitLoad",
+                &serde_json::to_string(&TableIdMessage {
+                    table_id: table.table_id,
+                })?,
+            );
+        }
         Ok(())
+    }
+
+    fn clear_game(&mut self) {
+        self.game = None;
+        self.game_actions.clear();
+        self.replay_segment = None;
+        self.pending_requests
+            .retain(|_, request| request.command != "gameInitLoad");
     }
 
     fn on_left(&mut self, json: &str) -> Result<(), serde_json::Error> {
         let table: TableIdMessage = serde_json::from_str(json)?;
         if table.table_id == self.table_id {
             self.table_id = 0;
-            self.game = None;
-            self.game_actions.clear();
-            self.replay_segment = None;
+            self.clear_game();
         }
         Ok(())
     }
@@ -730,12 +879,16 @@ impl HanabClient {
 
     fn on_init(&mut self, json: &str) -> Result<(), serde_json::Error> {
         let init: InitMessage = serde_json::from_str(json)?;
+        self.initialize_game(init)
+    }
+
+    fn initialize_game(&mut self, init: InitMessage) -> Result<(), serde_json::Error> {
         self.table_id = init.table_id as usize;
         let table_id = TableIdMessage {
             table_id: init.table_id as usize,
         };
         if init.options.variant_id != 0 {
-            self.game = None;
+            self.clear_game();
             eprintln!("Unsupported game variant: {}", init.options.variant_id);
             return Ok(());
         }
@@ -760,6 +913,16 @@ impl HanabClient {
                 game.process_action(action);
                 self.game_actions.push(action.clone());
             }
+            match state.phase {
+                Some(GamePhase::Playing { pause }) => {
+                    game.paused = pause.pausing_player_index.is_some();
+                }
+                Some(GamePhase::Replay { shared_replay }) => {
+                    game.can_act = false;
+                    self.replay_segment = shared_replay.map(|replay| replay.turn);
+                }
+                None => {}
+            }
             let table_id = TableIdMessage {
                 table_id: state.table_id as usize,
             };
@@ -779,11 +942,53 @@ impl HanabClient {
             return Ok(());
         }
         if let Some(game) = &mut self.game {
-            game.process_action(&action.event);
-            self.game_actions.push(action.event);
+            let events = match action.batch {
+                GameEventBatch::Current { events } => events,
+                GameEventBatch::Legacy { event } => vec![event],
+            };
+            // A move includes its draw and turn change. Never act on a partial
+            // batch, especially one that ends the game.
+            for event in events {
+                game.process_action(&event);
+                self.game_actions.push(event);
+            }
             self.act()?;
         } else {
             println!("Retrieved game action but I aren't in a game");
+        }
+        Ok(())
+    }
+
+    fn on_game_finished(&mut self, json: &str) -> Result<(), serde_json::Error> {
+        let finished: GameFinishedMessage = serde_json::from_str(json)?;
+        if finished.table_id != self.table_id as u64 {
+            return Ok(());
+        }
+        if let Some(game) = &mut self.game {
+            game.can_act = false;
+            if let Some(events) = finished.events {
+                game.reset();
+                for event in &events {
+                    game.process_action(event);
+                }
+                self.game_actions = events;
+            }
+            game.current_player_index = None;
+        }
+        self.replay_segment = Some(finished.shared_replay.turn);
+        if let Some(table) = self.table_states.get_mut(&self.table_id) {
+            table.phase = TablePhase::SharedReplay;
+        }
+        Ok(())
+    }
+
+    fn on_pause(&mut self, json: &str) -> Result<(), serde_json::Error> {
+        let pause: PauseMessage = serde_json::from_str(json)?;
+        if pause.table_id == self.table_id as u64 {
+            if let Some(game) = &mut self.game {
+                game.paused = pause.pause.pausing_player_index.is_some();
+                self.act()?;
+            }
         }
         Ok(())
     }
@@ -811,10 +1016,23 @@ impl HanabClient {
     }
 
     fn send(&mut self, command: &str, body: &str) {
-        println!("==> {command} {body}");
-        let message = Message::Text(format!("{} {}", command, body).into());
+        let data: serde_json::Value = serde_json::from_str(body).expect("request data is JSON");
+        let id = self.next_request_id;
+        self.next_request_id += 1;
+        let request = PendingRequest {
+            command: command.to_owned(),
+            table_id: data
+                .get("tableId")
+                .and_then(serde_json::Value::as_u64)
+                .map(|id| id as usize),
+        };
+        let frame = serde_json::json!({"id":id,"request":command,"data":data});
+        println!("==> {frame}");
+        let message = Message::Text(frame.to_string().into());
         match self.client.send(message) {
-            Ok(()) => {}
+            Ok(()) => {
+                self.pending_requests.insert(id, request);
+            }
             Err(error) => {
                 eprintln!("Could not send message to server: {error}");
             }
@@ -835,6 +1053,7 @@ struct HanabGame {
     variant: Variant,
     current_player_index: Option<u8>,
     can_act: bool,
+    paused: bool,
     discarded_copies: [[u8; 5]; 5],
     status: game::GameStatus,
 }
@@ -858,6 +1077,7 @@ impl HanabGame {
             variant: Variant {},
             current_player_index: Some(0),
             can_act: init.mode.kind == "playing" && init.mode.our_player_index.is_some(),
+            paused: false,
             discarded_copies: [[0; 5]; 5],
             status: game::GameStatus {
                 turn: 0,
@@ -883,6 +1103,7 @@ impl HanabGame {
         // server emits its first turn event. Later history events override this
         // opening turn, and the client waits for the full history before acting.
         self.current_player_index = Some(0);
+        self.paused = false;
         self.discarded_copies = [[0; 5]; 5];
         self.status = game::GameStatus {
             turn: 0,
@@ -900,7 +1121,7 @@ impl HanabGame {
     }
 
     fn act(&mut self, table_id: u64) -> Option<ActionMessage> {
-        if !self.can_act || self.current_player_index != Some(self.own_player) {
+        if !self.can_act || self.paused || self.current_player_index != Some(self.own_player) {
             return None;
         }
         self.current_player_index = None;
@@ -1288,16 +1509,24 @@ mod protocol_tests {
                 game: None,
                 game_actions: Vec::new(),
                 replay_segment: None,
+                next_request_id: 1,
+                pending_requests: BTreeMap::new(),
             },
             WebSocket::from_raw_socket(server, Role::Server, None),
         )
     }
 
     fn receive(server: &mut WebSocket<TcpStream>, expected_command: &str) -> Value {
+        receive_frame(server, expected_command)["data"].clone()
+    }
+
+    fn receive_frame(server: &mut WebSocket<TcpStream>, expected_command: &str) -> Value {
         let message = server.read().unwrap().into_text().unwrap();
-        let (command, body) = message.split_once(' ').unwrap();
-        assert_eq!(command, expected_command);
-        serde_json::from_str(body).unwrap()
+        let frame: Value = serde_json::from_str(&message).unwrap();
+        assert_eq!(frame["request"], expected_command);
+        assert!(frame["id"].as_u64().is_some_and(|id| id > 0));
+        assert_eq!(frame.as_object().unwrap().len(), 3);
+        frame
     }
 
     fn assert_no_message(server: &mut WebSocket<TcpStream>) {
@@ -1339,6 +1568,226 @@ mod protocol_tests {
             game_event(&mut game, event);
         }
         game
+    }
+
+    #[test]
+    fn json_frames_reconnect_play_and_rebuild_the_finished_game() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/hanabi-live-json-frames.json"
+        ))
+        .unwrap();
+        let (mut bot, mut server) = connection();
+        let mut expected_id = 1;
+        for frame in fixture["frames"].as_array().unwrap() {
+            bot.process_frame(&frame.to_string()).unwrap();
+            let request = match (frame["event"].as_str(), frame["reply"].as_u64()) {
+                (Some("tableList"), _) => Some("tableReattend"),
+                (Some("tableJoined"), _) => Some("gameInitLoad"),
+                (_, Some(2)) => Some("gameStateLoad"),
+                (Some("gameState"), _) => Some("gameLoaded"),
+                (Some("gameEvent"), _) if frame["data"]["events"][2]["turn"] == 2 => {
+                    let game = bot.game.as_ref().unwrap();
+                    assert_eq!((game.status.score, game.status.turn), (1, 2));
+                    assert_eq!(game.hands[1].len(), 5);
+                    assert_eq!(game.hands[1][0].index, 10);
+                    Some("playerAction")
+                }
+                (Some("gameFinished"), _) => {
+                    assert_eq!(bot.game_actions.len(), 18);
+                    // The finished history replaces hidden draws with identities.
+                    assert_eq!(
+                        serde_json::to_value(&bot.game_actions[0]).unwrap(),
+                        frame["data"]["events"][0]
+                    );
+                    assert_eq!(bot.replay_segment, Some(3));
+                    assert!(!bot.game.as_ref().unwrap().can_act);
+                    None
+                }
+                _ => None,
+            };
+            if let Some(command) = request {
+                let outgoing = receive_frame(&mut server, command);
+                assert_eq!(outgoing["id"], expected_id);
+                assert_eq!(outgoing["data"]["tableId"], 42);
+                if command == "playerAction" {
+                    serde_json::from_value::<ActionMessage>(outgoing["data"].clone()).unwrap();
+                }
+                expected_id += 1;
+            }
+            assert_no_message(&mut server);
+        }
+        assert_eq!(expected_id, 6);
+        assert!(bot.pending_requests.is_empty());
+        assert_eq!(bot.table_states[&42].phase, TablePhase::SharedReplay);
+        assert_eq!(bot.replay_segment, Some(1));
+        let game = bot.game.as_ref().unwrap();
+        assert_eq!(
+            (game.status.turn, game.status.score, game.status.clues),
+            (3, 1, 7)
+        );
+        assert!(game.hands.iter().all(|hand| hand.len() == 5));
+        bot.act().unwrap();
+        assert_no_message(&mut server);
+    }
+
+    #[test]
+    fn table_joined_loads_started_games_and_replays_but_waits_in_pregame() {
+        for stage in ["pregame", "justStarted", "playing", "replay"] {
+            let (mut bot, mut server) = connection();
+            bot.game = Some(dealt_game());
+            bot.replay_segment = Some(3);
+            bot.process_frame(
+                &json!({"event":"tableJoined","data":{"tableId":42,"stage":stage}}).to_string(),
+            )
+            .unwrap();
+            assert_eq!(bot.table_id, 42);
+            assert!(bot.game.is_none());
+            assert!(bot.replay_segment.is_none());
+            if stage != "pregame" {
+                assert_eq!(receive(&mut server, "gameInitLoad"), json!({"tableId":42}));
+            }
+            assert_no_message(&mut server);
+        }
+    }
+
+    #[test]
+    fn setup_replies_are_correlated_and_cannot_restore_a_departed_table() {
+        let (mut bot, mut server) = connection();
+        for table in [42, 99] {
+            bot.process_frame(
+                &json!({"event":"tableJoined","data":{"tableId":table,"stage":"playing"}})
+                    .to_string(),
+            )
+            .unwrap();
+            assert_eq!(
+                receive(&mut server, "gameInitLoad"),
+                json!({"tableId":table})
+            );
+        }
+        let mut setup =
+            serde_json::to_value(init(json!({"type":"playing","ourPlayerIndex":0}))).unwrap();
+        setup.as_object_mut().unwrap().remove("tableId");
+        // The old reply has no table ID, and must not initialize the new table.
+        bot.process_frame(&json!({"reply":1,"data":setup}).to_string())
+            .unwrap();
+        assert!(bot.game.is_none());
+        assert_no_message(&mut server);
+        bot.process_frame(&json!({"reply":2,"data":setup}).to_string())
+            .unwrap();
+        assert!(bot.game.is_some());
+        assert_eq!(receive(&mut server, "gameStateLoad"), json!({"tableId":99}));
+        // A duplicate reply and an unrelated acknowledgement have no effect.
+        for frame in [json!({"reply":2,"data":setup}), json!({"reply":3})] {
+            bot.process_frame(&frame.to_string()).unwrap();
+            assert_no_message(&mut server);
+        }
+        bot.process_frame(r#"{"event":"tableJoined","data":{"tableId":99,"stage":"justStarted"}}"#)
+            .unwrap();
+        assert_eq!(receive(&mut server, "gameInitLoad"), json!({"tableId":99}));
+        bot.process_frame(r#"{"event":"tableLeft","data":{"tableId":99}}"#)
+            .unwrap();
+        bot.process_frame(&json!({"reply":4,"data":setup}).to_string())
+            .unwrap();
+        assert_eq!(bot.table_id, 0);
+        assert!(bot.game.is_none());
+        assert!(bot.pending_requests.is_empty());
+        assert_no_message(&mut server);
+    }
+
+    #[test]
+    fn refused_requests_and_malformed_frames_do_not_initialize_a_game() {
+        let (mut bot, mut server) = connection();
+        for malformed in [
+            "welcome {}",
+            "{",
+            "null",
+            "{}",
+            r#"{"reply":"1"}"#,
+            r#"{"event":"welcome","data":{}}"#,
+        ] {
+            assert!(bot.process_frame(malformed).is_err());
+        }
+        bot.process_frame(r#"{"event":"tableJoined","data":{"tableId":42,"stage":"playing"}}"#)
+            .unwrap();
+        receive(&mut server, "gameInitLoad");
+        bot.process_frame(r#"{"reply":1,"error":{"message":"You are not at this table."}}"#)
+            .unwrap();
+        assert!(bot.game.is_none());
+        assert!(bot.pending_requests.is_empty());
+        bot.send("tableJoin", r#"{"tableId":42,"password":"secret"}"#);
+        receive(&mut server, "tableJoin");
+        bot.process_frame(r#"{"reply":2,"error":{"message":"Incorrect password."}}"#)
+            .unwrap();
+        assert_eq!(bot.table_id, 0);
+        assert!(bot.pending_requests.is_empty());
+        bot.process_frame(
+            r#"{"event":"welcome","data":{"userId":7,"username":"bot","muted":false}}"#,
+        )
+        .unwrap();
+        assert_eq!(bot.user_id, 7);
+        assert_no_message(&mut server);
+    }
+
+    #[test]
+    fn batched_events_apply_completely_before_acting_and_ignore_other_tables() {
+        let (mut bot, mut server) = connection();
+        bot.table_id = 42;
+        bot.game = Some(dealt_game());
+        bot.process_frame(r#"{"event":"gameEvent","data":{"tableId":99,"events":[{"type":"turn","turn":2,"currentPlayerIndex":0}]}}"#).unwrap();
+        assert_eq!(bot.game.as_ref().unwrap().status.turn, 0);
+        assert!(bot.game_actions.is_empty());
+        bot.process_frame(r#"{"event":"gameEvent","data":{"tableId":42,"events":[{"type":"turn","turn":2,"currentPlayerIndex":0},{"type":"gameOver","endCondition":"terminatedByVote","voters":[0,1]}]}}"#).unwrap();
+        assert_eq!(bot.game.as_ref().unwrap().status.turn, 2);
+        assert_eq!(bot.game_actions.len(), 2);
+        assert!(!bot.game.as_ref().unwrap().can_act);
+        assert_no_message(&mut server);
+    }
+
+    #[test]
+    fn replay_snapshots_restore_the_cursor_and_never_send_moves() {
+        let (mut bot, mut server) = connection();
+        bot.table_id = 42;
+        bot.game = Some(dealt_game());
+        bot.process_frame(
+            &json!({"event":"gameState","data":{
+                "tableId":42,"events":initial_events(),
+                "phase":{"type":"replay","deck":[],"sharedReplay":{"turn":4}}
+            }})
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(receive(&mut server, "gameLoaded"), json!({"tableId":42}));
+        assert_eq!(bot.replay_segment, Some(4));
+        assert!(!bot.game.as_ref().unwrap().can_act);
+        assert_no_message(&mut server);
+    }
+
+    #[test]
+    fn paused_snapshots_wait_for_resume_before_sending_a_move() {
+        let (mut bot, mut server) = connection();
+        bot.table_id = 42;
+        bot.game = Some(dealt_game());
+        bot.process_frame(
+            &json!({"event":"gameState","data":{
+                "tableId":42,"events":initial_events(),
+                "phase":{"type":"playing","pause":{"pausingPlayerIndex":1,"queued":false}}
+            }})
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(receive(&mut server, "gameLoaded"), json!({"tableId":42}));
+        assert_no_message(&mut server);
+        bot.process_frame(r#"{"event":"pause","data":{"tableId":99,"queued":false}}"#)
+            .unwrap();
+        assert!(bot.game.as_ref().unwrap().paused);
+        assert_no_message(&mut server);
+        bot.process_frame(r#"{"event":"pause","data":{"tableId":42,"queued":false}}"#)
+            .unwrap();
+        assert_eq!(receive(&mut server, "playerAction")["tableId"], 42);
+        bot.process_frame(r#"{"event":"pause","data":{"tableId":42,"queued":false}}"#)
+            .unwrap();
+        bot.act().unwrap();
+        assert_no_message(&mut server);
     }
 
     #[test]
