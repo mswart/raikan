@@ -29,8 +29,7 @@ The web client supports one table at a time. It plays `No Variant` and other
 variants with plain suits only (e.g. 3, 4 or 6 suits). Special suits such as
 rainbow, white or black have no convention adaptations yet and are refused
 unless `RAIKAN_EXPERIMENTAL_VARIANTS=1` is set. `RAIKAN_LEVEL=<n>` caps the
-H-Group level (default 9). `RAIKAN_BOT=legacy` switches to the previous
-implementation (No Variant only). It uses Hanabi Live's current lobby and game-event protocol; spectators
+H-Group level (default 9). It uses Hanabi Live's current lobby and game-event protocol; spectators
 and replay viewers do not send moves.
 
 The client follows the [November 14, 2026 protocol contracts](https://github.com/Hanabi-Live/hanabi-live/tree/1701eb99677f/server/protocol/src).
@@ -76,9 +75,8 @@ supported; variant-specific rules are not implemented.
   card; fixes and supported stalls remain available. Early-game play/save clues,
   including double-chop 2 saves, take precedence over a 5 stall or unknown discard.
 
-Focused regression tests live in [fundamentals.rs](src/hyphenated/fundamentals.rs),
-with replay coverage in [line_tests.rs](tests/line_tests.rs). The advanced
-connection and recovery limitations described under later levels still apply.
+Scenarios live in [tests/scenarios](tests/scenarios) (one file per rule case). The
+advanced connection and recovery limitations described under later levels still apply.
 
 ### Level 2 — Basic Moves
 
@@ -98,9 +96,8 @@ connection and recovery limitations described under later levels still apply.
   are trash. One-away cards need a valid connection to receive a play clue.
   Cluing an existing finesse must add value to justify spending a token.
 
-Focused coverage is in [basic_moves.rs](src/hyphenated/basic_moves.rs), including
-all supported player counts and seat rotations, with additional replay cases in
-[line_tests.rs](tests/line_tests.rs).
+Connections are found by the [locator](src/conventions/locator.rs); open readings react
+to later plays, discards and clues in [records.rs](src/conventions/records.rs).
 
 ### Level 3 — Basic Strategy
 
@@ -125,9 +122,7 @@ all supported player counts and seat rotations, with additional replay cases in
   identities, and connecting cards stay constrained until evidence narrows them
   or a direct conflict requires correction; literal evidence remains intact.
 
-Focused coverage is in [basic_strategy_tests.rs](src/hyphenated/basic_strategy_tests.rs),
-including independent player views and all supported player counts for 1s order.
-The action search remains bounded; level 3 does not add the dedicated end-game
+These rules live in [rules.rs](src/conventions/rules.rs). The action choice remains bounded; level 3 does not add the dedicated end-game
 planning described under level 8.
 
 ### Level 4 — Chop Moves
@@ -198,13 +193,14 @@ planning described under level 8.
 
 ### Implementation and search limits
 
-Clue interpretation and card knowledge live in
-[line.rs](src/hyphenated/line.rs) and
-[interpretation.rs](src/hyphenated/interpretation.rs); stall classification lives
-in [stall.rs](src/hyphenated/stall.rs). Regression cases are in
-[line_tests.rs](tests/line_tests.rs) and the modules' unit tests.
+Each seat's interpretation is a [View](src/conventions/view.rs) that folds observed
+events into notes; clues are read in [clue.rs](src/conventions/clue.rs) and stall
+classification lives in [stall.rs](src/conventions/stall.rs). Which rules are active is
+decided by the [profile](src/conventions/profile.rs) compiled from the level cap.
+Regression cases are the [scenarios](tests/scenarios), a
+[golden self-play corpus](tests/golden_selfplay.rs) and the modules' unit tests.
 
-[Action search](src/hyphenated/search.rs) averages possible own-card identities
+The [blueprint policy](src/policy/blueprint.rs) averages possible own-card identities
 using remaining copy counts. It preserves ordinary action priorities unless a
 forecast identifies an emergency; background risk on an unknown chop alone does
 not trigger a change. Future draws and final-turn limits are not modeled.
@@ -215,21 +211,19 @@ minimization would apply to uncertain outcomes, not opposing players.
 
 ## Architecture
 
-The bot is being moved to the design in [docs/architecture.md](docs/architecture.md):
-layered modules (`domain`, `variants`, `engine`, `knowledge`, `conventions`, `policy`,
-`agent`, `adapters`), absolute seats and card ids, a variant catalogue taken from
-hanab.live, and a convention profile compiled from the H-Group level. The current
-feature set runs on the new layers and reproduces the previous implementation exactly
-for 2–4 players. The previous implementation (`game`, `hyphenated`) remains as the
-reference until its tests are ported; see [docs/parity.md](docs/parity.md).
+The code follows the design in [docs/architecture.md](docs/architecture.md): layered
+modules (`domain`, `variants`, `engine`, `knowledge`, `conventions`, `policy`, `agent`,
+`adapters`), absolute seats and card ids, a variant catalogue taken from hanab.live, and
+a convention profile compiled from the H-Group level. The port reproduced the previous
+implementation exactly for 2–4 players before it was removed; see
+[docs/parity.md](docs/parity.md) for results and the remaining gaps.
 
 ## Command line
 
 ```sh
 raikan selfplay [SEED] [--players N] [--variant NAME] [--level L] [--trace FILE.jsonl]
-raikan stats [--players N] [--games G] [--seed-start S] [--bot new|legacy] [--variant NAME] [--level L]
+raikan stats [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L]
 raikan diff OLD.list NEW.list      # first game whose score dropped, with the bot's view
-raikan lockstep [--players N] [--games G]   # first decision where new and legacy bots differ
 ```
 
 `stats` prints one line per game (`seed outcome score max turns blind-plays replay-url`)
@@ -252,20 +246,18 @@ Release builds use thin LTO and a single code generation unit.
 A deterministic single-thread benchmark supports smaller comparisons:
 
 ```sh
-cargo bench --bench simulation -- 100 4 --bot new
+cargo bench --bench simulation -- 100 4
 cargo bench --bench simulation -- 100 4 --allocations
 ```
 
-The arguments are game count and player count; `--bot` selects `new` (the new
-architecture), `legacy` (the previous bot on the new engine) or `old` (the previous bot
-and engine, the default). The replay checksum covers every
+The arguments are game count and player count. The replay checksum covers every
 move, so equal checksums verify that an optimization preserved the sampled games.
 Allocation counts include reallocations; requested bytes are cumulative, not
 peak memory. Use the run without allocation counting for timing.
 
-Search shares immutable clue-history snapshots, keeps short connection chains
-and scratch buffers inline, and represents card possibilities as bitsets.
-Candidate clues reuse interpreted player views. An optimistic score bound skips
+Views share immutable clue-history snapshots, keep short connection chains inline,
+cache play-state sets, and represent card possibilities as bitsets. An optimistic grade
+skips
 full safety checks and forecasts only when the clue cannot affect action
 selection, stall precedence, or minimum clue value.
 
@@ -273,10 +265,10 @@ selection, stall precedence, or minimum clue value.
 
 Raikan (as a library) offers a few different functions:
 
-1. A hanabi game implementation (using a Player interface for strategy implementations).
-   The interface is tried to keep simple/state less. Each player implementation should do state tracking according to its needs.
-2. Helper functions to do game state tracking (e.g. represent possible card options)
-3. An H-Group rules following player ipmlementation.
+1. A variant-aware Hanabi engine (`variants`, `engine`) with hanab.live replay import and
+   export, and a self-play runner over the `agent::Agent` trait.
+2. Convention-free knowledge tracking and world sampling (`knowledge`).
+3. An H-Group player (`agent::BotAgent`) with a configurable level cap.
 
 
 ## Project status

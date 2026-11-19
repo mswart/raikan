@@ -1,10 +1,8 @@
 use std::collections::{BTreeMap, VecDeque};
 
-use raikan::adapters::legacy::LegacyAgent;
 use raikan::agent::{Agent, BotAgent, Config};
 use raikan::domain::{CardId, CardSet, Seat};
 use raikan::engine::{self, Action, EndReason, Event, GameState};
-use raikan::game;
 use raikan::variants::{ClueValue, Variant};
 use serde::{Deserialize, Serialize};
 use std::net::TcpStream;
@@ -1054,22 +1052,26 @@ struct Slot {
     index: u8,
 }
 
-/// Which bot plays: the H-Group bot of the new architecture or the legacy one.
-/// Chosen with `RAIKAN_BOT=legacy` and `RAIKAN_LEVEL=<n>`.
+/// The bot: H-Group conventions capped at `RAIKAN_LEVEL=<n>` (default 9).
 fn new_agent() -> Box<dyn Agent> {
-    match std::env::var("RAIKAN_BOT").as_deref() {
-        Ok("legacy") => Box::new(LegacyAgent::hyphenated()),
-        _ => {
-            let mut config = Config::default();
-            if let Some(level) = std::env::var("RAIKAN_LEVEL")
-                .ok()
-                .and_then(|l| l.parse().ok())
-            {
-                config.max_level = level;
-            }
-            Box::new(BotAgent::new(config))
-        }
+    let mut config = Config::default();
+    if let Some(level) = std::env::var("RAIKAN_LEVEL")
+        .ok()
+        .and_then(|l| l.parse().ok())
+    {
+        config.max_level = level;
     }
+    Box::new(BotAgent::new(config))
+}
+
+/// Public counters derived from the events (the server sends no status events).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Status {
+    turn: u8,
+    score: u8,
+    max_score: u8,
+    num_strikes: u8,
+    clues: u8,
 }
 
 struct HanabGame {
@@ -1084,15 +1086,12 @@ struct HanabGame {
     current_player_index: Option<u8>,
     can_act: bool,
     paused: bool,
-    status: game::GameStatus,
+    status: Status,
 }
 
 impl HanabGame {
     fn from_message(init: &InitMessage) -> Result<Self, String> {
         let variant = Variant::by_id(init.options.variant_id as u32).map_err(|e| e.to_string())?;
-        if std::env::var("RAIKAN_BOT").as_deref() == Ok("legacy") && variant.id != 0 {
-            return Err("the legacy bot only plays No Variant".to_string());
-        }
         // Conventions have no special-suit adaptations yet; plain suits only unless opted in.
         let special = variant.has_multi_color_touch()
             || variant.has_colorless()
@@ -1114,14 +1113,7 @@ impl HanabGame {
             current_player_index: Some(0),
             can_act: init.mode.kind == "playing" && init.mode.our_player_index.is_some(),
             paused: false,
-            status: game::GameStatus {
-                turn: 0,
-                score: 0,
-                max_score: 25,
-                num_strikes: 0,
-                clues: 8,
-                blind_plays: 0,
-            },
+            status: Status::default(),
         };
         game.reset();
         Ok(game)

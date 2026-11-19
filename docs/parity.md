@@ -4,7 +4,9 @@ Status of the first milestone of [architecture.md](architecture.md): today's fea
 (H-Group levels 1–3 and the partial level 5/6/7/9 behaviour described in the
 [README](../README.md)) runs on the new layers (`domain`, `variants`, `engine`,
 `knowledge`, `conventions`, `policy`, `agent`, `adapters`). The legacy implementation
-(`game`, `hyphenated`) is still in the tree as the reference.
+(`game`, `hyphenated`) was removed afterwards (milestone M5, commit after `10b36c9`); the
+measurements and commands below are from before the removal and need a checkout of
+`10b36c9` to reproduce.
 
 ## Results (2026-11-19)
 
@@ -36,16 +38,13 @@ Cost: about 160 µs per turn (all seats updating, 4 players) against 119 µs for
 legacy bot (`cargo bench --bench simulation -- 200 4 --bot new|legacy`). Both bots
 produce identical replays on those 200 games (same checksum).
 
-## Reproduce
+## Regression protection after the removal
 
-```sh
-cargo build --release
-target/release/raikan stats --players 4 --games 10000 --bot legacy > legacy.list
-target/release/raikan stats --players 4 --games 10000 --bot new > new.list
-target/release/raikan diff legacy.list new.list          # first regression and the new view
-target/release/raikan lockstep --players 4 --games 100   # first diverging decision
-RAIKAN_LOCKSTEP_NOTES=1 target/release/raikan lockstep --players 4 --games 100  # first diverging note
-```
+- [tests/golden_selfplay.rs](../tests/golden_selfplay.rs) fixes the complete replays of
+  20 seeded games per player count (2–5). The corpus was recorded from the new bot, whose
+  replays equalled the legacy bot's for 2–4 players (checked on 60 seeds per count before
+  the removal).
+- `raikan stats` and `raikan diff OLD.list NEW.list` compare two builds.
 
 ## What is in place
 
@@ -58,12 +57,4 @@ RAIKAN_LOCKSTEP_NOTES=1 target/release/raikan lockstep --players 4 --games 100  
 | §7 action choice | Blueprint with named reasons and the level-7 look-ahead. The root planner, partner model and legibility guard as specified are the next goal. |
 | §8 trace | Interpretation trace (rule and readings per observed clue) and decision trace (action, reason, profile digest) as JSON lines: `raikan selfplay SEED --trace FILE`. No `explain` yet. |
 | §9 configuration | `Config { max_level, require_complete }`; `--level` in the CLI, `RAIKAN_LEVEL` in the web client. No TOML yet. |
-| §10 testing | Text scenarios (`tests/scenarios/`), legacy equivalence, engine equivalence, hidden-card invariance, level-cap scenarios. Most legacy unit tests are covered by the equivalence test, not yet by rule-keyed scenarios. |
-
-## Before deleting the legacy code (milestone M5)
-
-The equivalence tests use the legacy bot as the reference. Before deleting it:
-
-1. Port the remaining legacy unit tests in `src/hyphenated/*` and `tests/line_tests.rs`
-   to scenarios. Their intent is covered by the equivalence test today.
-2. Decide whether to keep a frozen corpus of the legacy decisions as golden files.
+| §10 testing | Text scenarios (`tests/scenarios/`), golden self-play corpus, hidden-card invariance, level-cap scenarios. Most legacy unit tests were covered by the (now removed) equivalence test, not by rule-keyed scenarios; porting their cases to scenarios is open. |

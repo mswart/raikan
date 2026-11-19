@@ -1,15 +1,8 @@
-// Legacy implementation (kept as the parity baseline until the port is complete).
-pub mod dump_strategies;
-pub mod game;
+//! Raikan: a Hanabi bot following the H-Group conventions (see docs/architecture.md).
+//!
+//! Layers, lowest first: `domain` and `trace` beside everything, then `variants`,
+//! `engine`, `knowledge`, `conventions`, `policy`, `agent` and `adapters`.
 
-mod card_quantum;
-pub use card_quantum::CardQuantum;
-pub use card_quantum::Variant;
-pub mod hyphenated;
-mod position_set;
-pub use position_set::PositionSet;
-
-// Target architecture (docs/architecture.md), lowest layer first.
 pub mod adapters;
 pub mod agent;
 pub mod conventions;

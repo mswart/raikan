@@ -470,6 +470,44 @@ mod tests {
     }
 
     #[test]
+    fn clues_need_tokens_and_a_valid_target() {
+        let (variant, mut state, world) = setup(4, 3);
+        let target = Seat(1);
+        let clue = variant
+            .clue_ids()
+            .find(|&c| !touched_cards(&variant, &state, &world, target, c).is_empty())
+            .unwrap();
+        assert_eq!(
+            check_legal(
+                &variant,
+                &state,
+                Action::Clue {
+                    target: Seat(3),
+                    clue
+                }
+            ),
+            Err(Illegal::BadTarget)
+        );
+        state.tokens = 0;
+        assert_eq!(
+            check_legal(&variant, &state, Action::Clue { target, clue }),
+            Err(Illegal::NoTokens)
+        );
+        assert!(
+            !legal_commands(&variant, &state, &world)
+                .iter()
+                .any(|a| matches!(a, Action::Clue { .. }))
+        );
+        let events = step(&variant, &mut state, &world, Action::Clue { target, clue });
+        assert_eq!(
+            events.as_slice(),
+            &[Event::GameOver {
+                reason: EndReason::Illegal
+            }]
+        );
+    }
+
+    #[test]
     fn three_strikes() {
         let (variant, mut state, world) = setup(2, 2);
         let mut strikes = 0;

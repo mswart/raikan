@@ -1,5 +1,5 @@
 //! Keeps the layer direction of docs/architecture.md §3 honest: a module may only refer to
-//! modules of its own or a lower layer. The legacy implementation is visible to adapters only.
+//! modules of its own or a lower layer.
 
 use std::path::Path;
 
@@ -15,16 +15,6 @@ const LAYERS: &[(&str, u8)] = &[
     ("search", 6),
     ("agent", 7),
     ("adapters", 8),
-];
-
-const LEGACY: &[&str] = &[
-    "game",
-    "hyphenated",
-    "card_quantum",
-    "position_set",
-    "dump_strategies",
-    "PositionSet",
-    "CardQuantum",
 ];
 
 fn layer(module: &str) -> Option<u8> {
@@ -65,10 +55,7 @@ fn layers_only_depend_downwards() {
                         .take_while(|c| c.is_alphanumeric() || *c == '_')
                         .collect();
                     let target = layer(&name);
-                    let bad = match target {
-                        Some(t) => t > own && t != 0,
-                        None => LEGACY.contains(&name.as_str()) && module != "adapters",
-                    };
+                    let bad = target.is_some_and(|t| t > own && t != 0);
                     if bad {
                         violations.push(format!(
                             "{}:{}: {module} uses crate::{name}",
