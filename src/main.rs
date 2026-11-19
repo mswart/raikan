@@ -1,4 +1,3 @@
-use rand::prelude::*;
 use std::io::prelude::*;
 use std::{env, io, ops::AddAssign, thread};
 
@@ -22,8 +21,7 @@ fn main() -> io::Result<()> {
         let seed = if args.len() > 1 {
             args[1].parse().expect("Invalid seed format")
         } else {
-            let mut seed_rng = rand::thread_rng();
-            seed_rng.r#gen()
+            rand::random()
         };
         let mut game = game::Game::new(&mut players, true, seed);
         game.run(&mut players);
