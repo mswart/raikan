@@ -146,13 +146,21 @@ struct PendingRequest {
     table_id: Option<usize>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct WelcomeMessage {
     #[serde(alias = "userID")]
     user_id: usize,
     username: String,
-    muted: bool,
+    /// Ongoing games we are a player in (current protocol).
+    #[serde(default)]
+    playing_at_tables: Vec<usize>,
+    /// The current protocol folds the lobby's user and table lists into
+    /// `welcome` instead of sending `userList` and `tableList` events.
+    #[serde(default)]
+    users: Option<Vec<UserState>>,
+    #[serde(default)]
+    tables: Option<Vec<TableState>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -670,6 +678,20 @@ impl HanabClient {
         println!("Welcome {:?}", welcome);
         self.user_id = welcome.user_id;
         self.username = welcome.username;
+        if let Some(users) = welcome.users {
+            self.user_states = users.into_iter().map(|user| (user.user_id, user)).collect();
+        }
+        if let Some(tables) = welcome.tables {
+            self.adopt_tables(tables, &welcome.playing_at_tables)?;
+        } else if self.table_id == 0 {
+            if let Some(&table_id) = welcome.playing_at_tables.first() {
+                self.table_id = table_id;
+                self.send(
+                    "tableReattend",
+                    &serde_json::to_string(&TableIdMessage { table_id })?,
+                );
+            }
+        }
         Ok(())
     }
 
@@ -717,13 +739,27 @@ impl HanabClient {
 
     fn on_table_list(&mut self, json: &str) -> Result<(), serde_json::Error> {
         let tables: TableListMessage = serde_json::from_str(json)?;
-        // Prefer an active membership over a replay when reconnecting.
-        let selected = tables
-            .tables
+        self.adopt_tables(tables.tables, &[])
+    }
+
+    /// Replace the known tables and, when not seated anywhere yet, return to
+    /// the table we belong to: a game the server says we are playing, then
+    /// any table listing us as an active player, then an old shared replay.
+    fn adopt_tables(
+        &mut self,
+        tables: Vec<TableState>,
+        playing_at_tables: &[usize],
+    ) -> Result<(), serde_json::Error> {
+        let selected = playing_at_tables
             .iter()
-            .find(|table| table.has_active_player(&self.username))
+            .find_map(|id| tables.iter().find(|table| table.table_id == *id))
             .or_else(|| {
-                tables.tables.iter().find(|table| {
+                tables
+                    .iter()
+                    .find(|table| table.has_active_player(&self.username))
+            })
+            .or_else(|| {
+                tables.iter().find(|table| {
                     table.phase == TablePhase::SharedReplay
                         && table.player_names.contains(&self.username)
                 })
@@ -731,7 +767,9 @@ impl HanabClient {
         if self.table_id == 0 {
             if let Some(table) = selected {
                 self.table_id = table.table_id;
-                let command = if table.has_active_player(&self.username) {
+                let command = if playing_at_tables.contains(&table.table_id)
+                    || table.has_active_player(&self.username)
+                {
                     "tableReattend"
                 } else {
                     "tableSpectate"
@@ -745,7 +783,7 @@ impl HanabClient {
             }
         }
         self.table_states.clear();
-        for table in tables.tables {
+        for table in tables {
             self.table_states.insert(table.table_id, table);
         }
         Ok(())
@@ -1577,7 +1615,7 @@ mod protocol_tests {
         for frame in fixture["frames"].as_array().unwrap() {
             bot.process_frame(&frame.to_string()).unwrap();
             let request = match (frame["event"].as_str(), frame["reply"].as_u64()) {
-                (Some("tableList"), _) => Some("tableReattend"),
+                (Some("welcome"), _) => Some("tableReattend"),
                 (Some("tableJoined"), _) => Some("gameInitLoad"),
                 (_, Some(2)) => Some("gameStateLoad"),
                 (Some("gameState"), _) => Some("gameLoaded"),
@@ -1799,14 +1837,12 @@ mod protocol_tests {
             bot.process_message(command, &payload.to_string())
                 .unwrap_or_else(|error| panic!("{command}: {error}"));
             match command {
-                "userList" => {
+                "welcome" => {
                     assert_eq!(bot.user_states.len(), 7);
                     assert!(matches!(
                         bot.user_states[&3].activity,
                         UserActivity::SoloReplay
                     ));
-                }
-                "tableList" => {
                     assert_eq!(bot.table_states.len(), 4);
                     assert_eq!(bot.table_id, 42);
                     assert_eq!(receive(&mut server, "tableReattend"), json!({"tableId":42}));
@@ -2063,6 +2099,42 @@ mod protocol_tests {
             assert_eq!(bot.table_states.len(), 2);
             assert_no_message(&mut server);
         }
+    }
+
+    #[test]
+    fn welcome_alone_rejoins_the_game_we_are_playing() {
+        // The current server sends no tableList; welcome carries the tables.
+        let (mut bot, mut server) = connection();
+        bot.process_message(
+            "welcome",
+            &json!({
+                "userId":1,"username":"test bot","muted":false,"firstTimeUser":false,
+                "settings":{},"friends":[],"blocked":[],"playingAtTables":[42],
+                "spectatingAtTables":[],"users":[],
+                "tables":[
+                    {"tableId":41,"phase":{"type":"sharedReplay","gameId":1,"progress":100},
+                     "playerNames":["test bot","Alice"]},
+                    {"tableId":42,"phase":{"type":"playing","progress":10},
+                     "playerNames":["test bot","Alice"]}
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(receive(&mut server, "tableReattend"), json!({"tableId":42}));
+        assert_eq!(bot.table_id, 42);
+        assert_eq!(bot.table_states.len(), 2);
+        assert_no_message(&mut server);
+
+        // Without a table list, playingAtTables alone is enough.
+        let (mut bot, mut server) = connection();
+        bot.process_message(
+            "welcome",
+            r#"{"userId":1,"username":"test bot","muted":false,"playingAtTables":[7]}"#,
+        )
+        .unwrap();
+        assert_eq!(receive(&mut server, "tableReattend"), json!({"tableId":7}));
+        assert_no_message(&mut server);
     }
 
     #[test]

@@ -14,12 +14,7 @@
         "friends": [],
         "blocked": [],
         "playingAtTables": [42],
-        "spectatingAtTables": []
-      }
-    },
-    {
-      "event": "userList",
-      "data": {
+        "spectatingAtTables": [],
         "users": [
           {"userId":1,"username":"test bot","activity":{"type":"playing","tableId":42},"hGroupConventions":true,"bot":true,"inactive":false},
           {"userId":2,"username":"Alice","activity":{"type":"playing","tableId":42},"hGroupConventions":true,"bot":false,"inactive":false},
@@ -28,12 +23,7 @@
           {"userId":5,"username":"Observer","activity":{"type":"spectating","tableId":42},"hGroupConventions":false,"bot":false,"inactive":false},
           {"userId":6,"username":"Reviewer","activity":{"type":"sharedReplay","tableId":41},"hGroupConventions":false,"bot":false,"inactive":false},
           {"userId":7,"username":"Idle","activity":{"type":"lobby"},"hGroupConventions":false,"bot":false,"inactive":false}
-        ]
-      }
-    },
-    {
-      "event": "tableList",
-      "data": {
+        ],
         "tables": [
           {
             "tableId": 41,

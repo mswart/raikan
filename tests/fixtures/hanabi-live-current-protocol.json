@@ -1,12 +1,11 @@
 {
   "source": "https://github.com/Hanabi-Live/hanabi-live/tree/c6724843481cef304f1a226f34cdae5b9e126b5b/server/protocol/src",
-  "description": "Representative messages built from the 2026-11-12 protocol contracts, covering reconnect, live play, and the transition to shared replay.",
+  "description": "Representative messages built from the 2026-11-12 protocol contracts (the lobby's users and tables arrive inside welcome), covering reconnect, live play, and the transition to shared replay.",
   "messages": [
     {"command":"welcome","payload":{
       "userId":1,"username":"test bot","muted":false,"firstTimeUser":false,
-      "settings":{},"friends":[],"blocked":[],"playingAtTables":[42],"spectatingAtTables":[]
-    }},
-    {"command":"userList","payload":{"users":[
+      "settings":{},"friends":[],"blocked":[],"playingAtTables":[42],"spectatingAtTables":[],
+      "users":[
       {"userId":1,"username":"test bot","activity":{"type":"playing","tableId":42},"hGroupConventions":true,"bot":true,"inactive":false},
       {"userId":2,"username":"Alice","activity":{"type":"playing","tableId":42},"hGroupConventions":true,"bot":false,"inactive":false},
       {"userId":3,"username":"Watcher","activity":{"type":"soloReplay"},"hGroupConventions":false,"bot":false,"inactive":false},
@@ -14,8 +13,8 @@
       {"userId":5,"username":"Observer","activity":{"type":"spectating","tableId":42},"hGroupConventions":false,"bot":false,"inactive":false},
       {"userId":6,"username":"Reviewer","activity":{"type":"sharedReplay","tableId":41},"hGroupConventions":false,"bot":false,"inactive":false},
       {"userId":7,"username":"Idle","activity":{"type":"lobby"},"hGroupConventions":false,"bot":false,"inactive":false}
-    ]}},
-    {"command":"tableList","payload":{"tables":[
+    ],
+      "tables":[
       {"tableId":41,"phase":{"type":"sharedReplay","gameId":123},"playerNames":["test bot","Alice"],
        "settings":{"name":"Old game","maxPlayers":6,"options":{"variantId":0}},"owner":{"userId":2,"username":"Alice"},"passwordProtected":false,"progress":100,"spectators":[]},
       {"tableId":44,"phase":{"type":"sharedReplay"},"playerNames":["test bot","Alice"],
@@ -24,7 +23,8 @@
        "settings":{"name":"Next game","maxPlayers":6,"options":{"variantId":0}},"owner":{"userId":4,"username":"Waiting"},"passwordProtected":false,"progress":0,"spectators":[]},
       {"tableId":42,"phase":{"type":"playing"},"playerNames":["test bot","Alice"],
        "settings":{"name":"Current game","maxPlayers":6,"options":{"variantId":0}},"owner":{"userId":2,"username":"Alice"},"passwordProtected":false,"progress":0,"spectators":[]}
-    ]}},
+    ]
+    }},
     {"command":"tableStarted","payload":{"tableId":42,"stage":"playing"}},
     {"command":"gameInit","payload":{
       "tableId":42,"playerNames":["test bot","Alice"],"mode":{"type":"playing","ourPlayerIndex":0},
