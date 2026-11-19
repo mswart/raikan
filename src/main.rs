@@ -3,6 +3,7 @@
 //! ```text
 //! raikan selfplay [SEED] [--players N] [--variant NAME] [--level L] [--trace FILE.jsonl]
 //! raikan stats [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L]
+//! raikan support                    # H-Group levels 1-20: required conventions and coverage
 //! raikan diff OLD.list NEW.list [--level L]
 //! ```
 
@@ -134,6 +135,7 @@ fn main() -> io::Result<()> {
             }
             diff(&options, &options.positional[0], &options.positional[1])?;
         }
+        "support" => print!("{}", raikan::conventions::catalogue::support_matrix()),
         "-h" | "--help" | "help" => usage("help requested"),
         // `raikan SEED` keeps working as a single self-play game
         other if other.parse::<u64>().is_ok() => selfplay(&parse_options(&args)),

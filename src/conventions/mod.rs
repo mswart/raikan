@@ -5,6 +5,7 @@
 //! rule bodies ask the profile and never compare levels.
 
 mod belief;
+pub mod catalogue;
 mod clue;
 mod grade;
 mod locator;

@@ -41,6 +41,10 @@ replay when `gameFinished` arrives. Paused games wait for a resume notification.
 
 ## H-Group rule support
 
+[docs/support-matrix.md](docs/support-matrix.md) lists every convention of levels 1–20
+with its coverage (complete, partial or missing); a profile compiled with
+`require_complete` refuses levels with gaps.
+
 Support is partial and varies by convention. This overview covers levels 1–9,
 ending at stalling, the highest level with implemented special moves. It does not
 mean that all earlier levels are complete. Variant support is listed under
@@ -249,6 +253,7 @@ implementation exactly for 2–4 players before it was removed; see
 raikan selfplay [SEED] [--players N] [--variant NAME] [--level L] [--trace FILE.jsonl]
 raikan stats [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L]
 raikan diff OLD.list NEW.list      # first game whose score dropped, with the bot's view
+raikan support                     # every H-Group level 1-20 convention and its coverage
 ```
 
 `stats` prints one line per game (`seed outcome score max turns blind-plays replay-url`)

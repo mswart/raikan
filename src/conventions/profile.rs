@@ -5,6 +5,7 @@
 //! maximum level and the variant; rule bodies ask the profile whether they are active and
 //! never compare levels themselves.
 
+use super::catalogue::{CATALOGUED_LEVELS, REQUIRED};
 use crate::variants::{CATALOGUE_REVISION, Variant};
 use std::hash::{Hash, Hasher};
 
@@ -57,6 +58,8 @@ pub enum Coverage {
     Complete,
     /// Recognised and generated, with known gaps.
     Partial(&'static str),
+    /// Required by the level but not implemented (catalogue entries only).
+    Missing,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -390,8 +393,13 @@ pub fn meta_of(rule: Rule) -> &'static RuleMeta {
 /// Why a profile could not be compiled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProfileError {
-    /// `require_complete` was set and these rules of the requested levels are partial.
-    Incomplete(Vec<&'static str>),
+    /// `require_complete` was set and the requested levels have gaps.
+    Incomplete {
+        /// Implemented rules and required conventions with partial coverage.
+        partial: Vec<&'static str>,
+        /// Required conventions without an implementation (`L21+` for uncatalogued levels).
+        missing: Vec<&'static str>,
+    },
 }
 
 /// Immutable per-game convention profile.
@@ -401,6 +409,10 @@ pub struct Profile {
     pub variant: String,
     active: u64,
     pub digest: u64,
+    /// Required conventions up to `max_level` that are not implemented.
+    pub missing: Vec<&'static str>,
+    /// Active rules and required conventions with partial coverage.
+    pub partial: Vec<&'static str>,
 }
 
 impl Profile {
@@ -411,7 +423,7 @@ impl Profile {
         require_complete: bool,
     ) -> Result<Self, ProfileError> {
         let mut active = 0u64;
-        let mut gaps = Vec::new();
+        let mut partial = Vec::new();
         // RULES is ordered so that prerequisites come first.
         for meta in RULES {
             let enabled = meta.level <= max_level
@@ -420,19 +432,39 @@ impl Profile {
             if enabled {
                 active |= 1 << meta.rule as u64;
                 if let Partial(_) = meta.coverage {
-                    gaps.push(meta.id);
+                    partial.push(meta.id);
                 }
             }
         }
-        if require_complete && !gaps.is_empty() {
-            return Err(ProfileError::Incomplete(gaps));
+        // Required conventions of the requested levels, independent of implementation.
+        // Entries implemented only by variant-specific rules apply only to those variants.
+        let mut missing = Vec::new();
+        for entry in REQUIRED.iter().filter(|e| e.level <= max_level) {
+            let applies = entry.rules.is_empty()
+                || entry.rules.iter().any(|r| (meta_of(*r).applies)(variant));
+            if !applies {
+                continue;
+            }
+            match entry.coverage {
+                Missing => missing.push(entry.id),
+                Partial(_) if !partial.contains(&entry.id) => partial.push(entry.id),
+                _ => {}
+            }
+        }
+        if max_level > CATALOGUED_LEVELS {
+            missing.push("L21+ (levels above 20 are not catalogued)");
+        }
+        if require_complete && (!partial.is_empty() || !missing.is_empty()) {
+            return Err(ProfileError::Incomplete { partial, missing });
         }
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         (
             CONVENTION_REVISION,
             CATALOGUE_REVISION,
             &variant.name,
+            max_level,
             active,
+            &missing,
         )
             .hash(&mut hasher);
         Ok(Self {
@@ -440,6 +472,8 @@ impl Profile {
             variant: variant.name.clone(),
             active,
             digest: hasher.finish(),
+            missing,
+            partial,
         })
     }
 
@@ -494,7 +528,74 @@ mod tests {
         assert_ne!(l2.digest, l9.digest);
         assert!(matches!(
             Profile::new(9, &variant, true),
-            Err(ProfileError::Incomplete(_))
+            Err(ProfileError::Incomplete { .. })
         ));
+    }
+
+    #[test]
+    fn missing_conventions_are_reported_per_level() {
+        let variant = Variant::no_variant();
+        let l3 = Profile::new(3, &variant, false).unwrap();
+        assert!(l3.missing.is_empty(), "{:?}", l3.missing);
+        let l9 = Profile::new(9, &variant, false).unwrap();
+        let l20 = Profile::new(20, &variant, false).unwrap();
+        let l255 = Profile::new(255, &variant, false).unwrap();
+        assert!(l9.missing.contains(&"L4.trash-chop-move"));
+        assert!(l9.missing.contains(&"L8.positional-discard"));
+        assert!(!l9.missing.contains(&"L11.bluff"));
+        assert!(l20.missing.contains(&"L11.bluff"));
+        assert!(l20.missing.contains(&"L20.no-information-finesse"));
+        assert!(l255.missing.iter().any(|m| m.starts_with("L21+")));
+        // same active rules, different promises: the digests differ
+        assert_eq!(l9.active, l20.active);
+        assert_ne!(l9.digest, l20.digest);
+        assert_ne!(l20.digest, l255.digest);
+        match Profile::new(20, &variant, true) {
+            Err(ProfileError::Incomplete { missing, .. }) => {
+                assert!(missing.contains(&"L4.order-chop-move"));
+                assert!(missing.contains(&"L10.gentlemans-discard"));
+            }
+            other => panic!("strict level 20 must be refused: {other:?}"),
+        }
+        // variant-specific entries only apply to their variants
+        assert!(!l9.partial.contains(&"L5.multi-color-prompt"));
+        let rainbow = Variant::by_name("Rainbow (6 Suits)").unwrap();
+        let r9 = Profile::new(9, &rainbow, false).unwrap();
+        assert!(r9.partial.contains(&"L5.multi-color-prompt"));
+    }
+
+    #[test]
+    fn catalogue_is_consistent() {
+        let ids: std::collections::HashSet<_> = REQUIRED.iter().map(|e| e.id).collect();
+        assert_eq!(ids.len(), REQUIRED.len(), "duplicate catalogue ids");
+        for entry in REQUIRED {
+            assert!((1..=CATALOGUED_LEVELS).contains(&entry.level));
+            assert!(
+                entry.id.starts_with(&format!("L{}.", entry.level)),
+                "{}",
+                entry.id
+            );
+            if entry.coverage == Missing {
+                assert!(
+                    entry.rules.is_empty(),
+                    "{} is missing but names rules",
+                    entry.id
+                );
+            } else {
+                assert!(
+                    !entry.rules.is_empty() || matches!(entry.coverage, Partial(_)),
+                    "{}",
+                    entry.id
+                );
+            }
+        }
+        // every implemented rule is used by some catalogue entry
+        for meta in RULES {
+            assert!(
+                REQUIRED.iter().any(|e| e.rules.contains(&meta.rule)),
+                "{} is not referenced by the catalogue",
+                meta.id
+            );
+        }
     }
 }
