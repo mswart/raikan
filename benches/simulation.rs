@@ -1,9 +1,16 @@
 //! Deterministic end-to-end benchmark, with optional allocation counting.
-//! cargo bench --bench simulation -- 100 4 [--allocations]
+//! cargo bench --bench simulation -- 100 4 [--allocations] [--bot new|legacy|old]
+//!
+//! `new` is the H-Group bot of the new architecture, `legacy` the old bot on the new
+//! engine, `old` the old bot on the old engine (the historical checksum).
 
 use raikan::{
+    adapters::legacy::LegacyAgent,
+    agent::{Agent, BotAgent, run_game},
+    engine::shuffled_world,
     game::{Game, PlayerStrategy},
     hyphenated::HyphenatedPlayer,
+    variants::Variant,
 };
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -47,10 +54,22 @@ unsafe impl GlobalAlloc for CountingAllocator {
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
 fn main() {
-    let args: Vec<_> = std::env::args()
+    let mut args: Vec<_> = std::env::args()
         .skip(1)
         .filter(|arg| arg != "--bench")
         .collect();
+    let bot = match args.iter().position(|arg| arg == "--bot") {
+        Some(index) => {
+            let bot = args.get(index + 1).expect("--bot needs a value").clone();
+            args.drain(index..=index + 1);
+            bot
+        }
+        None => "old".to_string(),
+    };
+    assert!(
+        ["new", "legacy", "old"].contains(&bot.as_str()),
+        "unknown bot {bot}"
+    );
     let games = args
         .first()
         .map_or(100, |s| s.parse::<u64>().expect("game count"));
@@ -64,23 +83,44 @@ fn main() {
         .iter_mut()
         .map(|bot| bot as &mut dyn PlayerStrategy)
         .collect();
+    let variant = Variant::no_variant();
     let mut checksum = 0xcbf29ce484222325u64;
     let mut turns = 0u64;
     COUNT.store(allocations, Ordering::Relaxed);
     let start = Instant::now();
     for seed in 0..games {
-        let mut game = Game::new(&mut players, false, seed);
-        game.run(&mut players);
-        turns += u64::from(game.status.turn);
         // The complete replay, not just the score, detects policy changes.
-        for byte in game.replay_url().bytes() {
+        let url = if bot == "old" {
+            let mut game = Game::new(&mut players, false, seed);
+            game.run(&mut players);
+            turns += u64::from(game.status.turn);
+            game.replay_url()
+        } else {
+            let mut agents: Vec<Box<dyn Agent>> = (0..seats)
+                .map(|_| -> Box<dyn Agent> {
+                    if bot == "new" {
+                        Box::new(BotAgent::default())
+                    } else {
+                        Box::new(LegacyAgent::hyphenated())
+                    }
+                })
+                .collect();
+            let mut refs: Vec<&mut dyn Agent> = agents
+                .iter_mut()
+                .map(|a| &mut **a as &mut dyn Agent)
+                .collect();
+            let result = run_game(&variant, &shuffled_world(&variant, seed), &mut refs);
+            turns += u64::from(result.state.turn);
+            result.replay.to_url()
+        };
+        for byte in url.bytes() {
             checksum = (checksum ^ u64::from(byte)).wrapping_mul(0x100000001b3);
         }
     }
     let elapsed = start.elapsed();
     COUNT.store(false, Ordering::Relaxed);
     println!(
-        "games={games} players={seats} turns={turns} elapsed={:.6}s games/s={:.2} checksum={checksum:016x}",
+        "bot={bot} games={games} players={seats} turns={turns} elapsed={:.6}s games/s={:.2} checksum={checksum:016x}",
         elapsed.as_secs_f64(),
         games as f64 / elapsed.as_secs_f64()
     );

@@ -214,7 +214,7 @@ mod tests {
             cards.iter().collect::<Vec<_>>(),
             vec![CardId(1), CardId(59)]
         );
-        assert_eq!(cards.iter().rev().next(), Some(CardId(59)));
+        assert_eq!(cards.iter().next_back(), Some(CardId(59)));
     }
 
     #[test]

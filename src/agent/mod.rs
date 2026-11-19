@@ -17,6 +17,10 @@ pub trait Agent {
     fn observe(&mut self, event: &Event);
     /// Called when it is this seat's turn.
     fn choose_action(&mut self, state: &GameState) -> Action;
+    /// Human-readable description of the agent's current knowledge, for debugging.
+    fn describe(&self) -> String {
+        String::new()
+    }
 }
 
 /// Outcome of one simulated game.

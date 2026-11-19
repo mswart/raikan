@@ -62,7 +62,7 @@ impl LegacyAgent {
     }
 
     /// The wrapped player's debug description.
-    pub fn describe(&self) -> String {
+    pub fn describe_legacy(&self) -> String {
         match &self.player {
             Player::Hyphenated(p) => format!("{p:#?}"),
             Player::Other(p) => format!("{p:#?}"),
@@ -112,6 +112,10 @@ impl LegacyAgent {
 }
 
 impl Agent for LegacyAgent {
+    fn describe(&self) -> String {
+        self.describe_legacy()
+    }
+
     fn start(&mut self, variant: &Variant, num_seats: u8, seat: Seat) {
         assert_eq!(
             variant.name, "No Variant",

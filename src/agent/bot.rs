@@ -87,4 +87,11 @@ impl Agent for BotAgent {
         self.last = Some(decision);
         action
     }
+
+    fn describe(&self) -> String {
+        match &self.view {
+            Some(view) => format!("{view:?}last decision: {:?}", self.last),
+            None => String::new(),
+        }
+    }
 }

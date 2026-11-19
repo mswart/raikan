@@ -457,8 +457,7 @@ impl Variant {
     /// Identities that can be played successfully now.
     pub fn playable(&self, stacks: &Stacks) -> IdentitySet {
         let mut set = IdentitySet::EMPTY;
-        for suit in 0..self.suits.len() {
-            let Stack::Up(top) = stacks[suit];
+        for (suit, &Stack::Up(top)) in stacks.iter().enumerate().take(self.suits.len()) {
             if top < self.num_ranks {
                 set.insert(self.identity(suit, top + 1));
             }
@@ -470,8 +469,7 @@ impl Variant {
     /// copy left.
     pub fn trash(&self, stacks: &Stacks, discarded: &IdentityCounts) -> IdentitySet {
         let mut set = IdentitySet::EMPTY;
-        for suit in 0..self.suits.len() {
-            let Stack::Up(top) = stacks[suit];
+        for (suit, &Stack::Up(top)) in stacks.iter().enumerate().take(self.suits.len()) {
             let mut blocked = false;
             for rank in 1..=self.num_ranks {
                 let identity = self.identity(suit, rank);

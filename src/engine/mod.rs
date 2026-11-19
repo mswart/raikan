@@ -221,8 +221,8 @@ pub fn apply_event(variant: &Variant, state: &mut GameState, event: &Event) {
     };
     match *event {
         Event::Draw { seat, card, .. } => {
-            debug_assert_eq!(card.0, state.next_card);
-            state.next_card += 1;
+            // Observed histories may be partial; never move the deck pointer backwards.
+            state.next_card = state.next_card.max(card.0 + 1);
             state.push_card(seat, card);
             if state.cards_left() == 0 {
                 // the drawer's own turn already ended; everybody gets one more turn

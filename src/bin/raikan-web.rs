@@ -1,7 +1,11 @@
 use std::collections::{BTreeMap, VecDeque};
 
+use raikan::adapters::legacy::LegacyAgent;
+use raikan::agent::{Agent, BotAgent, Config};
+use raikan::domain::{CardId, CardSet, Seat};
+use raikan::engine::{self, Action, EndReason, Event, GameState};
 use raikan::game;
-use raikan::{PositionSet, Variant, game::PlayerStrategy, hyphenated};
+use raikan::variants::{ClueValue, Variant};
 use serde::{Deserialize, Serialize};
 use std::net::TcpStream;
 use std::process::ExitCode;
@@ -826,8 +830,7 @@ impl HanabClient {
                             break;
                         }
                     }
-                    println!("player: {:?}", game.player);
-                    println!("line: {:?}", game.player.line());
+                    println!("bot: {}", game.agent.describe());
                 }
             }
             _ => {}
@@ -887,12 +890,18 @@ impl HanabClient {
         let table_id = TableIdMessage {
             table_id: init.table_id as usize,
         };
-        if init.options.variant_id != 0 {
-            self.clear_game();
-            eprintln!("Unsupported game variant: {}", init.options.variant_id);
-            return Ok(());
-        }
-        self.game = Some(HanabGame::from_message(&init));
+        let game = match HanabGame::from_message(&init) {
+            Ok(game) => game,
+            Err(reason) => {
+                self.clear_game();
+                eprintln!(
+                    "Unsupported game variant {}: {reason}",
+                    init.options.variant_id
+                );
+                return Ok(());
+            }
+        };
+        self.game = Some(game);
         self.game_actions = Vec::with_capacity(256);
         self.replay_segment = None;
         self.send("gameStateLoad", &serde_json::to_string(&table_id)?);
@@ -1045,40 +1054,56 @@ struct Slot {
     index: u8,
 }
 
+/// Which bot plays: the H-Group bot of the new architecture or the legacy one.
+/// Chosen with `RAIKAN_BOT=legacy` and `RAIKAN_LEVEL=<n>`.
+fn new_agent() -> Box<dyn Agent> {
+    match std::env::var("RAIKAN_BOT").as_deref() {
+        Ok("legacy") => Box::new(LegacyAgent::hyphenated()),
+        _ => {
+            let mut config = Config::default();
+            if let Some(level) = std::env::var("RAIKAN_LEVEL")
+                .ok()
+                .and_then(|l| l.parse().ok())
+            {
+                config.max_level = level;
+            }
+            Box::new(BotAgent::new(config))
+        }
+    }
+}
+
 struct HanabGame {
     player_names: Vec<String>,
     own_player: u8,
+    /// Hands newest first, as hanab.live shows them.
     hands: Vec<VecDeque<Slot>>,
-    player: hyphenated::HyphenatedPlayer,
+    agent: Box<dyn Agent>,
     variant: Variant,
+    /// Public state derived from the events (the server sends no status events).
+    state: GameState,
     current_player_index: Option<u8>,
     can_act: bool,
     paused: bool,
-    discarded_copies: [[u8; 5]; 5],
     status: game::GameStatus,
 }
 
 impl HanabGame {
-    fn from_message(init: &InitMessage) -> Self {
-        let mut hands = Vec::new();
-        for _ in 0..init.player_names.len() {
-            hands.push(VecDeque::new());
+    fn from_message(init: &InitMessage) -> Result<Self, String> {
+        let variant = Variant::by_id(init.options.variant_id as u32).map_err(|e| e.to_string())?;
+        if std::env::var("RAIKAN_BOT").as_deref() == Ok("legacy") && variant.id != 0 {
+            return Err("the legacy bot only plays No Variant".to_string());
         }
-
-        let mut player = hyphenated::HyphenatedPlayer::new(true);
         let own_player = init.mode.our_player_index.unwrap_or(0);
-        player.init(init.player_names.len() as u8, own_player);
-
-        Self {
+        let mut game = Self {
             player_names: init.player_names.clone(),
-            hands,
+            hands: Vec::new(),
             own_player,
-            player,
-            variant: Variant {},
+            agent: new_agent(),
+            state: GameState::new(&variant, init.player_names.len() as u8),
+            variant,
             current_player_index: Some(0),
             can_act: init.mode.kind == "playing" && init.mode.our_player_index.is_some(),
             paused: false,
-            discarded_copies: [[0; 5]; 5],
             status: game::GameStatus {
                 turn: 0,
                 score: 0,
@@ -1087,37 +1112,32 @@ impl HanabGame {
                 clues: 8,
                 blind_plays: 0,
             },
-        }
+        };
+        game.reset();
+        Ok(game)
     }
 
     fn reset(&mut self) {
-        self.hands = Vec::new();
-        for _ in 0..self.player_names.len() {
-            self.hands.push(VecDeque::new());
-        }
-
-        self.player = hyphenated::HyphenatedPlayer::new(true);
-        self.player
-            .init(self.player_names.len() as u8, self.own_player);
-        // New games contain only draw events: player zero must act before the
-        // server emits its first turn event. Later history events override this
-        // opening turn, and the client waits for the full history before acting.
+        let seats = self.player_names.len() as u8;
+        self.hands = (0..seats).map(|_| VecDeque::new()).collect();
+        self.agent = new_agent();
+        self.agent
+            .start(&self.variant, seats, Seat(self.own_player));
+        self.state = GameState::new(&self.variant, seats);
+        // New games contain only draw events: player zero must act before the server emits
+        // its first turn event. Later history events override this opening turn, and the
+        // client waits for the full history before acting.
         self.current_player_index = Some(0);
         self.paused = false;
-        self.discarded_copies = [[0; 5]; 5];
-        self.status = game::GameStatus {
-            turn: 0,
-            score: 0,
-            max_score: 25,
-            num_strikes: 0,
-            clues: 8,
-            blind_plays: 0,
-        };
+        self.status.turn = 0;
+        self.update_status();
     }
 
-    fn resolve_index(&self, player: u8) -> u8 {
-        let num_player = self.player_names.len() as u8;
-        (player + num_player - self.own_player) % num_player
+    fn update_status(&mut self) {
+        self.status.score = self.state.score(&self.variant);
+        self.status.num_strikes = self.state.strikes;
+        self.status.clues = self.state.clue_tokens();
+        self.status.max_score = self.variant.max_reachable_score(&self.state.discarded);
     }
 
     fn act(&mut self, table_id: u64) -> Option<ActionMessage> {
@@ -1125,35 +1145,51 @@ impl HanabGame {
             return None;
         }
         self.current_player_index = None;
-        let action = self.player.act(&self.status);
+        self.state.current = Seat(self.own_player);
+        let action = self.agent.choose_action(&self.state);
         println!("Decision: {:?}", action);
         Some(self.action_message(table_id, action))
     }
 
-    fn action_message(&self, table_id: u64, action: game::Move) -> ActionMessage {
+    fn action_message(&self, table_id: u64, action: Action) -> ActionMessage {
         let action = match action {
-            game::Move::Play(pos) => PlayerAction::Play {
-                order: self.hands[self.own_player as usize][pos as usize].index,
-            },
-            game::Move::Discard(pos) => PlayerAction::Discard {
-                order: self.hands[self.own_player as usize][pos as usize].index,
-            },
-            game::Move::Clue(player, clue) => PlayerAction::Clue {
-                target: (self.own_player + player) % self.player_names.len() as u8,
-                clue: match clue {
-                    game::Clue::Color(color) => ClueMessage::Color {
-                        color: self
-                            .variant
-                            .suits()
-                            .iter()
-                            .position(|&s| s == color.suit())
-                            .unwrap() as u8,
-                    },
-                    game::Clue::Rank(rank) => ClueMessage::Rank { rank },
+            Action::Play(card) => PlayerAction::Play { order: card.0 },
+            Action::Discard(card) => PlayerAction::Discard { order: card.0 },
+            Action::Clue { target, clue } => PlayerAction::Clue {
+                target: target.0,
+                clue: match self.variant.clue_value(clue) {
+                    ClueValue::Color(color) => ClueMessage::Color { color },
+                    ClueValue::Rank(rank) => ClueMessage::Rank { rank },
                 },
             },
         };
         ActionMessage { table_id, action }
+    }
+
+    fn identity(&self, identity: &CardIdentity) -> Option<raikan::domain::Identity> {
+        ((identity.suit_index as usize) < self.variant.num_suits()
+            && (1..=self.variant.num_ranks).contains(&identity.rank))
+        .then(|| {
+            self.variant
+                .identity(identity.suit_index as usize, identity.rank)
+        })
+    }
+
+    fn observe(&mut self, event: Event) {
+        engine::apply_event(&self.variant, &mut self.state, &event);
+        self.agent.observe(&event);
+        self.update_status();
+    }
+
+    fn remove_from_hand(&mut self, player_index: u8, order: u8) -> bool {
+        let hand = &mut self.hands[player_index as usize];
+        match hand.iter().position(|slot| slot.index == order) {
+            Some(pos) => {
+                hand.remove(pos);
+                true
+            }
+            None => false,
+        }
     }
 
     fn process_action(&mut self, action: &GameAction) {
@@ -1164,52 +1200,40 @@ impl HanabGame {
                 order,
                 identity,
             } => {
-                if *player_index == self.own_player {
-                    self.hands[*player_index as usize].push_front(Slot { index: *order });
-                    self.player.own_drawn();
-                } else if let Some(identity) = identity {
-                    let card = game::Card {
-                        suit: self.variant.suits()[identity.suit_index as usize],
-                        rank: identity.rank,
-                    };
-                    self.hands[*player_index as usize].push_front(Slot { index: *order });
-                    self.player
-                        .drawn(self.resolve_index(*player_index) as usize, card);
+                let identity = if *player_index == self.own_player {
+                    None
                 } else {
-                    eprintln!("Missing identity for another player's drawn card");
-                }
+                    match identity.as_ref().and_then(|i| self.identity(i)) {
+                        Some(identity) => Some(identity),
+                        None => {
+                            eprintln!("Missing identity for another player's drawn card");
+                            return;
+                        }
+                    }
+                };
+                self.hands[*player_index as usize].push_front(Slot { index: *order });
+                self.observe(Event::Draw {
+                    seat: Seat(*player_index),
+                    card: CardId(*order),
+                    identity,
+                });
             }
             GameAction::Play {
                 order,
                 player_index,
                 identity,
             } => {
-                if let Some(slot_pos) = self.hands[*player_index as usize]
-                    .iter()
-                    .position(|slot| slot.index == *order)
-                {
-                    let card = game::Card {
-                        suit: self.variant.suits()[identity.suit_index as usize],
-                        rank: identity.rank,
-                    };
-                    self.player.played(
-                        self.resolve_index(*player_index) as usize,
-                        slot_pos,
-                        card,
-                        true,
-                    );
-                    self.hands[*player_index as usize].remove(slot_pos);
-                    self.status.score += 1;
-                    if identity.rank == 5 {
-                        self.status.clues = (self.status.clues + 1).min(8);
-                    }
-                    println!(
-                        "Player {} succesfully played {card:?} from slot {slot_pos}",
-                        self.player_names[*player_index as usize]
-                    )
-                } else {
+                if !self.remove_from_hand(*player_index, *order) {
                     eprintln!("Did not find card that should be played");
+                    return;
                 }
+                let identity = self.identity(identity);
+                self.observe(Event::Play {
+                    seat: Seat(*player_index),
+                    card: CardId(*order),
+                    identity,
+                    success: true,
+                });
             }
             GameAction::Discard {
                 order,
@@ -1226,87 +1250,48 @@ impl HanabGame {
                     action,
                     GameAction::Misplay { .. } | GameAction::Discard { failed: true, .. }
                 );
-                if let Some(slot_pos) = self.hands[*player_index as usize]
-                    .iter()
-                    .position(|slot| slot.index == *order)
-                {
-                    let card = game::Card {
-                        suit: self.variant.suits()[identity.suit_index as usize],
-                        rank: identity.rank,
-                    };
-                    if failed {
-                        self.status.num_strikes += 1;
-                        self.player.played(
-                            self.resolve_index(*player_index) as usize,
-                            slot_pos,
-                            card,
-                            false,
-                        );
-                        println!(
-                            "Player {} failed to played {card:?} from slot {slot_pos}",
-                            self.player_names[*player_index as usize]
-                        )
-                    } else {
-                        self.status.clues = (self.status.clues + 1).min(8);
-                        self.player.discarded(
-                            self.resolve_index(*player_index) as usize,
-                            slot_pos,
-                            card,
-                        );
-                        println!(
-                            "Player {} discard {card:?} from slot {slot_pos}",
-                            self.player_names[*player_index as usize]
-                        )
-                    }
-                    self.hands[*player_index as usize].remove(slot_pos);
-                    self.discarded_copies[identity.suit_index as usize]
-                        [identity.rank as usize - 1] += 1;
-                    // The new protocol has no status or strike events. Derive
-                    // counters and the achievable score from public events.
-                    self.status.max_score = self
-                        .discarded_copies
-                        .iter()
-                        .map(|copies| {
-                            copies
-                                .iter()
-                                .enumerate()
-                                .find_map(|(rank, &count)| {
-                                    let total = card.suit.card_count(rank as u8 + 1);
-                                    (count >= total).then_some(rank as u8)
-                                })
-                                .unwrap_or(5)
-                        })
-                        .sum();
-                } else {
+                if !self.remove_from_hand(*player_index, *order) {
                     eprintln!("Did not find card that should be discarded");
+                    return;
                 }
+                let (seat, card, identity) =
+                    (Seat(*player_index), CardId(*order), self.identity(identity));
+                self.observe(if failed {
+                    Event::Play {
+                        seat,
+                        card,
+                        identity,
+                        success: false,
+                    }
+                } else {
+                    Event::Discard {
+                        seat,
+                        card,
+                        identity,
+                    }
+                });
             }
             GameAction::Clue {
                 clue: clue_message,
                 player_index: giver,
                 orders,
                 target,
-                ..
             } => {
-                let mut touched = PositionSet::new(self.hands[*target as usize].len() as u8);
-                for (pos, slot) in self.hands[*target as usize].iter().enumerate() {
-                    if orders.contains(&slot.index) {
-                        touched.add(pos as u8);
-                    }
-                }
-                let clue = match clue_message {
-                    ClueMessage::Rank { rank } => game::Clue::Rank(*rank),
-                    ClueMessage::Color { color } => {
-                        game::Clue::Color(self.variant.suits()[*color as usize].clue_color())
-                    }
+                let value = match clue_message {
+                    ClueMessage::Rank { rank } => ClueValue::Rank(*rank),
+                    ClueMessage::Color { color } => ClueValue::Color(*color),
                 };
-                self.status.clues = self.status.clues.saturating_sub(1);
-                self.player.clued(
-                    self.resolve_index(*giver) as usize,
-                    self.resolve_index(*target) as usize,
+                let Some(clue) = self.variant.clue_id(value) else {
+                    eprintln!("Clue {value:?} does not exist in {}", self.variant.name);
+                    return;
+                };
+                let touched: CardSet = orders.iter().map(|&o| CardId(o)).collect();
+                self.observe(Event::Clue {
+                    giver: Seat(*giver),
+                    target: Seat(*target),
                     clue,
                     touched,
-                );
+                });
             }
             GameAction::Turn {
                 current_player_index,
@@ -1314,10 +1299,19 @@ impl HanabGame {
             } => {
                 self.status.turn = *turn;
                 self.current_player_index = *current_player_index;
+                if let Some(seat) = current_player_index {
+                    self.state.current = Seat(*seat);
+                }
             }
             GameAction::GameOver { end_condition } => {
                 self.current_player_index = None;
                 self.can_act = false;
+                let reason = if end_condition.contains("strike") {
+                    EndReason::Strikeout
+                } else {
+                    EndReason::Normal
+                };
+                self.observe(Event::GameOver { reason });
                 println!("Game finished: {end_condition}");
             }
             GameAction::CardIdentity | GameAction::PlayerTimes => {}
@@ -1563,7 +1557,8 @@ mod protocol_tests {
     }
 
     fn dealt_game() -> HanabGame {
-        let mut game = HanabGame::from_message(&init(json!({"type":"playing","ourPlayerIndex":0})));
+        let mut game =
+            HanabGame::from_message(&init(json!({"type":"playing","ourPlayerIndex":0}))).unwrap();
         for event in initial_events() {
             game_event(&mut game, event);
         }
@@ -2411,16 +2406,26 @@ mod protocol_tests {
 
     #[test]
     fn moves_use_card_orders_absolute_seats_and_tagged_clues() {
-        let mut game = dealt_game();
+        let game = dealt_game();
+        let clue = |value| game.variant.clue_id(value).unwrap();
         for (action, expected) in [
-            (game::Move::Play(0), json!({"type":"play","order":4})),
-            (game::Move::Discard(4), json!({"type":"discard","order":0})),
+            (Action::Play(CardId(4)), json!({"type":"play","order":4})),
             (
-                game::Move::Clue(1, game::Clue::Rank(1)),
+                Action::Discard(CardId(0)),
+                json!({"type":"discard","order":0}),
+            ),
+            (
+                Action::Clue {
+                    target: Seat(1),
+                    clue: clue(ClueValue::Rank(1)),
+                },
                 json!({"type":"clue","receiverIndex":1,"clue":{"type":"rank","rank":1}}),
             ),
             (
-                game::Move::Clue(1, game::Clue::Color(game::Suit::Green().clue_color())),
+                Action::Clue {
+                    target: Seat(1),
+                    clue: clue(ClueValue::Color(2)),
+                },
                 json!({"type":"clue","receiverIndex":1,"clue":{"type":"color","color":2}}),
             ),
         ] {
@@ -2429,12 +2434,6 @@ mod protocol_tests {
                 json!({"tableId":42,"action":expected})
             );
         }
-        game.own_player = 1;
-        assert_eq!(
-            serde_json::to_value(game.action_message(42, game::Move::Clue(1, game::Clue::Rank(2))))
-                .unwrap()["action"]["receiverIndex"],
-            0
-        );
     }
 
     #[test]
@@ -2609,7 +2608,7 @@ mod protocol_tests {
             ),
             (0, 0, 25, 8)
         );
-        assert_eq!(game.discarded_copies, [[0; 5]; 5]);
+        assert_eq!(game.state.discarded, [0; raikan::domain::MAX_IDENTITIES]);
     }
 
     #[test]
@@ -2638,7 +2637,7 @@ mod protocol_tests {
             json!({"type":"soloReplay"}),
             json!({"type":"sharedReplay","ourPlayerIndex":0,"sharedReplay":{"turn":0}}),
         ] {
-            let mut game = HanabGame::from_message(&init(mode));
+            let mut game = HanabGame::from_message(&init(mode)).unwrap();
             game.current_player_index = Some(game.own_player);
             assert!(game.act(42).is_none());
         }

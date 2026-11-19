@@ -228,17 +228,17 @@ impl ExactSampler {
 
     fn complete(&self, rng: &mut rand_pcg::Pcg64, table: &Table) -> World {
         let mut identities = [Identity(0); MAX_CARDS];
-        for card in 0..MAX_CARDS {
+        for (card, slot) in identities.iter_mut().enumerate() {
             if let Some(identity) = self.store.known.get(CardId(card as u8)) {
-                identities[card] = identity;
+                *slot = identity;
             }
         }
         let num_cards = self.store.num_cards as usize;
         let mut world = World::new(&identities[..num_cards]);
         let used = table.draw(rng, &self.store.remaining, &mut world);
         let mut pool = Vec::new();
-        for i in 0..MAX_IDENTITIES {
-            for _ in used[i]..self.store.remaining[i] {
+        for (i, (&used, &remaining)) in used.iter().zip(&self.store.remaining).enumerate() {
+            for _ in used..remaining {
                 pool.push(Identity(i as u8));
             }
         }
@@ -336,8 +336,8 @@ mod tests {
         let available: IdentitySet = [Identity(0), Identity(1), Identity(2)]
             .into_iter()
             .collect();
-        for card in 0..6 {
-            all[card] = available;
+        for domain in all.iter_mut().take(6) {
+            *domain = available;
         }
         for &(card, ids) in domains {
             all[card as usize] = ids.iter().map(|&i| Identity(i)).collect();

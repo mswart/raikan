@@ -436,7 +436,7 @@ fn lockstep(options: &Options) {
                         );
                     }
                 }
-                println!("legacy view:\n{}", legacy[seat].describe());
+                println!("legacy view:\n{}", legacy[seat].describe_legacy());
                 println!("new view:\n{:?}", new[seat].view());
                 return;
             }
@@ -508,7 +508,7 @@ fn lockstep(options: &Options) {
                             state.turn
                         );
                         println!("events: {events:?}");
-                        println!("legacy view:\n{}", legacy[s].describe());
+                        println!("legacy view:\n{}", legacy[s].describe_legacy());
                         println!("new view:\n{:?}", new[s].view());
                         return;
                     }
