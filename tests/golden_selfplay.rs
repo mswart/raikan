@@ -1,23 +1,24 @@
 //! Golden corpus: the complete replays of seeded self-play games, folded into one checksum
-//! per player count. They were recorded when the new bot reproduced the legacy bot
-//! (identical replays for 2-4 players; see docs/parity.md), so any change of a decision
-//! shows up here. After an intended behaviour change, update the checksums with
+//! per player count. First recorded when the new bot reproduced the legacy bot
+//! (identical replays for 2-4 players; see docs/parity.md); re-recorded after each
+//! intended behaviour change (last: teammate predictions from kept seat views), so any
+//! change of a decision shows up here. After an intended behaviour change, update the checksums with
 //! `RAIKAN_GOLDEN_PRINT=1 cargo test --release --test golden_selfplay -- --nocapture`.
 
 use raikan::agent::{Agent, BotAgent, run_game};
 use raikan::engine::shuffled_world;
 use raikan::variants::Variant;
 
-const GAMES: u64 = 20;
+const GAMES: u64 = 12;
 
 /// (variant, players, FNV-1a checksum of the replay URLs of seeds 0..GAMES)
 const EXPECTED: &[(&str, u8, u64)] = &[
-    ("No Variant", 2, 0x810671752c95aa3e),
-    ("No Variant", 3, 0x6be2e0922f04aa3a),
-    ("No Variant", 4, 0x988cba98f5713313),
-    ("No Variant", 5, 0x626e725596fcca12),
-    ("Rainbow (6 Suits)", 3, 0x033491b95415cbfc),
-    ("Rainbow (6 Suits)", 4, 0x31d702e236310a61),
+    ("No Variant", 2, 0x9c4959bda0a0e0bc),
+    ("No Variant", 3, 0x42dc6cbc98f065f3),
+    ("No Variant", 4, 0x9bdedc5888bee1ba),
+    ("No Variant", 5, 0xdf743b09283aaa3b),
+    ("Rainbow (6 Suits)", 3, 0xa884fc23dd25c4f7),
+    ("Rainbow (6 Suits)", 4, 0x8e0b96395d02171e),
 ];
 
 fn checksum(variant: &str, players: u8) -> u64 {

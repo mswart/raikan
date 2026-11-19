@@ -87,7 +87,7 @@ impl Agent for BotAgent {
     fn start(&mut self, variant: &Variant, num_seats: u8, seat: Seat) {
         let profile = Profile::new(self.config.max_level, variant, self.config.require_complete)
             .unwrap_or_else(|err| panic!("cannot compile convention profile: {err:?}"));
-        let mut view = View::new(
+        let mut view = View::with_seat_views(
             Arc::new(variant.clone()),
             Arc::new(profile),
             num_seats,

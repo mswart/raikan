@@ -54,7 +54,11 @@ impl View {
     ) -> u8 {
         self.last_rule = "L1.play-clue";
         let focus_before = self.clue_focus(receiver, touched);
+        // For our own clues: how the receiver will read it, from its view before the clue.
+        self.pending_receiver =
+            (giver == self.me && receiver != self.me).then(|| Box::new(self.perspective(receiver)));
         let error = self.clued_inner(giver, receiver, clue, touched, event);
+        self.pending_receiver = None;
         if self.trace.is_some() {
             let focus = self
                 .interpretations
@@ -478,12 +482,21 @@ impl View {
                 }
             }
         }
-        let receiver_check = (giver == me).then(|| self.perspective(receiver));
+        let receiver_check = if giver == me {
+            self.pending_receiver.take()
+        } else {
+            None
+        };
         // Observers can condition connecting cards on the visible focus. Use a temporary view
         // so these assumptions stay retractable with the record.
-        let mut view = self.clone();
-        let observed = if receiver != me {
-            let identity = self.identity(focus).expect("observers see the focus");
+        let mut view = self.detached();
+        // A kept seat view does not know our cards; it then reads like the receiver.
+        let seen_focus = if receiver != me {
+            self.identity(focus)
+        } else {
+            None
+        };
+        let observed = if let Some(identity) = seen_focus {
             PlayEvaluation::test(
                 self,
                 identity,
@@ -569,7 +582,7 @@ impl View {
             if !hypotheses.iter().any(|h| h.steps == observed.steps) {
                 hypotheses.push(observed);
             }
-        } else if receiver != me {
+        } else if seen_focus.is_some() {
             error += 2;
         }
         if hypotheses.is_empty() {
@@ -586,12 +599,18 @@ impl View {
         if let Some(mut receiver_view) = receiver_check
             && !self.note(focus).trash
         {
-            receiver_view.turn = self.turn;
-            receiver_view.resolve_play_clue(giver, receiver, focus, premarked, clue);
+            // The receiver reads the whole clue with its own conventions.
+            let event = Event::Clue {
+                giver,
+                target: receiver,
+                clue,
+                touched: premarked,
+            };
+            receiver_view.clued(giver, receiver, clue, premarked, &event);
             let identity = self.identity(focus);
             let ok = identity.is_some_and(|identity| {
                 receiver_view.interpretations.records.iter().any(|record| {
-                    record.turn == self.turn
+                    record.turn == receiver_view.turn
                         && record.receiver == receiver
                         && receiver_view.resolves_before_receiver(record, identity)
                 })

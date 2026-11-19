@@ -325,7 +325,7 @@ impl PlayEvaluation {
                             continue;
                         }
                         let identity = view.identity(card);
-                        if identity != Some(previous) {
+                        if !view.may_be(card, previous) {
                             if let Some(identity) = identity
                                 && layered
                                 && view.playable_set().contains(identity)

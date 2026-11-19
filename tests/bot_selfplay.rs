@@ -95,3 +95,110 @@ fn decisions_do_not_depend_on_hidden_cards() {
         );
     }
 }
+
+/// What we predict a teammate believes must not depend on that teammate's own hidden cards
+/// (review finding: perspective() used to keep deductions from cards the teammate cannot
+/// see). Swap one of seat 1's starting cards with a late deck card: while seat 1 observes
+/// the same events in both worlds, seat 0's prediction of seat 1's view must be equal.
+/// The prediction may use what seat 0 believes about its own cards (seat 1 sees them), so
+/// steps where those beliefs differ between the two worlds are skipped.
+#[test]
+fn teammate_predictions_do_not_depend_on_their_hidden_cards() {
+    use raikan::domain::{CardId, Seat};
+    use raikan::engine::{Event, World, deal, step};
+
+    /// What the prediction may use from seat 0's side: its beliefs about its own cards.
+    fn own_beliefs(
+        bot: &BotAgent,
+        state: &raikan::engine::GameState,
+    ) -> Vec<(CardId, raikan::conventions::Belief)> {
+        state
+            .hand(Seat(0))
+            .iter()
+            .map(|&c| (c, bot.view().note(c).belief))
+            .collect()
+    }
+
+    let variant = Variant::no_variant();
+    let mut compared = 0;
+    for seed in 0..30u64 {
+        let seats = 3 + (seed % 2) as u8;
+        let world = shuffled_world(&variant, seed);
+        let hand = raikan::engine::hand_size(seats) as usize;
+        // seat 1's first dealt card and the last card of the deck, if they differ
+        let a = hand;
+        let b = world.len() - 1;
+        if world.identity(CardId(a as u8)) == world.identity(CardId(b as u8)) {
+            continue;
+        }
+        let mut swapped = world.as_slice().to_vec();
+        swapped.swap(a, b);
+        let other = World::new(&swapped);
+
+        // actions of the game in the original world
+        let mut players: Vec<BotAgent> = (0..seats).map(|_| BotAgent::default()).collect();
+        let mut refs: Vec<&mut dyn Agent> =
+            players.iter_mut().map(|b| b as &mut dyn Agent).collect();
+        let actions: Vec<_> = run_game(&variant, &world, &mut refs)
+            .replay
+            .game_actions()
+            .collect();
+
+        let mut tables: Vec<(raikan::engine::GameState, Vec<BotAgent>, &World)> = Vec::new();
+        for w in [&world, &other] {
+            let mut bots: Vec<BotAgent> = (0..seats).map(|_| BotAgent::default()).collect();
+            for (s, bot) in bots.iter_mut().enumerate() {
+                bot.start(&variant, seats, Seat(s as u8));
+            }
+            let (state, events) = deal(&variant, seats, w);
+            for event in &events {
+                for (s, bot) in bots.iter_mut().enumerate() {
+                    bot.observe(&event.observed_by(Seat(s as u8)));
+                }
+            }
+            tables.push((state, bots, w));
+        }
+        for action in actions {
+            let mut seen_by_one: Vec<Vec<Event>> = Vec::new();
+            for (state, bots, w) in tables.iter_mut() {
+                if raikan::engine::check_legal(&variant, state, action).is_err() {
+                    seen_by_one.push(Vec::new());
+                    continue;
+                }
+                let events = step(&variant, state, w, action);
+                for event in &events {
+                    for (s, bot) in bots.iter_mut().enumerate() {
+                        bot.observe(&event.observed_by(Seat(s as u8)));
+                    }
+                }
+                seen_by_one.push(events.iter().map(|e| e.observed_by(Seat(1))).collect());
+            }
+            if seen_by_one[0].is_empty() || seen_by_one[0] != seen_by_one[1] {
+                break; // seat 1's observations differ from here on
+            }
+            let (state_a, bots_a, _) = &tables[0];
+            let (state_b, bots_b, _) = &tables[1];
+            if own_beliefs(&bots_a[0], state_a) != own_beliefs(&bots_b[0], state_b) {
+                continue;
+            }
+            let pa = bots_a[0].view().perspective(Seat(1));
+            let pb = bots_b[0].view().perspective(Seat(1));
+            for card in state_a.dealt().iter() {
+                assert_eq!(
+                    pa.note(card),
+                    pb.note(card),
+                    "seed {seed}, turn {}: card #{}",
+                    state_a.turn,
+                    card.0
+                );
+            }
+            assert_eq!(
+                pa.interpretations, pb.interpretations,
+                "seed {seed}, turn {}",
+                state_a.turn
+            );
+            compared += 1;
+        }
+    }
+    assert!(compared > 100, "only {compared} positions compared");
+}

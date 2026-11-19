@@ -294,7 +294,7 @@ impl View {
         clue: ClueId,
         accept: impl FnOnce(&View, &Worth) -> bool,
     ) -> Option<(Worth, Vec<View>)> {
-        let mut after = self.clone();
+        let mut after = self.detached();
         let error = after.give_clue(receiver, clue)?;
         let mut worth = after.worth(error);
         if !accept(&after, &worth) {

@@ -365,7 +365,8 @@ fn newly_dead(before: &View, after: &View) -> u8 {
 struct Forecast {
     /// `views[k]` belongs to the seat `k` places after us.
     views: Vec<View>,
-    /// Card-action forecasts often stop at the next seat: later views are built lazily.
+    /// Card-action forecasts often stop at the next seat: later views are built lazily from
+    /// this position before our action, replaying `events`.
     initial: Option<View>,
     events: SmallVec<[Event; 5]>,
     strikes: u8,
@@ -395,7 +396,7 @@ impl Forecast {
     }
 
     fn own_card(view: &View, card: CardId, identity: Identity, play: bool) -> Self {
-        let mut after = view.clone();
+        let mut after = view.detached();
         let mut new_strikes = 0;
         let event = if play {
             let success = view.playable_set().contains(identity);
@@ -417,7 +418,9 @@ impl Forecast {
         };
         after.observe(&event);
         let lost_points = newly_dead(view, &after);
-        let initial = Some(after.clone());
+        // Teammate views come from the position before our action (the agent's kept views),
+        // with every forecast event replayed on them.
+        let initial = Some(view.clone());
         Self {
             views: vec![after],
             initial,
@@ -441,7 +444,7 @@ impl Forecast {
                 // decision view of the original position, then the forecast's events
                 let initial = self.initial.as_ref().expect("lazy card forecast");
                 let mut view = initial.decision_view(seat);
-                for event in self.events.iter().skip(1) {
+                for event in &self.events {
                     view.observe(event);
                 }
                 self.views.push(view);

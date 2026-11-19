@@ -191,6 +191,15 @@ pub struct View {
     pub(super) last_rule: &'static str,
     /// Interpretation trace, collected when enabled with [`View::enable_trace`].
     pub trace: TraceLog,
+    /// One view per seat, fed only what that seat observes (their own cards hidden, our
+    /// own cards unknown). Only the agent's root view keeps them; simulation clones drop
+    /// them (see [`View::detached`]).
+    seats: Option<Arc<Vec<View>>>,
+    /// The receiver's view from before our own clue, to check how the receiver reads it.
+    pub(super) pending_receiver: Option<Box<View>>,
+    /// In a kept seat view: possible identities of cards this seat sees but our model cannot
+    /// identify (the root seat's own cards). Empty for every other card.
+    hints: Box<[IdentitySet; MAX_CARDS]>,
 }
 
 /// Trace entries of a view. Clones (simulations) never inherit or extend a trace.
@@ -320,10 +329,38 @@ impl View {
             sets: PlaySets::new(&variant, &GameState::new(&variant, num_seats)),
             last_rule: "",
             trace: TraceLog::default(),
+            seats: None,
+            pending_receiver: None,
+            hints: Box::new([IdentitySet::EMPTY; MAX_CARDS]),
             variant,
             profile,
             me,
         }
+    }
+
+    /// A root view that also keeps the view of every other seat, so that predictions of
+    /// teammates never depend on cards those teammates cannot see.
+    pub fn with_seat_views(
+        variant: Arc<Variant>,
+        profile: Arc<Profile>,
+        num_seats: u8,
+        me: Seat,
+    ) -> Self {
+        let seats = (0..num_seats)
+            .map(|s| View::new(variant.clone(), profile.clone(), num_seats, Seat(s)))
+            .collect();
+        let mut view = View::new(variant, profile, num_seats, me);
+        view.seats = Some(Arc::new(seats));
+        view
+    }
+
+    /// A copy for simulations: without the per-seat views, which hypothetical events would
+    /// otherwise have to update.
+    pub fn detached(&self) -> View {
+        let mut view = self.clone();
+        view.seats = None;
+        view.pending_receiver = None;
+        view
     }
 
     /// Start collecting an interpretation trace of observed clues.
@@ -431,8 +468,58 @@ impl View {
 
     // ----- observing events -----
 
-    /// Fold one observed event into the view.
+    /// Fold one observed event into the view (and into the kept views of the other seats).
     pub fn observe(&mut self, event: &Event) {
+        self.observe_own(event);
+        if let Some(seats) = &mut self.seats {
+            let me = self.me;
+            // Others see our cards; tell their views the ones our notes identify.
+            let identified: SmallVec<[(CardId, Identity); 6]> = self
+                .state
+                .hand(me)
+                .iter()
+                .filter_map(|&c| self.notes[c.index()].belief.identity().map(|i| (c, i)))
+                .collect();
+            let hints: SmallVec<[(CardId, IdentitySet); 6]> = self
+                .state
+                .hand(me)
+                .iter()
+                .map(|&c| {
+                    let belief = self.notes[c.index()].belief;
+                    (
+                        c,
+                        if belief.soft.is_empty() {
+                            belief.hard
+                        } else {
+                            belief.soft
+                        },
+                    )
+                })
+                .collect();
+            for view in Arc::make_mut(seats).iter_mut().filter(|v| v.me != me) {
+                for &(card, identity) in &identified {
+                    if view.known.get(card).is_none() {
+                        view.known.set(card, identity);
+                    }
+                }
+                for &(card, hint) in &hints {
+                    view.hints[card.index()] = hint;
+                }
+                // Another seat does not see its own draws; we cannot tell it ours.
+                let seen = match *event {
+                    Event::Draw { seat, card, .. } if seat == view.me => Event::Draw {
+                        seat,
+                        card,
+                        identity: None,
+                    },
+                    other => other,
+                };
+                view.observe(&seen);
+            }
+        }
+    }
+
+    fn observe_own(&mut self, event: &Event) {
         match *event {
             Event::Draw {
                 seat,
@@ -1090,6 +1177,20 @@ impl View {
         SmallVec::from_slice(&eligible[eligible.len().saturating_sub(step.layers as usize)..])
     }
 
+    /// Whether a card this view sees may be `identity`: its identity if known, otherwise
+    /// the hint of a kept seat view (a card the seat sees but our model cannot identify).
+    pub fn may_be(&self, card: CardId, identity: Identity) -> bool {
+        match self.identity(card) {
+            Some(known) => known == identity,
+            None => {
+                self.state
+                    .holder(card)
+                    .is_some_and(|holder| holder != self.me)
+                    && self.hints[card.index()].contains(identity)
+            }
+        }
+    }
+
     pub(super) fn matches_visible_hand(&self, hypothesis: &Hypothesis) -> bool {
         hypothesis.pending_steps().all(|step| {
             self.state.holder(step.card).is_some_and(|holder| {
@@ -1098,7 +1199,7 @@ impl View {
                         .belief
                         .contains_hard(step.identity)
                 } else {
-                    self.identity(step.card) == Some(step.identity)
+                    self.may_be(step.card, step.identity)
                 }
             })
         })
@@ -1149,9 +1250,23 @@ impl View {
     /// become unknown and our own cards are known where our notes identify them.
     pub fn perspective(&self, seat: Seat) -> View {
         if seat == self.me {
-            return self.clone();
+            return self.detached();
         }
-        let mut view = self.clone();
+        if let Some(seats) = &self.seats {
+            // The kept view of that seat, built only from what it observed. It sees our
+            // cards; we can only tell the ones our notes identify.
+            let mut view = seats[seat.index()].clone();
+            for &card in self.state.hand(self.me) {
+                if let Some(identity) = self.notes[card.index()].belief.identity() {
+                    view.known.set(card, identity);
+                }
+            }
+            return view;
+        }
+        // Fallback for views without kept seat views (simulations and the seat views
+        // themselves): our notes with the seat's own cards hidden. Deductions we made from
+        // cards that seat cannot see remain (an approximation of depth-2 sight).
+        let mut view = self.detached();
         let mut known = KnownCards::default();
         for card in self.state.dealt().iter() {
             if self.state.hand(seat).contains(&card) {
