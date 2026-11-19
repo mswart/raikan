@@ -194,29 +194,37 @@ impl ExactSampler {
     /// Build the tables. `epsilon` is the weight of a world that violates a convention
     /// constraint.
     pub fn new(store: &ConstraintStore, epsilon: f64) -> Self {
-        let constrained: Vec<CardId> = store.constrained().iter().collect();
-        let physical = Table::build(constrained, &store.domains, &store.remaining);
-        let trusting = if store
+        let has_restrict = store
             .convention
             .iter()
-            .any(|c| matches!(c, super::ConventionConstraint::Restrict { .. }))
-        {
+            .any(|c| matches!(c, super::ConventionConstraint::Restrict { .. }));
+        let physical_cards: Vec<CardId> = store.constrained().iter().collect();
+        if has_restrict {
+            // Both tables must count the same assignment space: a table leaves out the
+            // completion factor of its unconstrained cards, which depends on how many there
+            // are. Build them over the same cards so their totals are comparable.
             let domains = store.trusting_domains();
             let available = store.available();
             let cards: Vec<CardId> = store
                 .unknown
                 .iter()
-                .filter(|c| domains[c.index()] != available)
+                .filter(|c| {
+                    store.domains[c.index()] != available || domains[c.index()] != available
+                })
                 .collect();
-            (cards.len() <= MAX_EXACT_CONSTRAINED)
-                .then(|| Table::build(cards, &domains, &store.remaining))
-        } else {
-            None
-        };
+            if cards.len() <= MAX_EXACT_CONSTRAINED {
+                return Self {
+                    store: store.clone(),
+                    physical: Table::build(cards.clone(), &store.domains, &store.remaining),
+                    trusting: Some(Table::build(cards, &domains, &store.remaining)),
+                    epsilon,
+                };
+            }
+        }
         Self {
             store: store.clone(),
-            physical,
-            trusting,
+            physical: Table::build(physical_cards, &store.domains, &store.remaining),
+            trusting: None,
             epsilon,
         }
     }
@@ -452,6 +460,26 @@ mod tests {
             .sample(100_000, 4)
             .probability(CardId(0), IdentitySet::single(Identity(1)));
         assert!((p - expected).abs() < 0.01, "{p} vs {expected}");
+
+        // Restricting a card that is otherwise unconstrained: both tables must count the
+        // same deals (regression: the trusting table used to win every draw).
+        let mut store = tiny_store(&[]);
+        store.convention.push(ConventionConstraint::Restrict {
+            card: CardId(0),
+            identities: IdentitySet::single(Identity(1)),
+        });
+        for epsilon in [1.0, 0.5] {
+            // physical P(card 0 = identity 1) = 2/6
+            let sat = 2.0 / 6.0;
+            let expected = sat / (sat + epsilon * (1.0 - sat));
+            let p = ExactSampler::new(&store, epsilon)
+                .sample(60_000, 5)
+                .probability(CardId(0), IdentitySet::single(Identity(1)));
+            assert!(
+                (p - expected).abs() < 0.01,
+                "epsilon {epsilon}: {p} vs {expected}"
+            );
+        }
 
         // Located constraints enter as weights.
         let mut store = tiny_store(&[]);
