@@ -7,6 +7,24 @@
     ':maintainLockFilesMonthly',
     'mergeConfidence:all-badges',
   ],
+  packageRules: [
+    {
+      description: 'Group all GitHub Actions updates (incl. major) into a single PR',
+      matchManagers: ['github-actions'],
+      groupName: 'github actions',
+      groupSlug: 'github-actions',
+      separateMajorMinor: false,
+      schedule: ['* 0-3 1 * *'], // monthly
+    },
+    {
+      description: 'Group all Rust updates (crates + toolchain, incl. major) into a single PR',
+      matchManagers: ['cargo', 'custom.regex'],
+      groupName: 'rust',
+      groupSlug: 'rust',
+      separateMajorMinor: false,
+      schedule: ['* 0-3 1 * *'], // monthly
+    },
+  ],
   customManagers: [
     {
       customType: 'regex',
