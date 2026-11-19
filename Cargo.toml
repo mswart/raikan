@@ -24,7 +24,6 @@ reqwest = { version = "0.12.23", features = [
     "rustls-tls",
 ], optional = true, default-features = false }
 slog = "2.7.0"
-slog-term = "2.9.2"
 smallvec = { version = "1.15.1", features = ["const_generics"] }
 tungstenite = { version = "0.28.0", optional = true, features = [
     "rustls-tls-webpki-roots",
@@ -46,3 +45,6 @@ codegen-units = 1
 
 [features]
 webclient = ["dep:tungstenite", "dep:reqwest"]
+
+[dev-dependencies]
+slog-term = "2.9.2"
