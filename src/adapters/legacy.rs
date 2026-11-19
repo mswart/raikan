@@ -28,8 +28,13 @@ const COLORS: [fn() -> game::ClueColor; 5] = [
     game::ClueColor::Purple,
 ];
 
+enum Player {
+    Hyphenated(Box<HyphenatedPlayer>),
+    Other(Box<dyn PlayerStrategy>),
+}
+
 pub struct LegacyAgent {
-    player: Box<dyn PlayerStrategy>,
+    player: Player,
     variant: Option<Variant>,
     seat: Seat,
     num_seats: u8,
@@ -39,6 +44,10 @@ pub struct LegacyAgent {
 
 impl LegacyAgent {
     pub fn new(player: Box<dyn PlayerStrategy>) -> Self {
+        Self::with(Player::Other(player))
+    }
+
+    fn with(player: Player) -> Self {
         Self {
             player,
             variant: None,
@@ -49,7 +58,30 @@ impl LegacyAgent {
     }
 
     pub fn hyphenated() -> Self {
-        Self::new(Box::new(HyphenatedPlayer::new(false)))
+        Self::with(Player::Hyphenated(Box::new(HyphenatedPlayer::new(false))))
+    }
+
+    /// The wrapped player's debug description.
+    pub fn describe(&self) -> String {
+        match &self.player {
+            Player::Hyphenated(p) => format!("{p:#?}"),
+            Player::Other(p) => format!("{p:#?}"),
+        }
+    }
+
+    /// The legacy `Line` of a wrapped hyphenated bot.
+    pub fn line(&self) -> Option<crate::hyphenated::Line> {
+        match &self.player {
+            Player::Hyphenated(p) => Some(p.line()),
+            Player::Other(_) => None,
+        }
+    }
+
+    fn player(&mut self) -> &mut dyn PlayerStrategy {
+        match &mut self.player {
+            Player::Hyphenated(p) => p.as_mut(),
+            Player::Other(p) => p.as_mut(),
+        }
     }
 
     fn variant(&self) -> &Variant {
@@ -89,7 +121,7 @@ impl Agent for LegacyAgent {
         self.seat = seat;
         self.num_seats = num_seats;
         self.hands = vec![VecDeque::new(); num_seats as usize];
-        self.player.init(num_seats, seat.0);
+        self.player().init(num_seats, seat.0);
     }
 
     fn observe(&mut self, event: &Event) {
@@ -101,10 +133,11 @@ impl Agent for LegacyAgent {
             } => {
                 self.hands[seat.index()].push_front(card);
                 if seat == self.seat {
-                    self.player.own_drawn();
+                    self.player().own_drawn();
                 } else {
                     let card = self.card(identity.expect("others' cards are visible"));
-                    self.player.drawn(self.relative(seat), card);
+                    let relative = self.relative(seat);
+                    self.player().drawn(relative, card);
                 }
             }
             Event::Play {
@@ -115,7 +148,8 @@ impl Agent for LegacyAgent {
             } => {
                 let pos = self.take(seat, card);
                 let card = self.card(identity.expect("played cards are revealed"));
-                self.player.played(self.relative(seat), pos, card, success);
+                let relative = self.relative(seat);
+                self.player().played(relative, pos, card, success);
             }
             Event::Discard {
                 seat,
@@ -124,7 +158,8 @@ impl Agent for LegacyAgent {
             } => {
                 let pos = self.take(seat, card);
                 let card = self.card(identity.expect("discarded cards are revealed"));
-                self.player.discarded(self.relative(seat), pos, card);
+                let relative = self.relative(seat);
+                self.player().discarded(relative, pos, card);
             }
             Event::Clue {
                 giver,
@@ -143,8 +178,8 @@ impl Agent for LegacyAgent {
                     ClueValue::Color(c) => game::Clue::Color(COLORS[c as usize]()),
                     ClueValue::Rank(r) => game::Clue::Rank(r),
                 };
-                self.player
-                    .clued(self.relative(giver), self.relative(target), clue, positions);
+                let (giver, target) = (self.relative(giver), self.relative(target));
+                self.player().clued(giver, target, clue, positions);
             }
             Event::GameOver { .. } => {}
         }
@@ -160,9 +195,10 @@ impl Agent for LegacyAgent {
             clues: state.clue_tokens(),
             blind_plays: 0,
         };
+        let chosen = self.player().act(&status);
         let hand = &self.hands[self.seat.index()];
         let card_at = |pos: u8| hand.get(pos as usize).copied().unwrap_or(CardId(u8::MAX));
-        match self.player.act(&status) {
+        match chosen {
             game::Move::Play(pos) => Action::Play(card_at(pos)),
             game::Move::Discard(pos) => Action::Discard(card_at(pos)),
             game::Move::Clue(offset, clue) => {
@@ -187,5 +223,107 @@ impl Agent for LegacyAgent {
                 }
             }
         }
+    }
+}
+
+fn legacy_identity(variant: &Variant, card: game::Card) -> Identity {
+    let suit = SUITS
+        .iter()
+        .position(|s| s() == card.suit)
+        .expect("five suits");
+    variant.identity(suit, card.rank)
+}
+
+impl LegacyAgent {
+    /// Development aid: the first card whose notes differ between the legacy `Line` and a
+    /// new-architecture view of the same seat.
+    pub fn compare_notes(&self, view: &crate::conventions::View) -> Option<String> {
+        let line = self.line()?;
+        let variant = self.variant();
+        for seat in view.state.seats() {
+            let relative = self.relative(seat) as u8;
+            let new: Vec<CardId> = view.newest_first(seat).map(|(_, c)| c).collect();
+            for (pos, slot) in line.hands.iter_hand(relative) {
+                let Some(&card) = new.get(pos as usize) else {
+                    return Some(format!("seat {} has no position {pos}", seat.0));
+                };
+                let note = view.note(card);
+                let soft: crate::domain::IdentitySet = slot
+                    .quantum
+                    .to_vec()
+                    .into_iter()
+                    .map(|c| legacy_identity(variant, c))
+                    .collect();
+                let hard: crate::domain::IdentitySet = variant
+                    .all_identities()
+                    .iter()
+                    .filter(|&i| {
+                        slot.quantum.contains_hard(&game::Card {
+                            suit: SUITS[variant.suit_of(i)](),
+                            rank: variant.rank_of(i),
+                        })
+                    })
+                    .collect();
+                if hard != note.belief.hard {
+                    let names = |set: crate::domain::IdentitySet| {
+                        set.iter()
+                            .map(|i| variant.identity_name(i))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    };
+                    return Some(format!(
+                        "seat {} card #{}: hard legacy {{{}}} new {{{}}}",
+                        seat.0,
+                        card.0,
+                        names(hard),
+                        names(note.belief.hard)
+                    ));
+                }
+                let differs = soft != note.belief.soft
+                    || slot.play != note.play
+                    || slot.trash != note.trash
+                    || slot.clued != note.clued
+                    || slot.delayed != note.delayed
+                    || slot.promised.is_some() != note.promised.is_some();
+                if differs {
+                    let names = |set: crate::domain::IdentitySet| {
+                        set.iter()
+                            .map(|i| variant.identity_name(i))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    };
+                    return Some(format!(
+                        "seat {} card #{}: legacy {{{}}} play={} trash={} clued={} delayed={} promised={} | new {{{}}} play={} trash={} clued={} delayed={} promised={}",
+                        seat.0,
+                        card.0,
+                        names(soft),
+                        slot.play,
+                        slot.trash,
+                        slot.clued,
+                        slot.delayed,
+                        slot.promised.is_some(),
+                        names(note.belief.soft),
+                        note.play,
+                        note.trash,
+                        note.clued,
+                        note.delayed,
+                        note.promised.is_some()
+                    ));
+                }
+            }
+        }
+        None
+    }
+}
+
+impl LegacyAgent {
+    /// Development aid: the legacy grade of one of our candidate clues.
+    pub fn grade_clue(&self, target: Seat, clue: crate::domain::ClueId) -> Option<String> {
+        let mut line = self.line()?;
+        let clue = match self.variant().clue_value(clue) {
+            ClueValue::Color(c) => game::Clue::Color(COLORS[c as usize]()),
+            ClueValue::Rank(r) => game::Clue::Rank(r),
+        };
+        Some(format!("{:?}", line.clue(self.relative(target), clue)))
     }
 }

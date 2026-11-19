@@ -20,6 +20,9 @@ pub use slot::{Slot, SlotId};
 
 impl std::fmt::Debug for HyphenatedPlayer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            return std::fmt::Debug::fmt(&self.line, f);
+        }
         f.write_str("[")?;
         for (pos, slot) in self.line.hands.iter_hand(0) {
             if pos > 0 {

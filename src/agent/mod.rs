@@ -1,6 +1,10 @@
 //! Agents: anything that observes events and chooses actions for one seat, plus the
 //! self-play runner that drives a table of agents through the simulator.
 
+pub mod bot;
+
+pub use bot::{BotAgent, Config};
+
 use crate::domain::Seat;
 use crate::engine::{self, Action, Event, GameState, Replay, ReplayAction, World};
 use crate::variants::Variant;
@@ -80,4 +84,38 @@ fn finish_step(replay: &mut Replay, seat: Seat, action: Action, events: &[Event]
             });
         }
     }
+}
+
+/// Feed the first `turns` actions of a replay to the agents (they only observe; their own
+/// choices are not asked). Returns the state after those actions.
+pub fn replay_prefix(
+    replay: &Replay,
+    turns: usize,
+    agents: &mut [&mut dyn Agent],
+) -> Result<GameState, String> {
+    let variant = Variant::by_name(&replay.variant).map_err(|e| e.to_string())?;
+    let num_seats = replay.num_seats();
+    for (seat, agent) in agents.iter_mut().enumerate() {
+        agent.start(&variant, num_seats, Seat(seat as u8));
+    }
+    let (mut state, deal_events) = engine::deal(&variant, num_seats, &replay.deck);
+    for event in &deal_events {
+        for (seat, agent) in agents.iter_mut().enumerate() {
+            agent.observe(&event.observed_by(Seat(seat as u8)));
+        }
+    }
+    for action in replay.game_actions().take(turns) {
+        if let Err(err) = engine::check_legal(&variant, &state, action) {
+            return Err(format!(
+                "turn {}: {action:?} is illegal: {err:?}",
+                state.turn
+            ));
+        }
+        for event in engine::step(&variant, &mut state, &replay.deck, action) {
+            for (seat, agent) in agents.iter_mut().enumerate() {
+                agent.observe(&event.observed_by(Seat(seat as u8)));
+            }
+        }
+    }
+    Ok(state)
 }
