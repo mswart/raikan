@@ -8,7 +8,7 @@ repository = "https://github.com/mswart/raikan"
 license = "AGPL-3.0-or-later"
 keywords = ["hanabi", "hyphenated", "bot"]
 categories = ["games", "simulation"]
-include = ["/src", "/tests", "/benches", "LICENSE"]
+include = ["/src", "/tests", "/benches", "/data", "LICENSE"]
 # be explicit about MSRV, but use first version with edition 2024 for now:
 rust-version = "1.85"
 
