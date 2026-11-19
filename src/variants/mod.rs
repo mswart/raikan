@@ -148,6 +148,16 @@ impl Variant {
             (json.duck, "duck"),
             (json.alternating_clues, "alternating-clues"),
             (json.sudoku, "sudoku"),
+            // Upstream permits clues that touch nothing in these variants; the engine and
+            // the clue reader require a touched card.
+            (
+                json.color_clues_touch_nothing,
+                "empty clues (color clues touch nothing)",
+            ),
+            (
+                json.rank_clues_touch_nothing,
+                "empty clues (rank clues touch nothing)",
+            ),
         ] {
             if flag {
                 return Err(unsupported(feature));
@@ -842,6 +852,8 @@ mod tests {
             "Orange (6 Suits)",
             "Up or Down (6 Suits)",
             "Throw It in a Hole (6 Suits)",
+            "Color Blind (5 Suits)",
+            "Number Blind (5 Suits)",
         ] {
             assert!(
                 matches!(
