@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/mswart/raikan/compare/v0.2.2...v0.3.0) - 2026-11-19
+
+### Added
+
+- *(h-group)* implement level 3 completely
+- *(h-group)* implement level 2 fully
+- add stalling with locked-hand and eight-clue saves
+- add turn-aware action selection
+
+### Fixed
+
+- *(bot)* Adapt to changed server protocol
+- *(bot)* more protocol updates
+- don't clue cards again in finesses
+- *(bot)* implement protocol changes
+- *(bot)* adapt to change protocol
+- prioritize critical saves and cover live reconnects
+
+### Other
+
+- *(deps)* update rust crate serde to v1.0.229 ([#116](https://github.com/mswart/raikan/pull/116))
+- *(deps)* update rust crate rand to v0.8.8 ([#113](https://github.com/mswart/raikan/pull/113))
+- drastically reduce number of needed allocations
+- implement level 1 rules
+- update to change server implementation
+- [tooling] Be more explicit about the implemented features
+- Recognize and safely score layered finesse clues
+- Derive clue state from interpretations and remove callbacks
+- Track play clue hypotheses using stable card identities
+
 ### Changed
 
 - Complete standard-game level-3 conventions: starting and fresh 1s play order
