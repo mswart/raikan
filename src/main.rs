@@ -1,7 +1,7 @@
 //! `raikan` command line: self-play, statistics and regression diffs.
 //!
 //! ```text
-//! raikan selfplay [SEED] [--players N] [--bot new|legacy] [--variant NAME] [--level L]
+//! raikan selfplay [SEED] [--players N] [--bot new|legacy] [--variant NAME] [--level L] [--trace FILE.jsonl]
 //! raikan stats [--players N] [--games G] [--seed-start S] [--bot new|legacy] [--variant NAME] [--level L]
 //! raikan diff OLD.list NEW.list [--bot new|legacy] [--level L]
 //! ```
@@ -28,6 +28,7 @@ struct Options {
     bot: Bot,
     variant: String,
     level: u8,
+    trace: Option<String>,
     positional: Vec<String>,
 }
 
@@ -39,6 +40,7 @@ fn parse_options(args: &[String]) -> Options {
         bot: Bot::New,
         variant: "No Variant".to_string(),
         level: Config::default().max_level,
+        trace: None,
         positional: Vec::new(),
     };
     let mut iter = args.iter();
@@ -63,6 +65,7 @@ fn parse_options(args: &[String]) -> Options {
                 options.seed_start = value().parse().unwrap_or_else(|_| usage("invalid seed"))
             }
             "--variant" => options.variant = value(),
+            "--trace" => options.trace = Some(value()),
             "--level" => options.level = value().parse().unwrap_or_else(|_| usage("invalid level")),
             "--bot" => {
                 options.bot = match value().as_str() {
@@ -165,7 +168,34 @@ fn selfplay(options: &Options) {
         None => rand::random(),
     };
     let variant = variant(options);
-    let result = play(options, &variant, seed);
+    let result = if let Some(path) = &options.trace {
+        if options.bot != Bot::New {
+            usage("--trace needs --bot new");
+        }
+        let world = shuffled_world(&variant, seed);
+        let mut bots: Vec<BotAgent> = (0..options.players)
+            .map(|_| {
+                let mut bot = BotAgent::new(Config {
+                    max_level: options.level,
+                    ..Config::default()
+                });
+                bot.enable_trace();
+                bot
+            })
+            .collect();
+        let mut refs: Vec<&mut dyn Agent> = bots.iter_mut().map(|b| b as &mut dyn Agent).collect();
+        let result = run_game(&variant, &world, &mut refs);
+        drop(refs);
+        let mut lines = Vec::new();
+        for bot in &mut bots {
+            lines.extend(bot.take_trace());
+        }
+        std::fs::write(path, lines.join("\n") + "\n")
+            .unwrap_or_else(|e| usage(&format!("cannot write {path}: {e}")));
+        result
+    } else {
+        play(options, &variant, seed)
+    };
     println!(
         "seed {seed}: score {} ({:?})",
         result.score,

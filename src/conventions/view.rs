@@ -187,6 +187,37 @@ pub struct View {
     pub turn: i16,
     pub(super) history: Option<Arc<Snapshot>>,
     sets: PlaySets,
+    /// The rule that classified the last clue (for traces).
+    pub(super) last_rule: &'static str,
+    /// Interpretation trace, collected when enabled with [`View::enable_trace`].
+    pub trace: TraceLog,
+}
+
+/// Trace entries of a view. Clones (simulations) never inherit or extend a trace.
+#[derive(Default)]
+pub struct TraceLog(Option<Vec<crate::trace::InterpretationTrace>>);
+
+impl Clone for TraceLog {
+    fn clone(&self) -> Self {
+        Self(None)
+    }
+}
+
+impl TraceLog {
+    pub fn is_some(&self) -> bool {
+        self.0.is_some()
+    }
+
+    pub fn push(&mut self, entry: crate::trace::InterpretationTrace) {
+        if let Some(log) = &mut self.0 {
+            log.push(entry);
+        }
+    }
+
+    /// Remove and return the collected entries.
+    pub fn take(&mut self) -> Vec<crate::trace::InterpretationTrace> {
+        self.0.as_mut().map(std::mem::take).unwrap_or_default()
+    }
 }
 
 /// Play-state sets of the current stacks and discards, cached per card movement.
@@ -287,10 +318,17 @@ impl View {
             turn: 0,
             history: None,
             sets: PlaySets::new(&variant, &GameState::new(&variant, num_seats)),
+            last_rule: "",
+            trace: TraceLog::default(),
             variant,
             profile,
             me,
         }
+    }
+
+    /// Start collecting an interpretation trace of observed clues.
+    pub fn enable_trace(&mut self) {
+        self.trace.0.get_or_insert_with(Vec::new);
     }
 
     pub fn rule(&self, rule: Rule) -> bool {

@@ -1,8 +1,9 @@
 # Raikan target architecture
 
-Status: design target, written 2026-11-18. Nothing in this document is implemented yet.
-It describes where the code base should end up; the current behaviour and its gaps are
-described in the [README](../README.md).
+Status: design target, written 2026-11-18. The first milestone (today's feature set on
+the new layers) is implemented; [parity.md](parity.md) lists what is in place and what
+is still missing per section. The current behaviour and its gaps are described in the
+[README](../README.md).
 
 ## 1. Goals
 

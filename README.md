@@ -25,8 +25,12 @@ username and password again. Do not include `Set-Cookie` attributes such as
 `Path` or `HttpOnly`.
 
 Send the bot a DM with `/join` as message to make it join your table.
-The web client supports one table at a time, using the standard `No Variant`
-rules. It uses Hanabi Live's current lobby and game-event protocol; spectators
+The web client supports one table at a time. It plays `No Variant` and other
+variants with plain suits only (e.g. 3, 4 or 6 suits). Special suits such as
+rainbow, white or black have no convention adaptations yet and are refused
+unless `RAIKAN_EXPERIMENTAL_VARIANTS=1` is set. `RAIKAN_LEVEL=<n>` caps the
+H-Group level (default 9). `RAIKAN_BOT=legacy` switches to the previous
+implementation (No Variant only). It uses Hanabi Live's current lobby and game-event protocol; spectators
 and replay viewers do not send moves.
 
 The client follows the [November 14, 2026 protocol contracts](https://github.com/Hanabi-Live/hanabi-live/tree/1701eb99677f/server/protocol/src).
@@ -209,6 +213,29 @@ for deeper expectimax or robust minimax. Such an extension would need joint hand
 beliefs, draw outcomes, and the final-turn counter. Teammates remain cooperative;
 minimization would apply to uncertain outcomes, not opposing players.
 
+## Architecture
+
+The bot is being moved to the design in [docs/architecture.md](docs/architecture.md):
+layered modules (`domain`, `variants`, `engine`, `knowledge`, `conventions`, `policy`,
+`agent`, `adapters`), absolute seats and card ids, a variant catalogue taken from
+hanab.live, and a convention profile compiled from the H-Group level. The current
+feature set runs on the new layers and reproduces the previous implementation exactly
+for 2–4 players. The previous implementation (`game`, `hyphenated`) remains as the
+reference until its tests are ported; see [docs/parity.md](docs/parity.md).
+
+## Command line
+
+```sh
+raikan selfplay [SEED] [--players N] [--variant NAME] [--level L] [--trace FILE.jsonl]
+raikan stats [--players N] [--games G] [--seed-start S] [--bot new|legacy] [--variant NAME] [--level L]
+raikan diff OLD.list NEW.list      # first game whose score dropped, with the bot's view
+raikan lockstep [--players N] [--games G]   # first decision where new and legacy bots differ
+```
+
+`stats` prints one line per game (`seed outcome score max turns blind-plays replay-url`)
+to stdout and a summary to stderr. `--trace` writes one JSON object per line: how every
+seat read every clue (rule and readings) and why every decision was taken.
+
 ## Performance and benchmarking
 
 Run simulations with an optimized build:
@@ -225,11 +252,13 @@ Release builds use thin LTO and a single code generation unit.
 A deterministic single-thread benchmark supports smaller comparisons:
 
 ```sh
-cargo bench --bench simulation -- 100 4
+cargo bench --bench simulation -- 100 4 --bot new
 cargo bench --bench simulation -- 100 4 --allocations
 ```
 
-The arguments are game count and player count. The replay checksum covers every
+The arguments are game count and player count; `--bot` selects `new` (the new
+architecture), `legacy` (the previous bot on the new engine) or `old` (the previous bot
+and engine, the default). The replay checksum covers every
 move, so equal checksums verify that an optimization preserved the sampled games.
 Allocation counts include reallocations; requested bytes are cumulative, not
 peak memory. Use the run without allocation counting for timing.

@@ -20,4 +20,4 @@ pub use profile::{Profile, Rule};
 pub use records::{ClueRecord, Hypothesis, Step, StepKind, Tier};
 pub use rules::Fix;
 pub use stall::{StallKind, StallSeverity};
-pub use view::{CardNote, Clued, PlayState, TurnContext, View};
+pub use view::{CardNote, Clued, PlayState, TraceLog, TurnContext, View};

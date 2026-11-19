@@ -1093,6 +1093,16 @@ impl HanabGame {
         if std::env::var("RAIKAN_BOT").as_deref() == Ok("legacy") && variant.id != 0 {
             return Err("the legacy bot only plays No Variant".to_string());
         }
+        // Conventions have no special-suit adaptations yet; plain suits only unless opted in.
+        let special = variant.has_multi_color_touch()
+            || variant.has_colorless()
+            || variant.has_unique_suits();
+        if special && std::env::var_os("RAIKAN_EXPERIMENTAL_VARIANTS").is_none() {
+            return Err(format!(
+                "{} needs special-suit conventions (set RAIKAN_EXPERIMENTAL_VARIANTS=1 to play anyway)",
+                variant.name
+            ));
+        }
         let own_player = init.mode.our_player_index.unwrap_or(0);
         let mut game = Self {
             player_names: init.player_names.clone(),

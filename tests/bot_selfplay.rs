@@ -44,3 +44,54 @@ fn six_suits_smoke() {
         assert_ne!(end, Some(EndReason::Illegal));
     }
 }
+
+/// A view never knows its own cards, and a seat's first decision does not change when its
+/// hidden cards (own hand and the deck) are swapped (docs/architecture.md §10).
+#[test]
+fn decisions_do_not_depend_on_hidden_cards() {
+    use raikan::domain::Seat;
+    use raikan::engine::{World, deal};
+
+    let variant = Variant::no_variant();
+    for seed in 0..40u64 {
+        let seats = 3 + (seed % 3) as u8;
+        let world = shuffled_world(&variant, seed);
+        let hand = raikan::engine::hand_size(seats) as usize;
+        // swap seat 0's starting hand with deck cards that are drawn later
+        let mut swapped: Vec<_> = world.as_slice().to_vec();
+        let deck_start = hand * seats as usize;
+        for i in 0..hand {
+            swapped.swap(i, deck_start + i);
+        }
+        let other = World::new(&swapped);
+        let mut decisions = Vec::new();
+        for world in [&world, &other] {
+            let mut bots: Vec<BotAgent> = (0..seats).map(|_| BotAgent::default()).collect();
+            for (s, bot) in bots.iter_mut().enumerate() {
+                bot.start(&variant, seats, Seat(s as u8));
+            }
+            let (state, events) = deal(&variant, seats, world);
+            for event in &events {
+                for (s, bot) in bots.iter_mut().enumerate() {
+                    bot.observe(&event.observed_by(Seat(s as u8)));
+                }
+            }
+            for (s, bot) in bots.iter().enumerate() {
+                for &card in state.hand(Seat(s as u8)) {
+                    assert_eq!(
+                        bot.view().identity(card),
+                        None,
+                        "seat {s} knows its own card #{}",
+                        card.0
+                    );
+                    assert_eq!(bot.view().known.get(card), None);
+                }
+            }
+            decisions.push(bots[0].choose_action(&state));
+        }
+        assert_eq!(
+            decisions[0], decisions[1],
+            "seed {seed}: seat 0 decided on hidden cards"
+        );
+    }
+}

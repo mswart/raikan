@@ -52,6 +52,67 @@ impl View {
         touched: CardSet,
         event: &Event,
     ) -> u8 {
+        self.last_rule = "L1.play-clue";
+        let focus_before = self.clue_focus(receiver, touched);
+        let error = self.clued_inner(giver, receiver, clue, touched, event);
+        if self.trace.is_some() {
+            let focus = self
+                .interpretations
+                .records
+                .iter()
+                .find(|r| r.turn == self.turn && r.receiver == receiver)
+                .map(|r| r.focus)
+                .or(focus_before)
+                .map_or(0, |c| c.0);
+            let readings = self
+                .interpretations
+                .records
+                .iter()
+                .filter(|r| r.turn == self.turn && r.receiver == receiver)
+                .flat_map(|r| r.hypotheses.iter())
+                .map(|h| crate::trace::ReadingTrace {
+                    focus: self.variant.identity_name(h.focus_identity),
+                    tier: format!("{:?}", h.tier),
+                    steps: h
+                        .steps
+                        .iter()
+                        .map(|s| {
+                            format!(
+                                "{}@#{} {:?}",
+                                self.variant.identity_name(s.identity),
+                                s.card.0,
+                                s.kind
+                            )
+                        })
+                        .collect(),
+                })
+                .collect();
+            let entry = crate::trace::InterpretationTrace {
+                kind: "interpretation",
+                turn: self.turn,
+                viewer: self.me.0,
+                giver: giver.0,
+                receiver: receiver.0,
+                clue: self.variant.clue_name(clue),
+                focus,
+                rule: self.last_rule,
+                readings,
+                errors: error,
+            };
+            self.trace.push(entry);
+        }
+        error
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn clued_inner(
+        &mut self,
+        giver: Seat,
+        receiver: Seat,
+        clue: ClueId,
+        touched: CardSet,
+        event: &Event,
+    ) -> u8 {
         self.push_snapshot();
         let touch = self.variant.touch(clue);
         let old_chop = self.chop(receiver);
@@ -207,6 +268,10 @@ impl View {
             }
             self.refresh_derived();
             self.refresh_clued_cards();
+            self.last_rule = match fix {
+                Fix::Literal(_) => "L3.fix",
+                Fix::Stop(_) => "L3.stop",
+            };
             return error;
         }
         self.refresh_derived();
@@ -228,6 +293,15 @@ impl View {
             }
             self.refresh_derived();
             self.refresh_clued_cards();
+            self.last_rule = match stall {
+                Some(StallKind::Five) if self.context.early_game => "L2.five-stall",
+                Some(StallKind::Five) => "L9.stall.five",
+                Some(StallKind::Tempo) => "L9.stall.tempo",
+                Some(StallKind::FillIn) => "L9.stall.fill-in",
+                Some(StallKind::LockedSave) => "L9.stall.locked-save",
+                Some(StallKind::EightClueSave) => "L9.stall.eight-clue-save",
+                _ => "L9.stall.burn",
+            };
             return error;
         }
         if newly_clued.is_empty() {
@@ -240,6 +314,7 @@ impl View {
             error += self.resolve_play_clue(giver, receiver, focus, touched);
             self.refresh_derived();
             self.refresh_clued_cards();
+            self.last_rule = "L1.play-clue";
             return error;
         }
 
@@ -269,6 +344,7 @@ impl View {
                     note.belief = note.base;
                     // Recover from duplicates, but do not reward giving them.
                     error += 1;
+                    self.last_rule = "L3.duplicated-play";
                 } else if self.note(card).belief.intersects(save_options)
                     && (receiver == self.me
                         || !(identity.is_some_and(|i| self.variant.rank_of(i) == top)
@@ -280,7 +356,9 @@ impl View {
                             note.remove(potential, true);
                         }
                     }
+                    self.last_rule = "L1.save";
                 } else {
+                    self.last_rule = "L1.play-clue";
                     self.note_mut(card).play = true;
                     error += self.resolve_play_clue(giver, receiver, card, touched);
                 }

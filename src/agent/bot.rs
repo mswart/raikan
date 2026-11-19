@@ -29,6 +29,7 @@ pub struct BotAgent {
     config: Config,
     view: Option<View>,
     last: Option<Decision>,
+    trace: Option<Vec<String>>,
 }
 
 impl BotAgent {
@@ -37,11 +38,37 @@ impl BotAgent {
             config,
             view: None,
             last: None,
+            trace: None,
         }
     }
 
     pub fn view(&self) -> &View {
         self.view.as_ref().expect("start() must be called first")
+    }
+
+    /// Collect interpretation and decision traces (JSON lines, see [`BotAgent::take_trace`]).
+    pub fn enable_trace(&mut self) {
+        self.trace = Some(Vec::new());
+        if let Some(view) = &mut self.view {
+            view.enable_trace();
+        }
+    }
+
+    /// The trace lines collected so far, as JSON objects.
+    pub fn take_trace(&mut self) -> Vec<String> {
+        let mut lines = Vec::new();
+        if let Some(view) = &mut self.view {
+            lines.extend(
+                view.trace
+                    .take()
+                    .iter()
+                    .map(|e| serde_json::to_string(e).expect("trace serialises")),
+            );
+        }
+        if let Some(trace) = &mut self.trace {
+            lines.append(trace);
+        }
+        lines
     }
 
     /// The last decision and why it was taken.
@@ -60,12 +87,16 @@ impl Agent for BotAgent {
     fn start(&mut self, variant: &Variant, num_seats: u8, seat: Seat) {
         let profile = Profile::new(self.config.max_level, variant, self.config.require_complete)
             .unwrap_or_else(|err| panic!("cannot compile convention profile: {err:?}"));
-        self.view = Some(View::new(
+        let mut view = View::new(
             Arc::new(variant.clone()),
             Arc::new(profile),
             num_seats,
             seat,
-        ));
+        );
+        if self.trace.is_some() {
+            view.enable_trace();
+        }
+        self.view = Some(view);
         self.last = None;
     }
 
@@ -84,6 +115,17 @@ impl Agent for BotAgent {
         );
         let decision = policy::choose_action(view);
         let action = decision.action;
+        if let Some(trace) = &mut self.trace {
+            let entry = crate::trace::DecisionTrace {
+                kind: "decision",
+                turn: state.turn,
+                seat: view.me.0,
+                action: format!("{action:?}"),
+                reason: format!("{:?}", decision.reason),
+                profile_digest: format!("{:016x}", view.profile.digest),
+            };
+            trace.push(serde_json::to_string(&entry).expect("trace serialises"));
+        }
         self.last = Some(decision);
         action
     }
