@@ -68,6 +68,10 @@ impl std::fmt::Debug for CardStates {
 }
 
 impl CardStates {
+    pub(super) fn states_mut(&mut self) -> impl Iterator<Item = &mut CardState> {
+        self.states.iter_mut()
+    }
+
     pub fn new() -> Self {
         let v = Variant {};
         let mut states = [CardState::new(); 25];

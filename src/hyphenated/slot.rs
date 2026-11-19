@@ -2,28 +2,63 @@ use super::card_states::CardStates;
 use crate::card_quantum::CardQuantum;
 use crate::game;
 
+/// Stable identity of a drawn card. Unlike the storage index in `Hands`,
+/// it is never reused, so long-lived references (e.g. clue interpretations)
+/// can point at a card safely.
+pub type SlotId = u16;
+
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub struct Slot {
+    pub id: SlotId,
+    /// Starting-hand membership survives draws, seat rotations, and hand shifts.
+    pub starting: bool,
+    /// A rank-1 clue on chop takes precedence over the fresh-1 order.
+    pub one_chop_focus: bool,
+    /// Explicit stop clues remain in force when derived knowledge is rebuilt.
+    pub stopped: bool,
     pub card: game::Card,
     pub clued: bool,
     pub play: bool,
     pub trash: bool,
     pub quantum: CardQuantum,
+    /// Clues and good-touch deductions, before applying live interpretations.
+    pub(crate) base_quantum: CardQuantum,
     pub locked: bool,
     pub fixed: bool,
     pub turn: i8,
     pub delayed: u8,
-    pub callbacks: bool,
     pub promised: Option<i8>,
 }
 
 impl Slot {
+    pub(crate) fn remove_card(&mut self, card: &game::Card, soft: bool) {
+        self.quantum.remove_card(card, soft);
+        self.base_quantum.remove_card(card, soft);
+    }
+
+    pub(crate) fn apply_clue(&mut self, clue: game::Clue, touched: bool) {
+        for quantum in [&mut self.quantum, &mut self.base_quantum] {
+            match clue {
+                game::Clue::Rank(rank) => quantum.limit_by_rank(rank as usize, touched),
+                game::Clue::Color(color) => quantum.limit_by_suit(&color.suit(), touched),
+            }
+        }
+    }
+
     pub fn update_slot_attributes(&mut self, card_states: &CardStates) {
+        if self.stopped {
+            self.trash = true;
+            self.play = false;
+            self.delayed = 0;
+            self.promised = None;
+            return;
+        }
         if self.delayed > 0 {
             return;
         }
         if self.quantum.size() == 0 {
             self.trash = true;
+            self.play = false;
             return;
         }
         if !card_states.play_quantum.interset(self.quantum) {

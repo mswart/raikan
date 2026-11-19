@@ -1,0 +1,72 @@
+{
+  "source": "https://github.com/Hanabi-Live/hanabi-live/tree/c6724843481cef304f1a226f34cdae5b9e126b5b/server/protocol/src",
+  "description": "Representative messages built from the 2026-11-12 protocol contracts, covering reconnect, live play, and the transition to shared replay.",
+  "messages": [
+    {"command":"welcome","payload":{
+      "userId":1,"username":"test bot","muted":false,"firstTimeUser":false,
+      "settings":{},"friends":[],"blocked":[],"playingAtTables":[42],"spectatingAtTables":[]
+    }},
+    {"command":"userList","payload":{"users":[
+      {"userId":1,"username":"test bot","activity":{"type":"playing","tableId":42},"hGroupConventions":true,"bot":true,"inactive":false},
+      {"userId":2,"username":"Alice","activity":{"type":"playing","tableId":42},"hGroupConventions":true,"bot":false,"inactive":false},
+      {"userId":3,"username":"Watcher","activity":{"type":"soloReplay"},"hGroupConventions":false,"bot":false,"inactive":false},
+      {"userId":4,"username":"Waiting","activity":{"type":"pregame","tableId":43},"hGroupConventions":false,"bot":false,"inactive":false},
+      {"userId":5,"username":"Observer","activity":{"type":"spectating","tableId":42},"hGroupConventions":false,"bot":false,"inactive":false},
+      {"userId":6,"username":"Reviewer","activity":{"type":"sharedReplay","tableId":41},"hGroupConventions":false,"bot":false,"inactive":false},
+      {"userId":7,"username":"Idle","activity":{"type":"lobby"},"hGroupConventions":false,"bot":false,"inactive":false}
+    ]}},
+    {"command":"tableList","payload":{"tables":[
+      {"tableId":41,"phase":{"type":"sharedReplay","gameId":123},"playerNames":["test bot","Alice"],
+       "settings":{"name":"Old game","maxPlayers":6,"options":{"variantId":0}},"owner":{"userId":2,"username":"Alice"},"passwordProtected":false,"progress":100,"spectators":[]},
+      {"tableId":44,"phase":{"type":"sharedReplay"},"playerNames":["test bot","Alice"],
+       "settings":{"name":"Imported game","maxPlayers":6,"options":{"variantId":0}},"owner":{"userId":2,"username":"Alice"},"passwordProtected":false,"progress":100,"spectators":[]},
+      {"tableId":43,"phase":{"type":"pregame"},"playerNames":["Waiting"],
+       "settings":{"name":"Next game","maxPlayers":6,"options":{"variantId":0}},"owner":{"userId":4,"username":"Waiting"},"passwordProtected":false,"progress":0,"spectators":[]},
+      {"tableId":42,"phase":{"type":"playing"},"playerNames":["test bot","Alice"],
+       "settings":{"name":"Current game","maxPlayers":6,"options":{"variantId":0}},"owner":{"userId":2,"username":"Alice"},"passwordProtected":false,"progress":0,"spectators":[]}
+    ]}},
+    {"command":"tableStarted","payload":{"tableId":42,"stage":"playing"}},
+    {"command":"gameInit","payload":{
+      "tableId":42,"playerNames":["test bot","Alice"],"mode":{"type":"playing","ourPlayerIndex":0},
+      "customDeal":false,"seed":"p2v0s1","startedAt":"2026-11-12T21:00:00.000Z","options":{"variantId":0},"characters":[]
+    }},
+    {"command":"gameState","payload":{
+      "tableId":42,"events":[
+        {"type":"draw","playerIndex":0,"order":0},
+        {"type":"draw","playerIndex":0,"order":1},
+        {"type":"draw","playerIndex":0,"order":2},
+        {"type":"draw","playerIndex":0,"order":3},
+        {"type":"draw","playerIndex":0,"order":4},
+        {"type":"draw","playerIndex":1,"order":5,"identity":{"suitIndex":0,"rank":1}},
+        {"type":"draw","playerIndex":1,"order":6,"identity":{"suitIndex":0,"rank":2}},
+        {"type":"draw","playerIndex":1,"order":7,"identity":{"suitIndex":0,"rank":3}},
+        {"type":"draw","playerIndex":1,"order":8,"identity":{"suitIndex":0,"rank":4}},
+        {"type":"draw","playerIndex":1,"order":9,"identity":{"suitIndex":0,"rank":5}},
+        {"type":"clue","playerIndex":0,"receiverIndex":1,"orders":[5],"clue":{"type":"rank","rank":1}},
+        {"type":"turn","turn":1,"currentPlayerIndex":1}
+      ],
+      "notes":[{"username":"test bot","notes":[],"spectator":false}],
+      "votes":{"voted":false,"numVotesNeeded":2},"connections":[false,true],
+      "clock":{"playerTimesMs":[0,0],"currentPlayerIndex":1,"turnElapsedMs":0},
+      "pause":{"queued":false},"spectators":[]
+    }},
+    {"command":"connections","payload":{"tableId":42,"connections":[true,true]}},
+    {"command":"votes","payload":{"tableId":42,"voted":true,"numVotesNeeded":2}},
+    {"command":"tableOwner","payload":{"tableId":42,"owner":{"userId":2,"username":"Alice"}}},
+    {"command":"gameEvent","payload":{"tableId":42,"event":{"type":"play","playerIndex":1,"order":5,"identity":{"suitIndex":0,"rank":1}}}},
+    {"command":"gameEvent","payload":{"tableId":42,"event":{"type":"draw","playerIndex":1,"order":10,"identity":{"suitIndex":1,"rank":2}}}},
+    {"command":"gameEvent","payload":{"tableId":42,"event":{"type":"turn","turn":2,"currentPlayerIndex":0}}},
+    {"command":"gameEvent","payload":{"tableId":42,"event":{"type":"gameOver","endCondition":"terminatedByVote","voters":[0,1]}}},
+    {"command":"gameEvent","payload":{"tableId":42,"event":{"type":"turn","turn":3}}},
+    {"command":"gameFinished","payload":{"tableId":42,"gameId":124,"sharedReplay":{
+      "owner":{"userId":2,"username":"Alice"},"turn":3,"efficiencyModifier":0,"spoilerFree":false,
+      "restartDecliners":[],"canPlayAgain":true,"replayStartedAt":"2026-11-12T21:01:00.000Z"
+    }}},
+    {"command":"tableRestartDecliners","payload":{"tableId":42,"restartDecliners":[1]}},
+    {"command":"tableSuggestion","payload":{"tableId":42,"username":"Observer","turn":1}},
+    {"command":"table","payload":{
+      "tableId":42,"phase":{"type":"sharedReplay","gameId":124},"playerNames":["test bot","Alice"],
+      "settings":{"name":"Current game","maxPlayers":6,"options":{"variantId":0}},"owner":{"userId":2,"username":"Alice"},"passwordProtected":false,"progress":100,"spectators":[]
+    }}
+  ]
+}

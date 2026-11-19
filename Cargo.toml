@@ -8,7 +8,7 @@ repository = "https://github.com/mswart/raikan"
 license = "AGPL-3.0-or-later"
 keywords = ["hanabi", "hyphenated", "bot"]
 categories = ["games", "simulation"]
-include = ["/src", "/tests", "LICENSE"]
+include = ["/src", "/tests", "/benches", "LICENSE"]
 # be explicit about MSRV, but use first version with edition 2024 for now:
 rust-version = "1.85"
 
@@ -25,18 +25,24 @@ reqwest = { version = "0.12.23", features = [
 ], optional = true, default-features = false }
 slog = "2.7.0"
 slog-term = "2.9.2"
+smallvec = { version = "1.15.1", features = ["const_generics"] }
 tungstenite = { version = "0.28.0", optional = true, features = [
     "rustls-tls-webpki-roots",
 ] }
 
 [[bin]]
 name = "raikan-web"
-test = false
 bench = false
 required-features = ["webclient"]
 
+[[bench]]
+name = "simulation"
+harness = false
+
 [profile.release]
 debug = true
+lto = "thin"
+codegen-units = 1
 
 [features]
 webclient = ["dep:tungstenite", "dep:reqwest"]
