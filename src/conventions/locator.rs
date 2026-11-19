@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 use super::profile::Rule;
 use super::records::{Hypothesis, Step, StepKind, Tier};
 use super::view::{Clued, PlayState, View};
-use crate::domain::{CardId, CardSet, Identity, Seat, SeatSet};
+use crate::domain::{CardId, CardSet, ClueId, Identity, Seat, SeatSet};
 
 /// Which of the receiver's own cards a reading may use.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -14,6 +14,16 @@ pub(super) enum FirstAction {
     NonSelf,
     SelfPrompt,
     SelfFinesse,
+}
+
+/// The clue being read, as far as connections depend on it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct ClueContext {
+    pub clue: Option<ClueId>,
+    /// Free Choice (rainbow): the giver could have used another colour touching exactly the
+    /// same cards, so a prompt of a multi-colour card must match the clue's colour; a
+    /// non-matching colour asks for a finesse instead.
+    pub matching: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -26,6 +36,7 @@ pub(super) struct PlayEvaluation {
     tier: Tier,
     marked: CardSet,
     excluded_finesses: SeatSet,
+    context: ClueContext,
 }
 
 impl PlayEvaluation {
@@ -78,6 +89,7 @@ impl PlayEvaluation {
         premarked: CardSet,
         first_action: FirstAction,
         excluded_finesses: SeatSet,
+        context: ClueContext,
     ) -> Option<Self> {
         let mut evaluation = Self {
             giver,
@@ -88,10 +100,46 @@ impl PlayEvaluation {
             tier: Tier::Direct,
             marked: CardSet::EMPTY,
             excluded_finesses,
+            context,
         };
         evaluation
             .resolve(view, premarked, first_action)
             .then_some(evaluation)
+    }
+
+    /// Whether `card` may be prompted as `previous` under the Free Choice rule.
+    fn prompt_matches(&self, view: &View, card: CardId, previous: Identity) -> bool {
+        match self.context.clue {
+            Some(clue) if self.context.matching => {
+                !view
+                    .variant
+                    .is_multi_color_suit(view.variant.suit_of(previous))
+                    || view.public.touched_by(card) & (1 << clue.0) != 0
+            }
+            _ => true,
+        }
+    }
+
+    /// The card of `holder` a prompt for `previous` applies to: the newest candidate, or in
+    /// multi-colour variants the one with the most positive clue information (fewest
+    /// identities allowed by positive clues; negative information is ignored).
+    fn pick_prompt(
+        &self,
+        view: &View,
+        holder: Seat,
+        previous: Identity,
+        candidate: impl Fn(CardId) -> bool,
+    ) -> Option<CardId> {
+        let candidates = view
+            .newest_first(holder)
+            .filter(|&(_, c)| candidate(c) && self.prompt_matches(view, c, previous));
+        if view.rule(Rule::MultiColorPrompt) {
+            candidates
+                .min_by_key(|&(pos, c)| (view.public.positive(c).len(), pos))
+                .map(|(_, c)| c)
+        } else {
+            candidates.map(|(_, c)| c).next()
+        }
     }
 
     /// Look for a card already clued in `holder`'s hand. `None`: not found but the giver
@@ -116,7 +164,7 @@ impl PlayEvaluation {
             return Some(true);
         }
         let known_prompt = |this: &Self| {
-            view.newest_first(holder).find(|&(_, c)| {
+            this.pick_prompt(view, holder, previous, |c| {
                 let note = view.note(c);
                 !this.marked.contains(c)
                     && note.clued
@@ -127,7 +175,7 @@ impl PlayEvaluation {
             })
         };
         if holder == self.giver {
-            if prompts && let Some((_, card)) = known_prompt(self) {
+            if prompts && let Some(card) = known_prompt(self) {
                 self.marked.insert(card);
                 self.add_step(view, previous, holder, card, StepKind::Prompt);
                 return Some(true);
@@ -135,7 +183,7 @@ impl PlayEvaluation {
             return None;
         }
         if holder == self.receiver && allowed == FirstAction::NonSelf {
-            if prompts && let Some((_, card)) = known_prompt(self) {
+            if prompts && let Some(card) = known_prompt(self) {
                 self.marked.insert(card);
                 self.add_step(view, previous, holder, card, StepKind::Prompt);
                 return Some(true);
@@ -143,7 +191,7 @@ impl PlayEvaluation {
             return Some(false);
         }
         if prompts
-            && let Some((_, card)) = view.newest_first(holder).find(|&(_, c)| {
+            && let Some(card) = self.pick_prompt(view, holder, previous, |c| {
                 let note = view.note(c);
                 !self.marked.contains(c)
                     && note.clued
@@ -254,20 +302,18 @@ impl PlayEvaluation {
                     }
                     let blocking_prompt = prompts
                         .then(|| {
-                            view.newest_first(seat)
-                                .find(|&(_, c)| {
-                                    let note = view.note(c);
-                                    !self.marked.contains(c)
-                                        && note.clued
-                                        && note.belief.contains(previous)
-                                        && !view.identity(c).is_some_and(|i| {
-                                            matches!(
-                                                view.play_state(i),
-                                                PlayState::Playable | PlayState::CriticalPlayable
-                                            )
-                                        })
-                                })
-                                .map(|(_, c)| c)
+                            self.pick_prompt(view, seat, previous, |c| {
+                                let note = view.note(c);
+                                !self.marked.contains(c)
+                                    && note.clued
+                                    && note.belief.contains(previous)
+                                    && !view.identity(c).is_some_and(|i| {
+                                        matches!(
+                                            view.play_state(i),
+                                            PlayState::Playable | PlayState::CriticalPlayable
+                                        )
+                                    })
+                            })
                         })
                         .flatten();
                     let mut layers = 0;
@@ -352,22 +398,18 @@ impl PlayEvaluation {
                 continue;
             }
             if allowed != FirstAction::NonSelf {
-                if prompts {
-                    for (_, card) in view.newest_first(me) {
+                if prompts
+                    && let Some(card) = self.pick_prompt(view, me, previous, |card| {
                         let note = view.note(card);
-                        if self.giver == me && note.belief.size() != 1 {
-                            continue;
-                        }
-                        if !note.clued
-                            || self.marked.contains(card)
-                            || !note.belief.contains(previous)
-                        {
-                            continue;
-                        }
-                        self.marked.insert(card);
-                        self.add_step(view, previous, me, card, StepKind::Prompt);
-                        continue 'rank_loop;
-                    }
+                        (self.giver != me || note.belief.size() == 1)
+                            && note.clued
+                            && !self.marked.contains(card)
+                            && note.belief.contains(previous)
+                    })
+                {
+                    self.marked.insert(card);
+                    self.add_step(view, previous, me, card, StepKind::Prompt);
+                    continue 'rank_loop;
                 }
             } else {
                 for (_, card) in view.newest_first(me) {
@@ -375,6 +417,7 @@ impl PlayEvaluation {
                     if self.marked.contains(card)
                         || note.belief.size() != 1
                         || !note.belief.contains(previous)
+                        || (note.clued && !self.prompt_matches(view, card, previous))
                     {
                         continue;
                     }

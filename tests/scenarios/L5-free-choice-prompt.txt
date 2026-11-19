@@ -1,0 +1,16 @@
+# rule: L5.free-choice-finesse
+# H-Group rainbow page, Free Choice Finesse: Bob holds a red-clued card of unknown identity
+# (actually m1). Alice clues red to Cathy's m2 although blue or purple would touch exactly
+# the same card: the matching colour is a prompt on Bob's red card.
+variant Rainbow (6 Suits)
+hand 0: y1 b1 g1 p4 p3
+hand 1: r1 y4 m1 g4 b3
+hand 2: b1 g3 m2 y5 g2
+draws: y3 y4
+clue 0 1 red
+play 1 1
+play 2 1
+clue 0 2 red
+note 1 1 3: ? clued play
+note 1 1 1: ? noplay
+action 1: play 3

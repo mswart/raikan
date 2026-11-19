@@ -1092,13 +1092,12 @@ struct HanabGame {
 impl HanabGame {
     fn from_message(init: &InitMessage) -> Result<Self, String> {
         let variant = Variant::by_id(init.options.variant_id as u32).map_err(|e| e.to_string())?;
-        // Conventions have no special-suit adaptations yet; plain suits only unless opted in.
-        let special = variant.has_multi_color_touch()
-            || variant.has_colorless()
-            || variant.has_unique_suits();
-        if special && std::env::var_os("RAIKAN_EXPERIMENTAL_VARIANTS").is_none() {
+        // Only variants whose suits the conventions cover (plain and rainbow) unless opted in.
+        if let Err(missing) = variant.convention_support()
+            && std::env::var_os("RAIKAN_EXPERIMENTAL_VARIANTS").is_none()
+        {
             return Err(format!(
-                "{} needs special-suit conventions (set RAIKAN_EXPERIMENTAL_VARIANTS=1 to play anyway)",
+                "{} needs conventions for {missing} (set RAIKAN_EXPERIMENTAL_VARIANTS=1 to play anyway)",
                 variant.name
             ));
         }

@@ -103,6 +103,8 @@ pub struct Variant {
     copies: IdentityCounts,
     num_cards: u8,
     pub tokens: TokenRules,
+    /// Variant-wide rule modifiers in effect (e.g. `special-rank`, `clue-starved`).
+    pub modifiers: Vec<&'static str>,
 }
 
 impl Variant {
@@ -292,7 +294,27 @@ impl Variant {
             }
         };
 
+        let modifiers: Vec<&'static str> = [
+            (json.special_rank.is_some(), "special-rank"),
+            (json.critical_rank.is_some(), "critical-rank"),
+            (json.scarce_ones, "scarce-ones"),
+            (json.clue_starved, "clue-starved"),
+            (json.color_clues_touch_nothing, "color-clues-touch-nothing"),
+            (json.rank_clues_touch_nothing, "rank-clues-touch-nothing"),
+            (json.odds_and_evens, "odds-and-evens"),
+            (json.synesthesia, "synesthesia"),
+            (json.funnels, "funnels"),
+            (json.chimneys, "chimneys"),
+            (json.stack_size.is_some(), "stack-size"),
+            (json.clue_colors.is_some(), "clue-colors"),
+            (json.clue_ranks.is_some(), "clue-ranks"),
+        ]
+        .into_iter()
+        .filter_map(|(set, name)| set.then_some(name))
+        .collect();
+
         Ok(Variant {
+            modifiers,
             id: json.id,
             name: json.name.clone(),
             suits,
@@ -445,6 +467,49 @@ impl Variant {
                 .filter(|&c| matches!(self.clue_value(c), ClueValue::Color(_)))
                 .any(|c| self.touch(c).contains(i))
         })
+    }
+
+    /// Whether some card of `suit` is touched by more than one colour clue (rainbow,
+    /// dual colours, prism).
+    pub fn is_multi_color_suit(&self, suit: usize) -> bool {
+        let colors: Vec<ClueId> = self
+            .clue_ids()
+            .filter(|&c| matches!(self.clue_value(c), ClueValue::Color(_)))
+            .collect();
+        self.suit_identities(suit).iter().any(|i| {
+            colors
+                .iter()
+                .filter(|&&c| self.touch(c).contains(i))
+                .count()
+                > 1
+        })
+    }
+
+    /// Whether the H-Group conventions implemented so far cover this variant: plain suits
+    /// and rainbow suits, without variant-wide modifiers. Returns what is missing.
+    pub fn convention_support(&self) -> Result<(), String> {
+        if let Some(modifier) = self.modifiers.first() {
+            return Err(format!("variant modifier {modifier}"));
+        }
+        for suit in &self.suits {
+            let plain = suit.clue_colors.len() == 1
+                && !(suit.all_clue_colors
+                    || suit.no_clue_colors
+                    || suit.all_clue_ranks
+                    || suit.no_clue_ranks
+                    || suit.prism
+                    || suit.one_of_each);
+            let rainbow = suit.all_clue_colors
+                && !(suit.no_clue_colors
+                    || suit.all_clue_ranks
+                    || suit.no_clue_ranks
+                    || suit.prism
+                    || suit.one_of_each);
+            if !plain && !rainbow {
+                return Err(format!("{} suit", suit.name));
+            }
+        }
+        Ok(())
     }
 
     /// Some suit has a single copy of each card (black and other dark suits).
@@ -735,6 +800,40 @@ mod tests {
         }
         assert!(v.touch(rank(&v, 3)).contains(v.identity(white, 3)));
         assert!(v.has_colorless());
+    }
+
+    #[test]
+    fn convention_support() {
+        for name in [
+            "No Variant",
+            "6 Suits",
+            "Rainbow (6 Suits)",
+            "Rainbow (5 Suits)",
+        ] {
+            assert_eq!(
+                Variant::by_name(name).unwrap().convention_support(),
+                Ok(()),
+                "{name}"
+            );
+        }
+        for name in [
+            "Black (6 Suits)",
+            "White (6 Suits)",
+            "Pink (6 Suits)",
+            "Muddy Rainbow (6 Suits)",
+            "Rainbow-Ones (6 Suits)",
+        ] {
+            assert!(
+                Variant::by_name(name)
+                    .unwrap()
+                    .convention_support()
+                    .is_err(),
+                "{name}"
+            );
+        }
+        let rainbow = Variant::by_name("Rainbow (6 Suits)").unwrap();
+        assert!(rainbow.is_multi_color_suit(5));
+        assert!(!rainbow.is_multi_color_suit(0));
     }
 
     #[test]

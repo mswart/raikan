@@ -25,10 +25,11 @@ username and password again. Do not include `Set-Cookie` attributes such as
 `Path` or `HttpOnly`.
 
 Send the bot a DM with `/join` as message to make it join your table.
-The web client supports one table at a time. It plays `No Variant` and other
-variants with plain suits only (e.g. 3, 4 or 6 suits). Special suits such as
-rainbow, white or black have no convention adaptations yet and are refused
-unless `RAIKAN_EXPERIMENTAL_VARIANTS=1` is set. `RAIKAN_LEVEL=<n>` caps the
+The web client supports one table at a time. It plays variants whose suits the
+conventions cover: plain suits (`No Variant`, 3–6 suits) and rainbow (e.g.
+`Rainbow (6 Suits)`, `Rainbow (5 Suits)`). Other special suits (white, black,
+pink, …) and variant modifiers are refused unless
+`RAIKAN_EXPERIMENTAL_VARIANTS=1` is set. `RAIKAN_LEVEL=<n>` caps the
 H-Group level (default 9). It uses Hanabi Live's current lobby and game-event protocol; spectators
 and replay viewers do not send moves.
 
@@ -42,8 +43,8 @@ replay when `gameFinished` arrives. Paused games wait for a resume notification.
 
 Support is partial and varies by convention. This overview covers levels 1–9,
 ending at stalling, the highest level with implemented special moves. It does not
-mean that all earlier levels are complete. Only the standard five-suit game is
-supported; variant-specific rules are not implemented.
+mean that all earlier levels are complete. Variant support is listed under
+[Variants](#variants).
 
 | H-Group level | Status |
 | --- | --- |
@@ -137,7 +138,9 @@ planning described under level 8.
   target, including layered self-finesses. Queued connections reserve their cards
   across turns and hand shifts. Candidate clues are checked for unsafe or
   duplicate layers, and resolved finesse cards participate in good-touch deductions.
-* **Gaps:** Multi-color prompt rules are outside the supported variant. Hidden
+* **Multi-colour prompts** (rainbow): a prompt goes to the clued card with the most
+  positive clue information, ties to the newest; negative information is ignored.
+* **Gaps:** Double prompts in multi-colour variants are not covered. Hidden
   and clandestine finesse cases are not comprehensively covered by the current
   resolver and regression tests; layered-finesse support is not full level-5 support.
 
@@ -208,6 +211,28 @@ Candidate generation, transitions, and evaluation are separate extension points
 for deeper expectimax or robust minimax. Such an extension would need joint hand
 beliefs, draw outcomes, and the final-turn counter. Teammates remain cooperative;
 minimization would apply to uncertain outcomes, not opposing players.
+
+## Variants
+
+The engine simulates every hanab.live catalogue variant except orange, up-or-down,
+sudoku, alternating clues, reversed suits and the hidden-information variants. The
+conventions cover plain suits and the
+[rainbow suit](https://hanabi.github.io/variant-specific/rainbow):
+
+* **Saving rainbow cards:** rainbow 2s are 2-saved like other 2s; a critical rainbow
+  2, 3 or 4 can be saved with any colour or its rank (the general critical save).
+* **Prompts in multi-colour variants** (level 5): see Level 5 above.
+* **Free Choice Finesse** (assigned to level 5; the rainbow page gives no level): when
+  the giver could have used another colour touching exactly the same cards, a prompt
+  of a clued rainbow card must use the colour that card was clued with; a different
+  colour asks for a finesse instead. Seats that see the receiver's hand know whether
+  the giver had a free choice; the receiver keeps both readings until the connecting
+  play shows which one was meant.
+* **Not implemented:** the Free Choice Bluff (level 11), double prompts in multi-colour
+  variants, and the bot does not deliberately give Free Choice Finesses (its own
+  legibility check rejects them because the receiver cannot see the free choice).
+
+Scenarios: [tests/scenarios](tests/scenarios) (`L5-free-choice-*.txt`).
 
 ## Architecture
 

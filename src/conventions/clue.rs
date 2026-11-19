@@ -3,7 +3,7 @@
 
 use smallvec::SmallVec;
 
-use super::locator::{FirstAction, PlayEvaluation};
+use super::locator::{ClueContext, FirstAction, PlayEvaluation};
 use super::profile::Rule;
 use super::records::{ClueRecord, Hypothesis, StepKind};
 use super::rules::Fix;
@@ -311,7 +311,7 @@ impl View {
                 error += 1;
             }
             note.play = true;
-            error += self.resolve_play_clue(giver, receiver, focus, touched);
+            error += self.resolve_play_clue(giver, receiver, focus, touched, clue);
             self.refresh_derived();
             self.refresh_clued_cards();
             self.last_rule = "L1.play-clue";
@@ -360,7 +360,7 @@ impl View {
                 } else {
                     self.last_rule = "L1.play-clue";
                     self.note_mut(card).play = true;
-                    error += self.resolve_play_clue(giver, receiver, card, touched);
+                    error += self.resolve_play_clue(giver, receiver, card, touched, clue);
                 }
                 if let Some(single) = self.note(card).belief.identity()
                     && (receiver == self.me || identity == Some(single))
@@ -415,6 +415,45 @@ impl View {
         error
     }
 
+    /// How the Free Choice rule applies to a colour clue, as this view can tell. A view that
+    /// sees the receiver's hand knows whether another colour would have touched exactly the
+    /// same cards; the receiver cannot and keeps both readings.
+    fn clue_contexts(
+        &self,
+        receiver: Seat,
+        clue: ClueId,
+        touched: CardSet,
+    ) -> SmallVec<[ClueContext; 2]> {
+        let plain = ClueContext {
+            clue: Some(clue),
+            matching: false,
+        };
+        if !self.rule(Rule::FreeChoiceFinesse)
+            || !matches!(self.variant.clue_value(clue), ClueValue::Color(_))
+        {
+            return smallvec::smallvec![plain];
+        }
+        let hand = self.state.hand(receiver);
+        if hand.iter().any(|&c| self.identity(c).is_none()) {
+            return smallvec::smallvec![
+                plain,
+                ClueContext {
+                    matching: true,
+                    ..plain
+                }
+            ];
+        }
+        let free_choice = self.variant.clue_ids().any(|other| {
+            other != clue
+                && matches!(self.variant.clue_value(other), ClueValue::Color(_))
+                && self.visible_touched(receiver, other) == touched
+        });
+        smallvec::smallvec![ClueContext {
+            matching: free_choice,
+            ..plain
+        }]
+    }
+
     /// Record the readings of a play clue on `focus`. Returns convention errors when we are
     /// the giver (the clue cannot be read correctly in time).
     pub(super) fn resolve_play_clue(
@@ -423,8 +462,10 @@ impl View {
         receiver: Seat,
         focus: CardId,
         premarked: CardSet,
+        clue: ClueId,
     ) -> u8 {
         let mut error = 0;
+        let contexts = self.clue_contexts(receiver, clue, premarked);
         let me = self.me;
         if giver == me
             && let Some(clued) = self.identity(focus)
@@ -452,6 +493,7 @@ impl View {
                 premarked,
                 FirstAction::SelfFinesse,
                 SeatSet::EMPTY,
+                contexts[0],
             )
             .map(|e| e.into_hypothesis(self))
         } else {
@@ -484,36 +526,40 @@ impl View {
         let mut hypotheses: Vec<Hypothesis> = Vec::new();
         for &first_action in tiers {
             for identity in candidates.iter() {
-                let mut exclusions: SmallVec<[SeatSet; 8]> = smallvec::smallvec![SeatSet::EMPTY];
-                let mut index = 0;
-                while index < exclusions.len() {
-                    let excluded = exclusions[index];
-                    index += 1;
-                    if let Some(evaluation) = PlayEvaluation::test(
-                        &view,
-                        identity,
-                        giver,
-                        receiver,
-                        focus,
-                        premarked,
-                        first_action,
-                        excluded,
-                    ) {
-                        let hypothesis = evaluation.into_hypothesis(&view);
-                        if reverse {
-                            for step in hypothesis
-                                .pending_steps()
-                                .filter(|s| s.kind == StepKind::Finesse && s.holder != receiver)
-                            {
-                                let mut next = excluded;
-                                next.insert(step.holder);
-                                if !exclusions.contains(&next) {
-                                    exclusions.push(next);
+                for &context in &contexts {
+                    let mut exclusions: SmallVec<[SeatSet; 8]> =
+                        smallvec::smallvec![SeatSet::EMPTY];
+                    let mut index = 0;
+                    while index < exclusions.len() {
+                        let excluded = exclusions[index];
+                        index += 1;
+                        if let Some(evaluation) = PlayEvaluation::test(
+                            &view,
+                            identity,
+                            giver,
+                            receiver,
+                            focus,
+                            premarked,
+                            first_action,
+                            excluded,
+                            context,
+                        ) {
+                            let hypothesis = evaluation.into_hypothesis(&view);
+                            if reverse {
+                                for step in hypothesis
+                                    .pending_steps()
+                                    .filter(|s| s.kind == StepKind::Finesse && s.holder != receiver)
+                                {
+                                    let mut next = excluded;
+                                    next.insert(step.holder);
+                                    if !exclusions.contains(&next) {
+                                        exclusions.push(next);
+                                    }
                                 }
                             }
-                        }
-                        if !hypotheses.iter().any(|h| h.steps == hypothesis.steps) {
-                            hypotheses.push(hypothesis);
+                            if !hypotheses.iter().any(|h| h.steps == hypothesis.steps) {
+                                hypotheses.push(hypothesis);
+                            }
                         }
                     }
                 }
@@ -541,7 +587,7 @@ impl View {
             && !self.note(focus).trash
         {
             receiver_view.turn = self.turn;
-            receiver_view.resolve_play_clue(giver, receiver, focus, premarked);
+            receiver_view.resolve_play_clue(giver, receiver, focus, premarked, clue);
             let identity = self.identity(focus);
             let ok = identity.is_some_and(|identity| {
                 receiver_view.interpretations.records.iter().any(|record| {

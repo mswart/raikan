@@ -35,6 +35,8 @@ pub enum Rule {
     SarcasticDiscard,
     // level 5
     LayeredFinesse,
+    MultiColorPrompt,
+    FreeChoiceFinesse,
     // level 6
     TempoClue,
     // level 7
@@ -79,6 +81,10 @@ pub struct RuleMeta {
 
 fn any_variant(_: &Variant) -> bool {
     true
+}
+
+fn multi_color(variant: &Variant) -> bool {
+    variant.has_multi_color_touch()
 }
 
 const fn meta(
@@ -272,6 +278,34 @@ pub const RULES: &[RuleMeta] = &[
         Clue,
         Partial("hidden and clandestine finesses are not covered"),
     ),
+    RuleMeta {
+        applies: multi_color,
+        ..meta(
+            MultiColorPrompt,
+            "L5.multi-color-prompt",
+            5,
+            &[Prompt],
+            "https://hanabi.github.io/level-5#prompts-in-multi-color-variants",
+            Clue,
+            Partial("double prompts in multi-colour variants are not covered"),
+        )
+    },
+    // The rainbow page assigns no level; it needs prompts and finesses, so it is reviewed
+    // as level 5 together with multi-colour prompts.
+    RuleMeta {
+        applies: multi_color,
+        ..meta(
+            FreeChoiceFinesse,
+            "L5.free-choice-finesse",
+            5,
+            &[Prompt, Finesse],
+            "https://hanabi.github.io/variant-specific/rainbow#the-free-choice-finesse",
+            Clue,
+            Partial(
+                "receivers keep prompt and finesse readings when they cannot see the free choice; no Free Choice Bluff (level 11)",
+            ),
+        )
+    },
     meta(
         TempoClue,
         "L6.tempo-clue",

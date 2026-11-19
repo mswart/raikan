@@ -33,6 +33,10 @@ pub struct PublicCards {
     pub revealed: CardSet,
     /// Cards positively touched by at least one clue.
     pub clued: CardSet,
+    /// Identities allowed by positive clues alone (negative information ignored).
+    positive: [IdentitySet; MAX_CARDS],
+    /// The clues (bit per `ClueId`) that positively touched each card.
+    touched_by: [u64; MAX_CARDS],
 }
 
 impl PublicCards {
@@ -42,6 +46,8 @@ impl PublicCards {
             literal: [variant.all_identities(); MAX_CARDS],
             revealed: CardSet::EMPTY,
             clued: CardSet::EMPTY,
+            positive: [variant.all_identities(); MAX_CARDS],
+            touched_by: [0; MAX_CARDS],
         }
     }
 
@@ -83,6 +89,8 @@ impl PublicCards {
                 for &card in before.hand(target) {
                     if touched.contains(card) {
                         self.literal[card.index()] &= touch;
+                        self.positive[card.index()] &= touch;
+                        self.touched_by[card.index()] |= 1 << clue.0;
                     } else {
                         self.literal[card.index()] -= touch;
                     }
@@ -95,6 +103,16 @@ impl PublicCards {
 
     pub fn location(&self, card: CardId) -> Location {
         self.location[card.index()]
+    }
+
+    /// Identities allowed by positive clues alone.
+    pub fn positive(&self, card: CardId) -> IdentitySet {
+        self.positive[card.index()]
+    }
+
+    /// The clues that positively touched `card`, one bit per `ClueId`.
+    pub fn touched_by(&self, card: CardId) -> u64 {
+        self.touched_by[card.index()]
     }
 
     /// Identities allowed by clues alone.

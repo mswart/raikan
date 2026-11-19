@@ -10,16 +10,18 @@ use raikan::variants::Variant;
 
 const GAMES: u64 = 20;
 
-/// (players, FNV-1a checksum of the replay URLs of seeds 0..GAMES)
-const EXPECTED: &[(u8, u64)] = &[
-    (2, 0x810671752c95aa3e),
-    (3, 0x6be2e0922f04aa3a),
-    (4, 0x988cba98f5713313),
-    (5, 0x626e725596fcca12),
+/// (variant, players, FNV-1a checksum of the replay URLs of seeds 0..GAMES)
+const EXPECTED: &[(&str, u8, u64)] = &[
+    ("No Variant", 2, 0x810671752c95aa3e),
+    ("No Variant", 3, 0x6be2e0922f04aa3a),
+    ("No Variant", 4, 0x988cba98f5713313),
+    ("No Variant", 5, 0x626e725596fcca12),
+    ("Rainbow (6 Suits)", 3, 0x033491b95415cbfc),
+    ("Rainbow (6 Suits)", 4, 0x31d702e236310a61),
 ];
 
-fn checksum(players: u8) -> u64 {
-    let variant = Variant::no_variant();
+fn checksum(variant: &str, players: u8) -> u64 {
+    let variant = Variant::by_name(variant).unwrap();
     let mut checksum = 0xcbf29ce484222325u64;
     for seed in 0..GAMES {
         let mut bots: Vec<BotAgent> = (0..players).map(|_| BotAgent::default()).collect();
@@ -34,13 +36,13 @@ fn checksum(players: u8) -> u64 {
 
 #[test]
 fn selfplay_replays_are_unchanged() {
-    let actual: Vec<(u8, u64)> = EXPECTED
+    let actual: Vec<(&str, u8, u64)> = EXPECTED
         .iter()
-        .map(|&(players, _)| (players, checksum(players)))
+        .map(|&(variant, players, _)| (variant, players, checksum(variant, players)))
         .collect();
     if std::env::var_os("RAIKAN_GOLDEN_PRINT").is_some() {
-        for (players, sum) in &actual {
-            println!("    ({players}, 0x{sum:016x}),");
+        for (variant, players, sum) in &actual {
+            println!("    ({variant:?}, {players}, 0x{sum:016x}),");
         }
     }
     assert_eq!(actual, EXPECTED);

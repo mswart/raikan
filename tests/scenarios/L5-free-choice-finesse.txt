@@ -1,0 +1,15 @@
+# rule: L5.free-choice-finesse
+# Same position, but Alice clues blue: with a free choice of colours the non-matching colour
+# asks for a finesse, so Bob blind-plays his finesse position instead of the red card.
+variant Rainbow (6 Suits)
+hand 0: y1 b1 g1 p4 p3
+hand 1: r1 y4 m3 g4 b3
+hand 2: b1 g3 m2 y5 g2
+draws: m1 y4
+clue 0 1 red
+play 1 1
+play 2 1
+clue 0 2 blue
+note 1 1 1: ? promised play
+note 1 1 3: ? noplay
+action 1: play 1
