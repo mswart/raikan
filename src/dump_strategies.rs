@@ -1,7 +1,6 @@
 use crate::game;
 
-use rand::thread_rng;
-use rand::{Rng, seq::SliceRandom};
+use rand::{RngExt, seq::IndexedRandom};
 
 pub struct DiscardPlayer {
     num_hand_cards: u8,
@@ -95,9 +94,9 @@ impl game::PlayerStrategy for RandCluePlayer {
     }
 
     fn act(&mut self, _status: &game::GameStatus) -> game::Move {
-        let mut rng = thread_rng();
-        if rng.gen_bool(0.3) {
-            game::Move::Clue(0, game::Clue::Rank(rng.gen_range(1..=5)))
+        let mut rng = rand::rng();
+        if rng.random_bool(0.3) {
+            game::Move::Clue(0, game::Clue::Rank(rng.random_range(1..=5)))
         } else {
             let colors = [
                 game::ClueColor::Blue(),
