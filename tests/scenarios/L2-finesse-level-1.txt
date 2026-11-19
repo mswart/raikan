@@ -1,0 +1,9 @@
+# rule: L2.finesse
+# Level cap: at level 1 the finesse does not exist, so no blind play is promised.
+level 1
+hand 0: y1 y2 y3 y4 y5
+hand 1: r1 g2 g3 g4 b2
+hand 2: r2 b3 b4 p2 p3
+clue 0 2 red
+note 1 1 1: ? noplay
+not-action 1: play 1

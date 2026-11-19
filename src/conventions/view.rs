@@ -989,7 +989,8 @@ impl View {
         }
         let records = &self.interpretations.records;
         for seat in self.seats_from_me() {
-            for &card in self.state.hand(seat) {
+            // newest first: with duplicates, the oldest card ends up as the known location
+            for &card in self.state.hand(seat).iter().rev() {
                 let note = &self.notes[card.index()];
                 let identity = self.identity(card);
                 if note.clued

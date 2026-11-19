@@ -1,0 +1,7 @@
+# rule: L1.save-2
+# A 2 on chop is saved with a 2 clue. A copy visible off chop in a third hand is excluded.
+hand 0: r1 r3 r4 b4 y1
+hand 1: g1 g3 b1 b3 y2
+hand 2: r2 p1 p3 p4 g4
+clue 0 1 2
+note 1 1 5: y2,g2,b2,p2 clued noplay

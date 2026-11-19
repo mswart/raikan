@@ -1,0 +1,9 @@
+# rule: L1.save-5
+# A 5 on chop is saved with a rank clue; every 5 stays possible and nothing is promised.
+hand 0: r1 r2 r3 r4 y1
+hand 1: y2 y3 g1 g2 p5
+hand 2: b1 b2 b3 g3 g4
+clue 0 1 5
+note 1 1 5: r5,y5,g5,b5,p5 clued noplay notrash
+note 2 1 5: ? clued noplay
+note * 1 4: ? unclued noplay

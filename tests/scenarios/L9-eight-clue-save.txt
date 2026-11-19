@@ -1,0 +1,10 @@
+# rule: L9.stall.eight-clue-save
+# At eight clues after the opening turn, a clue that touches no playable card and saves an
+# older card is a stall, not a play clue.
+hand 0: y1 y2 y3 y4 b4
+hand 1: r3 r4 g3 g4 b3
+hand 2: b2 p3 p4 g5 y5
+play 0 1
+note * 0 1: ? unclued noplay
+clue 1 2 4
+note * 2 3: ? clued noplay

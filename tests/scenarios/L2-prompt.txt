@@ -1,0 +1,12 @@
+# rule: L2.prompt
+# A saved r2 is prompted by a later clue on r3 (after the queued r1).
+hand 0: r3 b4 g4 p4 r1
+hand 1: y3 y4 g3 b3 r2
+hand 2: b1 g1 p2 p3 y5
+clue 0 1 2
+clue 1 0 1
+clue 2 0 red
+note 0 0 1: r3 clued delayed
+play 0 5
+note 1 1 5: r2 play
+action 1: play 5

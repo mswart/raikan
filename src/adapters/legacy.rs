@@ -283,6 +283,31 @@ impl LegacyAgent {
                         names(note.belief.hard)
                     ));
                 }
+                let flags = |starting, focus, locked, fixed, stopped| {
+                    format!(
+                        "starting={starting} one_chop_focus={focus} locked={locked} fixed={fixed} stopped={stopped}"
+                    )
+                };
+                let legacy_flags = flags(
+                    slot.starting,
+                    slot.one_chop_focus,
+                    slot.locked,
+                    slot.fixed,
+                    slot.stopped,
+                );
+                let new_flags = flags(
+                    note.starting,
+                    note.one_chop_focus,
+                    note.locked,
+                    note.fixed,
+                    note.stopped,
+                );
+                if legacy_flags != new_flags {
+                    return Some(format!(
+                        "seat {} card #{}: legacy {legacy_flags} | new {new_flags}",
+                        seat.0, card.0
+                    ));
+                }
                 let differs = soft != note.belief.soft
                     || slot.play != note.play
                     || slot.trash != note.trash

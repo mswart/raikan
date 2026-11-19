@@ -1,0 +1,8 @@
+# rule: L3.ones-order
+# Starting-hand 1s play oldest first.
+hand 0: y2 y3 y4 b4 g4
+hand 1: r1 g3 g2 y1 b3
+hand 2: b2 p2 p3 p4 r4
+clue 0 1 1
+note 1 1 1: r1,y1,g1,b1,p1 clued
+action 1: play 4

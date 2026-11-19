@@ -1,0 +1,8 @@
+# rule: L1.good-touch
+# A newly clued card is not an identity already clued elsewhere.
+hand 0: y2 y3 y4 b4 g4
+hand 1: g1 r3 g3 r4 b3
+hand 2: r1 p2 p3 p4 b2
+clue 0 1 1
+clue 1 2 1
+note 2 2 1: r1,y1,b1,p1 clued play

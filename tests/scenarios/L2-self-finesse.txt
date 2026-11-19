@@ -1,0 +1,10 @@
+# rule: L2.self-finesse
+# Nobody else holds r1: a 2 clue on r2 asks its receiver to blind-play the finesse position.
+hand 0: y1 y2 y3 y4 b4
+hand 1: r1 r2 g3 g4 b3
+hand 2: p2 p3 p4 g5 y5
+clue 0 1 2
+note 1 1 1: ? promised play
+action 1: play 1
+play 1 1
+note * 1 2: r2 clued play

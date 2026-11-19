@@ -1,0 +1,10 @@
+# rule: L1.play-clue
+# A colour clue touching chop and another card focuses chop; a direct play of a 1.
+hand 0: y1 y2 y3 y4 b4
+hand 1: g2 r3 g3 g4 r1
+hand 2: b1 b2 b3 p2 p3
+clue 0 1 red
+note 1 1 5: r1 clued play
+note 2 1 5: r1 clued play
+note 1 1 2: r2,r3,r4,r5 clued noplay
+action 1: play 5

@@ -1,0 +1,9 @@
+# rule: L2.five-stall
+# Early game without plays or saves: a 5 clue off chop is a stall, not a play or save
+# instruction, and the receiver's chop stays unprotected.
+hand 0: y2 y3 y4 b4 g4
+hand 1: r3 p5 g3 r4 b3
+hand 2: b2 p2 p3 p4 r4
+clue 0 1 5
+note * 1 2: ? clued noplay
+note * 1 5: ? unclued noplay
