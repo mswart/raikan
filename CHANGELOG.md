@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/mswart/raikan/compare/v0.3.0...v0.3.1) - 2026-11-19
+
+### Fixed
+
+- *(deps)* update rust
+- *(deps)* fix clippy warning around slog-term
+
+### Other
+
+- *(deps)* Update code to work with newer deps
+
 ## [0.3.0](https://github.com/mswart/raikan/compare/v0.2.2...v0.3.0) - 2026-11-19
 
 This release restarts hopefully more active development on raikan. The goal is to implement more levels and the first variants.
