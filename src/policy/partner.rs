@@ -42,7 +42,10 @@ pub fn partner_decision(view: &View) -> Decision {
 /// Whether the blueprint's reason is a convention obligation, which the model predicts
 /// with certainty.
 pub fn is_obligation(reason: Reason) -> bool {
-    matches!(reason, Reason::SafeConventionAction | Reason::Fix)
+    matches!(
+        reason,
+        Reason::SafeConventionAction | Reason::OrderChopMove | Reason::Fix
+    )
 }
 
 /// The predicted distribution over the seat's actions; probabilities sum to 1, the

@@ -56,7 +56,7 @@ mean that all earlier levels are complete. Variant support is listed under
 | [1 — Fundamentals](https://hanabi.github.io/level-1) | Implemented for the standard five-suit game |
 | [2 — Basic Moves](https://hanabi.github.io/level-2) | Implemented for the standard five-suit game |
 | [3 — Basic Strategy](https://hanabi.github.io/level-3) | Implemented for the standard five-suit game |
-| [4 — Chop Moves](https://hanabi.github.io/level-4) | Not implemented |
+| [4 — Chop Moves](https://hanabi.github.io/level-4) | Implemented |
 | [5 — Intermediate Finesses](https://hanabi.github.io/level-5) | Partial |
 | [6 — Tempo Clues](https://hanabi.github.io/level-6) | Partial |
 | [7 — Emergency Discards](https://hanabi.github.io/level-7) | Limited tactical support; discard signals missing |
@@ -133,9 +133,22 @@ planning described under level 8.
 
 ### Level 4 — Chop Moves
 
-* **Not implemented:** Trash, 5, and order chop moves. There is no persistent
-  protection of an unclued card through a chop-move signal. Saving a card with an
-  ordinary clue or a stall does not add this convention.
+* **Chop-moved cards:** A chop move protects an unclued card for the rest of the game.
+  It is neither on chop nor in finesse position, is never prompted, and counts as
+  already touched for clue focus; a clue that touches no other new card focuses the
+  newest chop-moved card it touches (a normal play clue, not a tempo clue).
+* **Trash chop move:** A clue whose new cards are all known trash (played, dead or
+  clued elsewhere) chop moves every unclued card to the right of the rightmost trash
+  card. The bot gives one only when every moved card is critical or an otherwise unseen
+  2, never in place of a direct 5 or save clue.
+* **5's chop move:** A 5 clue touching a 5 one away from chop (counting only unclued
+  cards) chop moves the chop; the 5 is not a play clue. A 5 stall takes precedence.
+* **Order chop move:** Playing an unknown clued 1 that skips `k` older 1s of the agreed
+  order (same number of positive clues, not finessed) chop moves the chop of the seat `k`
+  places later. The bot plays its 1s out of order when that protects a critical card or
+  an unseen 2, skipping as few 1s as possible.
+
+The rules live in [chop_move.rs](src/conventions/chop_move.rs).
 
 ### Level 5 — Intermediate Finesses
 

@@ -1,0 +1,13 @@
+# rule: L4.five-chop-move
+# A 5 clue touching a 5 one away from chop (counting only unclued cards) is a 5's chop
+# move: the chop card is protected for good and the 5 is not a play clue.
+hand 0: g4 b3 p2 y3 b4
+hand 1: y2 g3 b1 p5 r4
+hand 2: r1 y5 b2 p4 g1
+clue 0 2 red
+clue 1 2 5
+discard 2 5
+clue 0 1 5
+note * 1 5: ? cm unclued
+note * 1 4: ? clued noplay
+note * 1 3: ? nocm

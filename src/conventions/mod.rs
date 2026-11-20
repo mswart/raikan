@@ -6,6 +6,7 @@
 
 mod belief;
 pub mod catalogue;
+mod chop_move;
 mod clue;
 mod grade;
 mod locator;

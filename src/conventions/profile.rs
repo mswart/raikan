@@ -10,7 +10,7 @@ use crate::variants::{CATALOGUE_REVISION, Variant};
 use std::hash::{Hash, Hasher};
 
 /// Highest H-Group level whose conventions are all implemented (strict profiles compile).
-pub const COMPLETE_LEVEL: u8 = 3;
+pub const COMPLETE_LEVEL: u8 = 4;
 
 /// Revision of the convention implementation; part of the profile digest.
 pub const CONVENTION_REVISION: u32 = 1;
@@ -37,6 +37,11 @@ pub enum Rule {
     Stop,
     DuplicatedPlay,
     SarcasticDiscard,
+    // level 4
+    ChopMove,
+    TrashChopMove,
+    FiveChopMove,
+    OrderChopMove,
     // level 5
     LayeredFinesse,
     MultiColorPrompt,
@@ -271,6 +276,42 @@ pub const RULES: &[RuleMeta] = &[
         &[],
         "https://hanabi.github.io/learning-path#the-sarcastic-discard",
         Discard,
+        Complete,
+    ),
+    meta(
+        ChopMove,
+        "L4.chop-move",
+        4,
+        &[],
+        "https://hanabi.github.io/level-4#chop-moves",
+        Situation,
+        Complete,
+    ),
+    meta(
+        TrashChopMove,
+        "L4.trash-chop-move",
+        4,
+        &[ChopMove],
+        "https://hanabi.github.io/level-4#the-trash-chop-move-tcm",
+        Clue,
+        Complete,
+    ),
+    meta(
+        FiveChopMove,
+        "L4.five-chop-move",
+        4,
+        &[ChopMove, Save5],
+        "https://hanabi.github.io/level-4#the-5s-chop-move-5cm",
+        Clue,
+        Complete,
+    ),
+    meta(
+        OrderChopMove,
+        "L4.order-chop-move",
+        4,
+        &[ChopMove, OnesOrder],
+        "https://hanabi.github.io/level-4#the-order-chop-move-ocm",
+        Play,
         Complete,
     ),
     meta(
@@ -552,7 +593,6 @@ mod tests {
         let l9 = Profile::new(9, &variant, false).unwrap();
         let l20 = Profile::new(20, &variant, false).unwrap();
         let l255 = Profile::new(255, &variant, false).unwrap();
-        assert!(l9.missing.contains(&"L4.trash-chop-move"));
         assert!(l9.missing.contains(&"L8.positional-discard"));
         assert!(!l9.missing.contains(&"L11.bluff"));
         assert!(l20.missing.contains(&"L11.bluff"));
@@ -564,7 +604,7 @@ mod tests {
         assert_ne!(l20.digest, l255.digest);
         match Profile::new(20, &variant, true) {
             Err(ProfileError::Incomplete { missing, .. }) => {
-                assert!(missing.contains(&"L4.order-chop-move"));
+                assert!(missing.contains(&"L11.bluff"));
                 assert!(missing.contains(&"L10.gentlemans-discard"));
             }
             other => panic!("strict level 20 must be refused: {other:?}"),

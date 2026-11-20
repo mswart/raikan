@@ -157,6 +157,12 @@ impl View {
         } else {
             self.stall_kind(giver, receiver, clue, touched)
         };
+        // A 5 stall takes precedence over a 5's chop move; fixes over everything.
+        let chop_move = if fix.is_none() && stall.is_none() {
+            self.chop_move_clue(receiver, clue, touched)
+        } else {
+            None
+        };
         let tempo_focus = (stall == Some(StallKind::Tempo))
             .then(|| self.stall_focus(receiver, touched))
             .flatten();
@@ -316,6 +322,55 @@ impl View {
                 Some(StallKind::EightClueSave) => "L9.stall.eight-clue-save",
                 _ => "L9.stall.burn",
             };
+            return error;
+        }
+        if let Some(chop_move) = chop_move {
+            // The clue only protects other cards: the touched cards keep their literal
+            // information (and good touch), nothing is promised to play.
+            let mut moved = IdentitySet::EMPTY;
+            for card in chop_move.cards.iter() {
+                // Our own chop move must protect something worth keeping, once.
+                if giver == self.me
+                    && let Some(identity) = self.identity(card)
+                {
+                    let duplicate = moved.contains(identity)
+                        || self.info[identity.index()].clued.is_some()
+                        || self.state.seats().any(|seat| {
+                            self.state.hand(seat).iter().any(|&other| {
+                                other != card
+                                    && self.note(other).chop_moved
+                                    && self.identity(other) == Some(identity)
+                            })
+                        });
+                    // A trash chop move must not replace a direct save clue: 5s are clued
+                    // with 5, and a single chop card that a save clue could touch.
+                    let direct_save = chop_move.rule == "L4.trash-chop-move"
+                        && (self.variant.rank_of(identity) == self.variant.num_ranks
+                            || (chop_move.cards.len() == 1
+                                && self.variant.clue_ids().any(|save| {
+                                    self.variant.touch(save).contains(identity)
+                                        && self.can_save(giver, receiver, save, identity)
+                                })));
+                    if duplicate || direct_save || !self.worth_protecting(card) {
+                        error += 2;
+                    }
+                    moved.insert(identity);
+                }
+                self.note_mut(card).chop_moved = true;
+            }
+            for card in newly_clued.iter() {
+                if !self.note(card).locked {
+                    self.exclude_clued_elsewhere(receiver, card);
+                }
+                if receiver != self.me
+                    && let Some(identity) = self.identity(card)
+                {
+                    self.exclude_from_third_parties(giver, receiver, identity);
+                }
+            }
+            self.refresh_derived();
+            self.refresh_clued_cards();
+            self.last_rule = chop_move.rule;
             return error;
         }
         if newly_clued.is_empty() {

@@ -20,6 +20,8 @@ const STRIKEOUT_COST: f64 = 1000.0;
 pub enum Reason {
     /// A safe play or sarcastic discard in convention order.
     SafeConventionAction,
+    /// A play of an unknown 1 out of order that chop moves a teammate's valuable chop.
+    OrderChopMove,
     Fix,
     Stall(&'static str),
     /// Highest convention worth without a forecast emergency.
@@ -190,6 +192,14 @@ fn decide(view: &View, scored: &mut Alternatives) -> Decision {
             || (clues < max && matches!(action, Action::Discard(c) if Some(c) == sarcastic)))
             && evaluation.danger == 0.0
         {
+            if matches!(action, Action::Play(_))
+                && let Some(card) = view.order_chop_move_play()
+            {
+                return Decision {
+                    action: Action::Play(card),
+                    reason: Reason::OrderChopMove,
+                };
+            }
             return Decision {
                 action,
                 reason: Reason::SafeConventionAction,
@@ -271,7 +281,9 @@ fn evaluate(
                         let after = after.note(card);
                         !before.clued
                             && before.promised.is_none()
-                            && (after.clued || after.promised.is_some())
+                            && (after.clued
+                                || after.promised.is_some()
+                                || (after.chop_moved && !before.chop_moved))
                     })
                 });
                 // Minimum clue value: ordinary tempo clues must not replace a discard. Fixes
@@ -311,12 +323,11 @@ fn evaluate(
             let priority = baseline.clone();
             for (identity, weight) in outcomes {
                 let mut forecast = Forecast::own_card(view, card, identity, play);
-                let background_risk =
-                    if !play && !note.clued && note.promised.is_none() && note.belief.size() > 1 {
-                        forecast.lost_points as f64 * LOST_POINT_COST
-                    } else {
-                        0.0
-                    };
+                let background_risk = if !play && !note.touched() && note.belief.size() > 1 {
+                    forecast.lost_points as f64 * LOST_POINT_COST
+                } else {
+                    0.0
+                };
                 // Keep the information-value baseline: hypothetical discards must not earn
                 // credit by making conflicting beliefs disappear.
                 let quality = priority.utility() as f64

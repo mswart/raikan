@@ -21,7 +21,7 @@
 //! ```
 //!
 //! Flags after the identities: `play`, `noplay`, `trash`, `notrash`, `clued`, `promised`,
-//! `delayed`. Identities may be `?` to skip that check.
+//! `delayed`, `cm` (chop moved), `nocm`. Identities may be `?` to skip that check.
 
 use std::path::Path;
 
@@ -147,6 +147,8 @@ fn check_note(view: &View, variant: &Variant, card: CardId, spec: &str, context:
             "unclued" => !note.clued,
             "promised" => note.promised.is_some(),
             "delayed" => note.delayed > 0,
+            "cm" => note.chop_moved,
+            "nocm" => !note.chop_moved,
             other => panic!("unknown flag {other}"),
         };
         assert!(

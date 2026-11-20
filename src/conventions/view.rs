@@ -40,6 +40,8 @@ pub struct CardNote {
     pub delayed: u8,
     /// Turn of the record that promised a blind play of this card.
     pub promised: Option<i16>,
+    /// A chop move (level 4 and later) protects this unclued card permanently.
+    pub chop_moved: bool,
 }
 
 impl CardNote {
@@ -58,7 +60,13 @@ impl CardNote {
             drawn_at: 0,
             delayed: 0,
             promised: None,
+            chop_moved: false,
         }
+    }
+
+    /// Clued, promised or chop moved: neither on chop nor in finesse position.
+    pub fn touched(&self) -> bool {
+        self.clued || self.promised.is_some() || self.chop_moved
     }
 
     pub(super) fn remove(&mut self, identity: Identity, soft_only: bool) {
@@ -666,6 +674,7 @@ impl View {
                     clued: note.clued,
                     belief: note.base,
                     drawn_at: note.drawn_at,
+                    chop_moved: note.chop_moved,
                     starting: note.starting,
                     one_chop_focus: note.one_chop_focus,
                 }
@@ -694,6 +703,13 @@ impl View {
         self.turn += 1;
         let note = self.notes[card.index()];
         let hand_after = self.hand_after(seat, card);
+        // Order chop move: playing an unknown 1 out of the agreed order moves a chop.
+        let order_chop_move = if successful {
+            self.order_chop_move_target(seat, card)
+                .and_then(|target| self.chop(target))
+        } else {
+            None
+        };
         if !successful && self.rule(Rule::StrikeRecovery) {
             self.recover_strike(seat, card, note, &hand_after);
         }
@@ -701,6 +717,9 @@ impl View {
         let ones = self.ones_for_reactions();
         self.interpretations
             .on_play(seat, card, identity, successful, &hand_after, ones);
+        if let Some(chop) = order_chop_move {
+            self.notes[chop.index()].chop_moved = true;
+        }
         self.track(identity);
         if successful {
             for other in self.state.seats() {
@@ -807,6 +826,7 @@ impl View {
                     return false;
                 };
                 if entry.clued
+                    || entry.chop_moved
                     || !entry.belief.contains_hard(step.identity)
                     || !playable.contains(step.identity)
                 {
@@ -853,6 +873,7 @@ impl View {
                     if used.contains(&step.card) {
                         let Some(next) = hand_after.iter().find(|entry| {
                             !entry.clued
+                                && !entry.chop_moved
                                 && entry.drawn_at <= record.turn
                                 && !used.contains(&entry.card)
                         }) else {
@@ -889,8 +910,10 @@ impl View {
                         note.fixed = previous.fixed;
                         note.stopped = previous.stopped;
                         note.one_chop_focus = previous.one_chop_focus;
+                        note.chop_moved = previous.chop_moved;
                     }
                     None => {
+                        note.chop_moved = false;
                         note.locked = false;
                         note.fixed = false;
                         note.stopped = false;
@@ -1162,6 +1185,7 @@ impl View {
                 let note = &self.notes[card.index()];
                 pos < target
                     && !note.clued
+                    && !note.chop_moved
                     && note.drawn_at <= record.turn
                     && !hypothesis.steps.iter().any(|s| s.card == card)
                     && note.promised.is_none_or(|turn| turn == record.turn)
@@ -1335,7 +1359,7 @@ impl View {
             .hand(seat)
             .iter()
             .copied()
-            .filter(|&c| self.notes[c.index()].clued || self.notes[c.index()].promised.is_some())
+            .filter(|&c| self.notes[c.index()].touched())
             .collect()
     }
 }

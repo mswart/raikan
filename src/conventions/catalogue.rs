@@ -96,10 +96,10 @@ pub const REQUIRED: &[Required] = required! {
     3 "L3.fix-no-information" Move "The Fix Clue (That Gives No Additional Information)" "the-fix-clue-that-gives-no-additional-information" [Stop] Complete;
     3 "L3.sarcastic-discard" Move "The Sarcastic Discard" "the-sarcastic-discard-sd" [SarcasticDiscard, DuplicatedPlay] Complete;
 
-    4 "L4.chop-moves" Principle "Chop Moves" "chop-moves" [] Missing;
-    4 "L4.trash-chop-move" Move "The Trash Chop Move" "the-trash-chop-move-tcm" [] Missing;
-    4 "L4.five-chop-move" Move "The 5's Chop Move" "the-5s-chop-move-5cm" [] Missing;
-    4 "L4.order-chop-move" Move "The Order Chop Move" "the-order-chop-move-ocm" [] Missing;
+    4 "L4.chop-moves" Principle "Chop Moves" "chop-moves" [ChopMove] Complete;
+    4 "L4.trash-chop-move" Move "The Trash Chop Move" "the-trash-chop-move-tcm" [TrashChopMove] Complete;
+    4 "L4.five-chop-move" Move "The 5's Chop Move" "the-5s-chop-move-5cm" [FiveChopMove] Complete;
+    4 "L4.order-chop-move" Move "The Order Chop Move" "the-order-chop-move-ocm" [OrderChopMove] Complete;
 
     5 "L5.multi-color-prompt" Move "Prompts in Multi-Color Variants" "prompts-in-multi-color-variants" [MultiColorPrompt] Partial("no double prompts in multi-colour variants");
     5 "L5.free-choice-finesse" Move "The Free Choice Finesse (rainbow)" "https://hanabi.github.io/variant-specific/rainbow#the-free-choice-finesse" [FreeChoiceFinesse] Partial("receivers keep both readings; never given deliberately");

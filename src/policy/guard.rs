@@ -87,10 +87,14 @@ pub fn discard_passes_play_clue(view: &View, card: CardId) -> bool {
         return false;
     }
     let baseline = view.worth(0);
-    super::candidates(view).into_iter().any(|action| match action {
-        Action::Clue { target, clue } => grade_clue(view, &baseline, target, clue) == (true, true),
-        _ => false,
-    })
+    super::candidates(view)
+        .into_iter()
+        .any(|action| match action {
+            Action::Clue { target, clue } => {
+                grade_clue(view, &baseline, target, clue) == (true, true)
+            }
+            _ => false,
+        })
 }
 
 /// Whether the guard permits `action`: plays always, discards only without a convention
@@ -111,7 +115,7 @@ pub fn permitted(view: &View, baseline: &Worth, action: Action) -> bool {
 pub fn finesse_position(view: &View, seat: Seat) -> Option<CardId> {
     view.newest_first(seat).map(|(_, card)| card).find(|&card| {
         let note = view.note(card);
-        !note.clued && note.promised.is_none() && !note.play
+        !note.touched() && !note.play
     })
 }
 
@@ -170,9 +174,8 @@ pub fn permitted_candidates(view: &View) -> SmallVec<[Action; 48]> {
             _ => permitted(view, &baseline, action),
         })
         .collect();
-    let passes_clue = |card| {
-        play_clue && discard_fills_tokens(view) && view.sarcastic_discard() != Some(card)
-    };
+    let passes_clue =
+        |card| play_clue && discard_fills_tokens(view) && view.sarcastic_discard() != Some(card);
     actions.retain(|action| !matches!(*action, Action::Discard(card) if passes_clue(card)));
     let can_discard = view.state.tokens < view.variant.tokens.max;
     for &card in view.state.hand(view.me) {

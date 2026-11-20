@@ -23,13 +23,14 @@ impl View {
         self.variant.clue_value(clue) == ClueValue::Rank(rank)
     }
 
-    /// Chop: the oldest card that is neither clued nor promised. Finessed cards carry an
-    /// implicit clue and are not on chop.
+    /// Chop: the oldest card that is neither clued, promised nor chop moved. Finessed and
+    /// chop-moved cards carry an implicit clue and are not on chop.
     pub fn chop(&self, seat: Seat) -> Option<CardId> {
-        self.state.hand(seat).iter().copied().find(|&c| {
-            let note = self.note(c);
-            !note.clued && note.promised.is_none()
-        })
+        self.state
+            .hand(seat)
+            .iter()
+            .copied()
+            .find(|&c| !self.note(c).touched())
     }
 
     pub fn newly_touched(&self, receiver: Seat, touched: CardSet) -> CardSet {
@@ -41,15 +42,20 @@ impl View {
     }
 
     /// Focus: chop if newly touched, otherwise the newest new card; a clue without new
-    /// cards focuses the newest re-touched card.
+    /// cards focuses the newest re-touched card. Chop-moved cards count as already touched,
+    /// unless the clue touches no other new card: then the newest chop-moved card is the
+    /// focus (level 4, chop moves and new clues).
     pub fn clue_focus(&self, receiver: Seat, touched: CardSet) -> Option<CardId> {
         let new = self.newly_touched(receiver, touched);
-        if new.is_empty() {
-            touched.max()
-        } else {
+        let fresh: CardSet = new.iter().filter(|&c| !self.note(c).chop_moved).collect();
+        if !fresh.is_empty() {
             self.chop(receiver)
-                .filter(|&c| new.contains(c))
-                .or_else(|| new.max())
+                .filter(|&c| fresh.contains(c))
+                .or_else(|| fresh.max())
+        } else if !new.is_empty() {
+            new.max()
+        } else {
+            touched.max()
         }
     }
 
@@ -398,7 +404,7 @@ impl View {
             if note.trash {
                 return card;
             }
-            if !note.clued && note.promised.is_none() {
+            if !note.touched() {
                 chop = Some(card);
             }
         }

@@ -53,7 +53,7 @@ impl PlayEvaluation {
                 view.newest_first(holder)
                     .find(|&(_, c)| {
                         let note = view.note(c);
-                        !note.clued && note.promised.is_none() && !self.marked.contains(c)
+                        !note.touched() && !self.marked.contains(c)
                     })
                     .map(|(_, c)| c)
             })
@@ -326,7 +326,7 @@ impl PlayEvaluation {
                     let mut layer_cards: SmallVec<[CardId; 5]> = SmallVec::new();
                     for (_, card) in view.newest_first(seat) {
                         let note = view.note(card);
-                        if note.clued || note.promised.is_some() || self.marked.contains(card) {
+                        if note.touched() || self.marked.contains(card) {
                             continue;
                         }
                         let identity = view.identity(card);
@@ -445,7 +445,7 @@ impl PlayEvaluation {
                     let note = view.note(card);
                     // Cards already promised to play (an earlier finesse) are not in finesse
                     // position any more.
-                    if note.clued || note.promised.is_some() || self.marked.contains(card) {
+                    if note.touched() || self.marked.contains(card) {
                         continue;
                     }
                     if !note.belief.contains(previous) {

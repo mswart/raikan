@@ -166,6 +166,7 @@ pub struct HandEntry {
     pub clued: bool,
     pub belief: Belief,
     pub drawn_at: i16,
+    pub chop_moved: bool,
     pub starting: bool,
     pub one_chop_focus: bool,
 }
@@ -374,7 +375,12 @@ pub(super) fn remaining_layers(
 ) -> u8 {
     hand.iter()
         .take_while(|entry| entry.card != step.card)
-        .filter(|entry| !entry.clued && entry.drawn_at <= turn && !reserved.contains(&entry.card))
+        .filter(|entry| {
+            !entry.clued
+                && !entry.chop_moved
+                && entry.drawn_at <= turn
+                && !reserved.contains(&entry.card)
+        })
         .count() as u8
 }
 
@@ -497,6 +503,7 @@ fn retarget_finesses(
             .or_else(|| {
                 hand_after.iter().find(|entry| {
                     !entry.clued
+                        && !entry.chop_moved
                         && entry.drawn_at <= record_turn
                         && !used.contains(&entry.card)
                         && entry.belief.contains_hard(step.identity)

@@ -35,10 +35,10 @@ keeps it in sync. Every convention of levels 1–20 is listed, implemented or no
 | 3 | [The Fix Clue (That Touches Multiple Cards)](https://hanabi.github.io/level-3#the-fix-clue-that-touches-multiple-cards) | Move | complete | L3.fix |
 | 3 | [The Fix Clue (That Gives No Additional Information)](https://hanabi.github.io/level-3#the-fix-clue-that-gives-no-additional-information) | Move | complete | L3.stop |
 | 3 | [The Sarcastic Discard](https://hanabi.github.io/level-3#the-sarcastic-discard-sd) | Move | complete | L3.sarcastic-discard, L3.duplicated-play |
-| 4 | [Chop Moves](https://hanabi.github.io/level-4#chop-moves) | Principle | missing |  |
-| 4 | [The Trash Chop Move](https://hanabi.github.io/level-4#the-trash-chop-move-tcm) | Move | missing |  |
-| 4 | [The 5's Chop Move](https://hanabi.github.io/level-4#the-5s-chop-move-5cm) | Move | missing |  |
-| 4 | [The Order Chop Move](https://hanabi.github.io/level-4#the-order-chop-move-ocm) | Move | missing |  |
+| 4 | [Chop Moves](https://hanabi.github.io/level-4#chop-moves) | Principle | complete | L4.chop-move |
+| 4 | [The Trash Chop Move](https://hanabi.github.io/level-4#the-trash-chop-move-tcm) | Move | complete | L4.trash-chop-move |
+| 4 | [The 5's Chop Move](https://hanabi.github.io/level-4#the-5s-chop-move-5cm) | Move | complete | L4.five-chop-move |
+| 4 | [The Order Chop Move](https://hanabi.github.io/level-4#the-order-chop-move-ocm) | Move | complete | L4.order-chop-move |
 | 5 | [Prompts in Multi-Color Variants](https://hanabi.github.io/level-5#prompts-in-multi-color-variants) | Move | partial: no double prompts in multi-colour variants | L5.multi-color-prompt |
 | 5 | [The Free Choice Finesse (rainbow)](https://hanabi.github.io/variant-specific/rainbow#the-free-choice-finesse) | Move | partial: receivers keep both readings; never given deliberately | L5.free-choice-finesse |
 | 5 | [The Hidden Finesse](https://hanabi.github.io/level-5#the-hidden-finesse) | Move | partial: only through the layered-finesse resolver | L5.layered-finesse |

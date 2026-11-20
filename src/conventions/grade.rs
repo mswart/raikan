@@ -212,6 +212,14 @@ impl View {
                         errors += 2;
                     }
                 } else {
+                    // A chop move protects the card like a clue; only cards worth protecting
+                    // count, a chop-moved ordinary card just clogs the hand.
+                    if note.chop_moved && self.worth_protecting(card) {
+                        clued += 1;
+                        if matches!(state, PlayState::Critical | PlayState::CriticalPlayable) {
+                            saved += 1;
+                        }
+                    }
                     if chop == Some(card) && info.clued.is_none() {
                         match state {
                             PlayState::Critical | PlayState::CriticalPlayable => {

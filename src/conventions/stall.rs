@@ -156,7 +156,7 @@ impl View {
                 && on_chop
                 && self.state.hand(receiver).iter().any(|&c| {
                     let note = self.note(c);
-                    !note.clued && note.promised.is_none() && !touched.contains(c)
+                    !note.touched() && !touched.contains(c)
                 })
             {
                 return Some(StallKind::LockedSave);
@@ -221,7 +221,7 @@ impl View {
         let mut distance = 0;
         for &card in self.state.hand(receiver) {
             let note = self.note(card);
-            if note.clued || note.promised.is_some() {
+            if note.touched() {
                 continue;
             }
             if self
