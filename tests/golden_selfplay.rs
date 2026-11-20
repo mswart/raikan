@@ -1,7 +1,7 @@
 //! Golden corpus: the complete replays of seeded self-play games, folded into one checksum
 //! per player count. First recorded when the new bot reproduced the legacy bot
 //! (identical replays for 2-4 players; see docs/parity.md); re-recorded after each
-//! intended behaviour change (last: own finesse position skips cards promised by an earlier finesse), so any
+//! intended behaviour change (last: finessed cards are played before clued known plays), so any
 //! change of a decision shows up here. After an intended behaviour change, update the checksums with
 //! `RAIKAN_GOLDEN_PRINT=1 cargo test --release --test golden_selfplay -- --nocapture`.
 
@@ -15,10 +15,10 @@ const GAMES: u64 = 12;
 const EXPECTED: &[(&str, u8, u64)] = &[
     ("No Variant", 2, 0x9c4959bda0a0e0bc),
     ("No Variant", 3, 0x42dc6cbc98f065f3),
-    ("No Variant", 4, 0x32309f9430eafa17),
-    ("No Variant", 5, 0xea1611e444042e51),
+    ("No Variant", 4, 0x1757b0da7a9d1637),
+    ("No Variant", 5, 0x690ed27b21ebcbeb),
     ("Rainbow (6 Suits)", 3, 0xafbc31d7a2434432),
-    ("Rainbow (6 Suits)", 4, 0xebcd29f423f4f4da),
+    ("Rainbow (6 Suits)", 4, 0x1d3519fe91ec5a1c),
 ];
 
 fn checksum(variant: &str, players: u8) -> u64 {

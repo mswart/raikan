@@ -130,9 +130,16 @@ impl View {
                 playable.push(card);
             }
         }
+        // Finessed (blind) cards come first: they prove the finesse, so teammates waiting on
+        // it learn where the connection is, before any clued known play.
+        if let Some(&blind) = playable.iter().find(|&&c| {
+            let note = self.note(c);
+            !note.clued && note.promised.is_some()
+        }) {
+            return Some(blind);
+        }
         let first = *playable.first()?;
-        // Blind finesse instructions keep their ordinary position. Clued 1s retain their
-        // agreed order even when another clue queues one of them.
+        // Clued 1s retain their agreed order even when another clue queues one of them.
         let note = self.note(first);
         if !note.clued || !self.is_rank_belief(&note.belief, 1) {
             return Some(first);

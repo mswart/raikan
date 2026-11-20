@@ -1,0 +1,16 @@
+# rule: L2.finesse
+# hanab.live game 2073109, turn 34: a finessed card is played before a clued known play,
+# even when the clued card is newer. Playing it proves the finesse, so the clue receiver
+# knows where the connection is.
+hand 0: r2 y4 p4 g3
+hand 1: b1 r1 p3 p2
+hand 2: y3 y4 g4 p5
+hand 3: y2 r4 g2 b5
+clue 0 2 5
+clue 1 3 5
+clue 2 1 blue
+clue 3 0 red
+note 1 1 1: b1 clued play
+note 1 1 2: r1 promised
+discard 0 4
+action 1: play 2
