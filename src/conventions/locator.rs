@@ -443,7 +443,9 @@ impl PlayEvaluation {
             {
                 for (_, card) in view.newest_first(me) {
                     let note = view.note(card);
-                    if note.clued || self.marked.contains(card) {
+                    // Cards already promised to play (an earlier finesse) are not in finesse
+                    // position any more.
+                    if note.clued || note.promised.is_some() || self.marked.contains(card) {
                         continue;
                     }
                     if !note.belief.contains(previous) {

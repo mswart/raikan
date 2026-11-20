@@ -1,0 +1,20 @@
+# rule: L2.finesse
+# hanab.live game 2073109, turn 29: a card already promised to play by an earlier finesse is
+# not on the finesse position. Seat 1 is finessed for b1 (blue to seat 2), then seat 0 clues
+# y2 before seat 1 has played: y1 is seat 1's next unclued card, behind the promised b1.
+hand 0: r3 r4 p4 g5
+hand 1: b1 y1 p3 g4
+hand 2: b2 r3 g3 p5
+hand 3: y2 r4 g4 b5
+clue 0 2 5
+clue 1 3 5
+clue 2 0 5
+clue 3 2 blue
+note 1 1 1: b1 promised
+clue 0 3 yellow
+note 1 1 1: b1 promised
+note 1 1 2: y1 promised
+note 2 1 2: y1 promised
+action 1: play 1
+play 1 1
+action 2: play 1
