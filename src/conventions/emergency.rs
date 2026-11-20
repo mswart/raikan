@@ -162,23 +162,35 @@ impl View {
     /// to discard while the player after that is about to lose a valuable chop card; we
     /// discard our known-playable clued card instead so that the next player can clue.
     pub fn generation_discard(&self) -> Option<CardId> {
-        if !self.rule(Rule::GenerationDiscard) || self.state.clue_tokens() > 0 {
+        // From level 10 a known playable discard is a Gentleman's Discard.
+        if !self.rule(Rule::GenerationDiscard)
+            || self.rule(Rule::GentlemansDiscard)
+            || self.state.clue_tokens() > 0
+        {
             return None;
         }
         let card = self.next_play()?;
+        if !self.generation_needed() {
+            return None;
+        }
         // The discarded card must be known exactly and have another copy left.
         let note = self.note(card);
         if !note.clued || note.belief.identity().is_none_or(|i| self.is_critical(i)) {
             return None;
         }
+        Some(card)
+    }
+
+    /// At 0 clues the next player would discard (no play, nothing worth saving on its own
+    /// chop) while the player after that would lose a critical chop card.
+    pub fn generation_needed(&self) -> bool {
         let n = self.num_seats();
         let next = self.me.after(1, n);
         let after = self.me.after(2, n);
-        if after == self.me || self.chop_endangered(next, false) {
-            return None;
+        if self.state.clue_tokens() > 0 || after == self.me || self.chop_endangered(next, false) {
+            return false;
         }
-        let next_view = self.decision_view(next);
-        (next_view.next_play().is_none() && self.chop_endangered(after, true)).then_some(card)
+        self.decision_view(next).next_play().is_none() && self.chop_endangered(after, true)
     }
 
     /// A chop-moved card of ours that is probably playable (at least 80% by the copies we

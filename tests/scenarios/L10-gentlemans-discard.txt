@@ -1,0 +1,15 @@
+# rule: L10.gentlemans-discard
+# Cathy's card is known r1 (a 1 clue and a red clue). Instead of playing it, she discards
+# it: a Gentleman's Discard. Bob's finesse position is no r1, so Alice knows the other r1 is
+# on her own finesse position and blind-plays it.
+level 10
+hand 0: r1 g3 y3 b4 p4
+hand 1: g4 y4 b3 p3 g2
+hand 2: r2 y2 b2 r1 g4
+clue 0 2 1
+clue 1 2 red
+note 2 2 4: r1 clued play
+discard 2 4
+note 0 0 1: r1 promised play
+note 1 0 1: r1 promised play
+action 0: play 1

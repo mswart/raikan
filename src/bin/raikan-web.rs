@@ -1090,7 +1090,7 @@ struct Slot {
     index: u8,
 }
 
-/// The bot: H-Group conventions capped at `RAIKAN_LEVEL=<n>` (default 9), with the root
+/// The bot: H-Group conventions capped at `RAIKAN_LEVEL=<n>` (default 10), with the root
 /// planner when `RAIKAN_SEARCH=fast|full` (default off; all cores, at most
 /// `RAIKAN_TIME_LIMIT_MS`, default 3000, per decision).
 fn new_agent() -> Box<dyn Agent> {

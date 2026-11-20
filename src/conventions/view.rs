@@ -776,11 +776,16 @@ impl View {
             self.receive_sarcastic(seat, card, identity);
         }
         let positional = self.positional_slot(seat, card, false);
-        let signal = if self.sarcastic.len() == sarcastic_before && positional.is_none() {
+        let plain = self.sarcastic.len() == sarcastic_before && positional.is_none();
+        let transfer = plain
+            .then(|| self.transfer_kind(seat, card, identity))
+            .flatten();
+        let signal = if plain && transfer.is_none() {
             self.discard_signal(seat, card, Some(identity))
         } else {
             None
         };
+        self.receive_certain_discard(seat, card, identity);
         self.context.must_clue = None;
         let note = self.notes[card.index()];
         if !note.clued && note.promised.is_none() && !note.trash {
@@ -797,6 +802,9 @@ impl View {
         }
         if let Some((slot, count)) = positional {
             self.apply_positional(seat, slot, count);
+        }
+        if let Some(kind) = transfer {
+            self.apply_transfer(seat, card, identity, kind);
         }
         self.track(identity);
         self.refresh_derived();

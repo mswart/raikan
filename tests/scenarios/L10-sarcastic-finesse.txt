@@ -1,0 +1,18 @@
+# rule: L10.sarcastic-finesse
+# Alice's 2-saved card is r2, which she does not know. Her red clue to Cathy's r2 finesses
+# Bob's r1. Cathy may hold a copy of Alice's unknown card, so after Bob's blind play she
+# knows her card is r2 and returns it with a sarcastic discard, identifying Alice's card.
+level 10
+hand 0: g3 y3 b4 p4 r2
+hand 1: r1 y5 g2 b3 p2
+hand 2: b5 g4 y4 p3 r2
+clue 0 2 5
+clue 1 0 2
+clue 2 1 5
+clue 0 2 red
+note 1 1 1: r1 promised play
+play 1 1
+note 2 2 5: r2 clued
+action 2: discard 5
+discard 2 5
+note 0 0 5: r2 clued

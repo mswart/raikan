@@ -23,7 +23,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            max_level: 9,
+            max_level: 10,
             require_complete: false,
             search: SearchConfig::default(),
         }

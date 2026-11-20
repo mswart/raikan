@@ -447,7 +447,21 @@ impl View {
             .collect();
         // Distribution clue (end-game): the focus may duplicate a playable card of a loaded
         // hand.
-        let distribution = self.distribution_identities(receiver);
+        let mut distribution = self.distribution_identities(receiver);
+        // Sarcastic finesse (level 10): the focus may duplicate the giver's own clued card
+        // that the giver does not know, when that identity still needs a connection.
+        if self.rule(Rule::SarcasticFinesse) {
+            for &card in self.state.hand(giver) {
+                let note = self.note(card);
+                if note.clued
+                    && note.belief.size() > 1
+                    && let Some(identity) = self.identity(card)
+                    && !playable.contains(identity)
+                {
+                    distribution.insert(identity);
+                }
+            }
+        }
         for card in order {
             let duplicate = (card == focus && save_options.is_empty() && rank_clue)
                 .then(|| self.duplicated_play(receiver, card))
@@ -621,17 +635,21 @@ impl View {
         let mut error = 0;
         let contexts = self.clue_contexts(receiver, clue, premarked);
         let me = self.me;
-        if giver == me
+        // potential double clues of a card we already hold
+        let own_duplicates = if giver == me
             && let Some(clued) = self.identity(focus)
         {
-            for &card in self.state.hand(me) {
-                let note = self.note(card);
-                if note.clued && note.belief.contains(clued) {
-                    // potential double clue of a card we already hold
-                    error += 1;
-                }
-            }
-        }
+            self.state
+                .hand(me)
+                .iter()
+                .filter(|&&card| {
+                    let note = self.note(card);
+                    note.clued && note.belief.contains(clued)
+                })
+                .count() as u8
+        } else {
+            0
+        };
         let receiver_check = if giver == me {
             self.pending_receiver.take()
         } else {
@@ -727,6 +745,16 @@ impl View {
                     }
                 }
             }
+        }
+        // Sarcastic finesse (level 10): duplicating our own unknown clued card is fine when
+        // the true reading needs a finesse; the receiver returns the copy afterwards.
+        let sarcastic_finesse = self.rule(Rule::SarcasticFinesse)
+            && observed.as_ref().is_some_and(|h| {
+                h.pending_steps()
+                    .any(|s| s.kind == StepKind::Finesse && s.holder != me)
+            });
+        if !sarcastic_finesse {
+            error += own_duplicates;
         }
         if let Some(observed) = observed {
             if !hypotheses.iter().any(|h| h.steps == observed.steps) {

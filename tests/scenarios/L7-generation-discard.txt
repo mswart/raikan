@@ -2,6 +2,8 @@
 # Alice is at 0 clues with a known r1. Playing it would leave Bob (no play, nothing worth
 # saving on his chop) to discard while Cathy's critical r5 rides on chop. Alice discards
 # the r1 instead (a Generation Discard): Bob must clue, and he saves the r5.
+# Level 10 reads this discard as a Gentleman's Discard, so the scenario stays at level 9.
+level 9
 hand 0: g4 r1 y5 b2
 hand 1: y3 g3 p4 b4
 hand 2: g1 y4 r2 r5

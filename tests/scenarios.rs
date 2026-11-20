@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! # rule: L1.save-5                      rule id(s) the scenario covers
-//! level 9                                optional profile cap (default 9)
+//! level 9                                optional profile cap (default 10)
 //! search full                            optional root search mode (default off)
 //! variant No Variant                     optional (default No Variant)
 //! hand 0: r1 y2 g3 b4                    starting hands, slot 1 (newest) first
@@ -161,7 +161,7 @@ fn check_note(view: &View, variant: &Variant, card: CardId, spec: &str, context:
 fn run(path: &Path) {
     let text = std::fs::read_to_string(path).unwrap();
     let name = path.file_name().unwrap().to_string_lossy().to_string();
-    let mut level = 9;
+    let mut level = 10;
     let mut search = raikan::search::SearchConfig::default();
     let mut variant = Variant::no_variant();
     let mut hands: Vec<Vec<Identity>> = Vec::new();

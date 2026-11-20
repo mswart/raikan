@@ -30,7 +30,7 @@ conventions cover: plain suits (`No Variant`, 3–6 suits) and rainbow (e.g.
 `Rainbow (6 Suits)`, `Rainbow (5 Suits)`). Other special suits (white, black,
 pink, …) and variant modifiers are refused unless
 `RAIKAN_EXPERIMENTAL_VARIANTS=1` is set. `RAIKAN_LEVEL=<n>` caps the
-H-Group level (default 9); `RAIKAN_SEARCH=fast|full` turns on the search (default off,
+H-Group level (default 10); `RAIKAN_SEARCH=fast|full` turns on the search (default off,
 see below). It uses Hanabi Live's current lobby and game-event protocol; spectators
 and replay viewers do not send moves.
 
@@ -46,10 +46,10 @@ replay when `gameFinished` arrives. Paused games wait for a resume notification.
 with its coverage (complete, partial or missing); a profile compiled with
 `require_complete` refuses levels with gaps.
 
-Support is partial and varies by convention. This overview covers levels 1–9,
-ending at stalling, the highest level with implemented special moves. It does not
-mean that all earlier levels are complete. Variant support is listed under
-[Variants](#variants).
+Every convention of levels 1–10 is implemented for the standard game: a profile
+compiled with `require_complete` accepts every level up to 10 (the variant-specific
+Free Choice Finesse stays partial, see [Variants](#variants)). The default level cap
+is still 9. Levels 11 and above are not implemented.
 
 | H-Group level | Status |
 | --- | --- |
@@ -62,6 +62,7 @@ mean that all earlier levels are complete. Variant support is listed under
 | [7 — Emergency Discards](https://hanabi.github.io/level-7) | Implemented |
 | [8 — End-Game](https://hanabi.github.io/level-8) | Implemented |
 | [9 — Stalling](https://hanabi.github.io/level-9) | Implemented |
+| [10 — Special Discards](https://hanabi.github.io/level-10) | Implemented |
 
 ### Level 1 — Fundamentals
 
@@ -258,6 +259,32 @@ signals are tested in [tests/endgame.rs](tests/endgame.rs).
   double-discard severity (level 7).
 * Interpretation is conservative: it does not infer a finesse from the availability of
   a higher-precedence clue.
+
+### Level 10 — Special Discards
+
+* **Gentleman's Discard:** Discarding a clued card whose identity the discarder knew
+  from public clue information, that is playable and duplicates no clued or promised
+  card, promises the other copy on the finesse position of the first other player (in
+  turn order) who visibly holds it there; a player who sees no such copy holds it
+  itself. It is read as a finesse, so a layered Gentleman's Discard unravels like a
+  layered finesse. Locked players' forced discards carry no such meaning. The bot gives
+  one at 0 clues where a generation discard would otherwise be needed, so the card is
+  not lost.
+* **Baton Discard:** The same with a known unplayable card: the receiving card counts as
+  clued with that identity (exactly on finesse position, never layered). The bot uses it
+  instead of discarding a chop that may be critical.
+* **Sarcastic Finesse:** A play clue's focus may duplicate the giver's own clued card
+  that the giver does not know when the identity still needs a connection; once the
+  finesse resolves, the receiver returns its copy with a sarcastic discard.
+* **Certain Finesse and Certain Discard:** A finessed card whose promised identity is
+  clued in another hand is discarded instead of played; teammates move the connection to
+  the clued copy. Composition finesses combine both.
+* **Double Gentleman's Discard (illegal):** Only the true identity of a card the
+  discarder knew is transferred; the bot never transfers a card it does not know.
+
+The level-10 discards live in [gentleman.rs](src/conventions/gentleman.rs). Because a
+known playable discard now reads as a Gentleman's Discard, level 10 replaces the level-7
+generation discard by it.
 
 ### Implementation and search limits
 

@@ -147,13 +147,13 @@ pub const REQUIRED: &[Required] = required! {
     9 "L9.anxiety-play" Move "The Anxiety Play" "the-anxiety-play-forcing-a-locked-player-to-play" [AnxietyPlay] Complete;
     9 "L9.eight-clue-save" Move "The 8 Clue Save" "the-8-clue-save-8cs" [StallEightClueSave] Complete;
 
-    10 "L10.gentlemans-discard" Move "The Gentleman's Discard" "the-gentlemans-discard-gd" [] Missing;
-    10 "L10.layered-gentlemans-discard" Move "The Layered Gentleman's Discard" "the-layered-gentlemans-discard" [] Missing;
-    10 "L10.baton-discard" Move "The Baton Discard" "the-baton-discard-bd" [] Missing;
-    10 "L10.sarcastic-finesse" Move "The Sarcastic Finesse" "the-sarcastic-finesse" [] Missing;
-    10 "L10.certain-finesse" Move "The Certain Finesse & The Certain Discard" "the-certain-finesse--the-certain-discard" [] Missing;
-    10 "L10.composition-finesse" Move "The Composition Finesse" "the-composition-finesse" [] Missing;
-    10 "L10.double-gentlemans-discard" Mistake "The Double Gentleman's Discard (Illegal)" "the-double-gentlemans-discard-illegal" [] Missing;
+    10 "L10.gentlemans-discard" Move "The Gentleman's Discard" "the-gentlemans-discard-gd" [GentlemansDiscard] Complete;
+    10 "L10.layered-gentlemans-discard" Move "The Layered Gentleman's Discard" "the-layered-gentlemans-discard" [GentlemansDiscard, LayeredFinesse] Complete;
+    10 "L10.baton-discard" Move "The Baton Discard" "the-baton-discard-bd" [BatonDiscard] Complete;
+    10 "L10.sarcastic-finesse" Move "The Sarcastic Finesse" "the-sarcastic-finesse" [SarcasticFinesse] Complete;
+    10 "L10.certain-finesse" Move "The Certain Finesse & The Certain Discard" "the-certain-finesse--the-certain-discard" [CertainDiscard] Complete;
+    10 "L10.composition-finesse" Move "The Composition Finesse" "the-composition-finesse" [SarcasticFinesse, CertainDiscard] Complete;
+    10 "L10.double-gentlemans-discard" Mistake "The Double Gentleman's Discard (Illegal)" "the-double-gentlemans-discard-illegal" [GentlemansDiscard] Complete;
 
     11 "L11.bluff" Move "The Bluff" "the-bluff" [] Missing;
     11 "L11.bluff-seat" Principle "The Bluff Seat" "the-bluff-seat" [] Missing;

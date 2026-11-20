@@ -10,7 +10,7 @@ use crate::variants::{CATALOGUE_REVISION, Variant};
 use std::hash::{Hash, Hasher};
 
 /// Highest H-Group level whose conventions are all implemented (strict profiles compile).
-pub const COMPLETE_LEVEL: u8 = 9;
+pub const COMPLETE_LEVEL: u8 = 10;
 
 /// Revision of the convention implementation; part of the profile digest.
 pub const CONVENTION_REVISION: u32 = 1;
@@ -74,6 +74,11 @@ pub enum Rule {
     PermissionToDiscard,
     FiveStallFinesseException,
     AnxietyPlay,
+    // level 10
+    GentlemansDiscard,
+    BatonDiscard,
+    SarcasticFinesse,
+    CertainDiscard,
 }
 
 /// What a rule implementation covers (see docs/architecture.md §6.4).
@@ -576,6 +581,42 @@ pub const RULES: &[RuleMeta] = &[
         Complete,
     ),
     meta(
+        GentlemansDiscard,
+        "L10.gentlemans-discard",
+        10,
+        &[SarcasticDiscard, LayeredFinesse],
+        "https://hanabi.github.io/level-10#the-gentlemans-discard-gd",
+        Discard,
+        Complete,
+    ),
+    meta(
+        BatonDiscard,
+        "L10.baton-discard",
+        10,
+        &[GentlemansDiscard],
+        "https://hanabi.github.io/level-10#the-baton-discard-bd",
+        Discard,
+        Complete,
+    ),
+    meta(
+        SarcasticFinesse,
+        "L10.sarcastic-finesse",
+        10,
+        &[SarcasticDiscard, Finesse],
+        "https://hanabi.github.io/level-10#the-sarcastic-finesse",
+        Clue,
+        Complete,
+    ),
+    meta(
+        CertainDiscard,
+        "L10.certain-finesse",
+        10,
+        &[SarcasticDiscard, ReverseFinesse],
+        "https://hanabi.github.io/level-10#the-certain-finesse--the-certain-discard",
+        Discard,
+        Complete,
+    ),
+    meta(
         AnxietyPlay,
         "L9.anxiety-play",
         9,
@@ -760,13 +801,15 @@ mod tests {
         assert!(l20.missing.contains(&"L20.no-information-finesse"));
         assert!(l255.missing.iter().any(|m| m.starts_with("L21+")));
         // same active rules, different promises: the digests differ
-        assert_eq!(l9.active, l20.active);
-        assert_ne!(l9.digest, l20.digest);
+        let l10 = Profile::new(10, &variant, false).unwrap();
+        assert_eq!(l10.active, l20.active);
+        assert_ne!(l10.digest, l20.digest);
+        assert_ne!(l9.active, l10.active);
         assert_ne!(l20.digest, l255.digest);
         match Profile::new(20, &variant, true) {
             Err(ProfileError::Incomplete { missing, .. }) => {
                 assert!(missing.contains(&"L11.bluff"));
-                assert!(missing.contains(&"L10.gentlemans-discard"));
+                assert!(!missing.contains(&"L10.gentlemans-discard"));
             }
             other => panic!("strict level 20 must be refused: {other:?}"),
         }

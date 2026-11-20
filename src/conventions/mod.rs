@@ -10,6 +10,7 @@ mod chop_move;
 mod clue;
 mod emergency;
 mod endgame;
+mod gentleman;
 mod grade;
 mod locator;
 pub mod profile;
@@ -20,6 +21,7 @@ mod view;
 
 pub use belief::Belief;
 pub use emergency::DiscardSignal;
+pub use gentleman::Transfer;
 pub use grade::{Worth, card_event};
 pub use profile::{Profile, Rule};
 pub use records::{ClueRecord, Hypothesis, Step, StepKind, Tier};

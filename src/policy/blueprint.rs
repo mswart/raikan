@@ -32,6 +32,10 @@ pub enum Reason {
     Positional,
     /// A locked player at 0 clues plays its most likely playable card (level 9).
     AnxietyPlay,
+    /// A Gentleman's or Baton Discard (level 10).
+    TransferDiscard,
+    /// A finessed card that duplicates a clued card is discarded (level 10).
+    CertainDiscard,
     Fix,
     Stall(&'static str),
     /// Highest convention worth without a forecast emergency.
@@ -93,6 +97,11 @@ pub fn candidates(view: &View) -> SmallVec<[Action; 48]> {
         && (view.discard_signal(view.me, discard, None).is_none()
             || view.sarcastic_discard() == Some(discard))
         && view.positional_slot(view.me, discard, false).is_none()
+        && view
+            .note(discard)
+            .belief
+            .identity()
+            .is_none_or(|identity| view.transfer_kind(view.me, discard, identity).is_none())
     {
         actions.push(Action::Discard(discard));
     }
@@ -123,6 +132,12 @@ pub fn choose_action(view: &View) -> Decision {
 /// Level 7 moves that take precedence over the ordinary choice: scream, shout and
 /// generation discards.
 fn emergency_discard(view: &View) -> Option<Decision> {
+    if let Some(card) = view.certain_discard() {
+        return Some(Decision {
+            action: Action::Discard(card),
+            reason: Reason::CertainDiscard,
+        });
+    }
     if let Some(card) = view.anxiety_play() {
         return Some(Decision {
             action: Action::Play(card),
@@ -145,6 +160,12 @@ fn emergency_discard(view: &View) -> Option<Decision> {
         return Some(Decision {
             action: Action::Discard(card),
             reason: Reason::SignalDiscard(signal),
+        });
+    }
+    if let Some(card) = view.transfer_discard() {
+        return Some(Decision {
+            action: Action::Discard(card),
+            reason: Reason::TransferDiscard,
         });
     }
     view.generation_discard().map(|card| Decision {

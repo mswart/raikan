@@ -80,13 +80,13 @@ keeps it in sync. Every convention of levels 1–20 is listed, implemented or no
 | 9 | [The Locked Hand Save](https://hanabi.github.io/level-9#the-locked-hand-save-lhs) | Move | complete | L9.stall.locked-save |
 | 9 | [The Anxiety Play](https://hanabi.github.io/level-9#the-anxiety-play-forcing-a-locked-player-to-play) | Move | complete | L9.anxiety-play |
 | 9 | [The 8 Clue Save](https://hanabi.github.io/level-9#the-8-clue-save-8cs) | Move | complete | L9.stall.eight-clue-save |
-| 10 | [The Gentleman's Discard](https://hanabi.github.io/level-10#the-gentlemans-discard-gd) | Move | missing |  |
-| 10 | [The Layered Gentleman's Discard](https://hanabi.github.io/level-10#the-layered-gentlemans-discard) | Move | missing |  |
-| 10 | [The Baton Discard](https://hanabi.github.io/level-10#the-baton-discard-bd) | Move | missing |  |
-| 10 | [The Sarcastic Finesse](https://hanabi.github.io/level-10#the-sarcastic-finesse) | Move | missing |  |
-| 10 | [The Certain Finesse & The Certain Discard](https://hanabi.github.io/level-10#the-certain-finesse--the-certain-discard) | Move | missing |  |
-| 10 | [The Composition Finesse](https://hanabi.github.io/level-10#the-composition-finesse) | Move | missing |  |
-| 10 | [The Double Gentleman's Discard (Illegal)](https://hanabi.github.io/level-10#the-double-gentlemans-discard-illegal) | Mistake | missing |  |
+| 10 | [The Gentleman's Discard](https://hanabi.github.io/level-10#the-gentlemans-discard-gd) | Move | complete | L10.gentlemans-discard |
+| 10 | [The Layered Gentleman's Discard](https://hanabi.github.io/level-10#the-layered-gentlemans-discard) | Move | complete | L10.gentlemans-discard, L5.layered-finesse |
+| 10 | [The Baton Discard](https://hanabi.github.io/level-10#the-baton-discard-bd) | Move | complete | L10.baton-discard |
+| 10 | [The Sarcastic Finesse](https://hanabi.github.io/level-10#the-sarcastic-finesse) | Move | complete | L10.sarcastic-finesse |
+| 10 | [The Certain Finesse & The Certain Discard](https://hanabi.github.io/level-10#the-certain-finesse--the-certain-discard) | Move | complete | L10.certain-finesse |
+| 10 | [The Composition Finesse](https://hanabi.github.io/level-10#the-composition-finesse) | Move | complete | L10.sarcastic-finesse, L10.certain-finesse |
+| 10 | [The Double Gentleman's Discard (Illegal)](https://hanabi.github.io/level-10#the-double-gentlemans-discard-illegal) | Mistake | complete | L10.gentlemans-discard |
 | 11 | [The Bluff](https://hanabi.github.io/level-11#the-bluff) | Move | missing |  |
 | 11 | [The Bluff Seat](https://hanabi.github.io/level-11#the-bluff-seat) | Principle | missing |  |
 | 11 | [Lie Principle](https://hanabi.github.io/level-11#lie-principle) | Principle | missing |  |
