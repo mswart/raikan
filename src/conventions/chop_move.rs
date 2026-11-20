@@ -18,9 +18,9 @@ pub struct ChopMoveClue {
 }
 
 impl View {
-    /// Chop moves are active (level 4).
+    /// Chop moves are active (level 4) and not switched off by the end-game (level 8).
     pub fn chop_moves_allowed(&self) -> bool {
-        self.rule(Rule::ChopMove)
+        self.rule(Rule::ChopMove) && !self.in_end_game()
     }
 
     /// Unclued, unpromised, not chop-moved cards of `seat`, oldest (chop) first.

@@ -123,15 +123,15 @@ pub const REQUIRED: &[Required] = required! {
     7 "L7.generation-discard" Move "The Generation Discard" "the-generation-discard" [GenerationDiscard, EmergencyLookahead] Complete;
     7 "L7.blind-play-chop-moved" Principle "Blind-Playing Chop Moved Cards" "blind-playing-chop-moved-cards" [BlindPlayChopMoved] Complete;
 
-    8 "L8.end-game" Principle "The End-Game" "the-end-game" [] Missing;
-    8 "L8.no-chop-moves" Move "No Chop Moves in the End-Game" "no-chop-moves-in-the-end-game" [] Missing;
-    8 "L8.positional-discard" Move "The Positional Discard" "the-positional-discard-indicating-a-play-with-a-discard" [] Missing;
-    8 "L8.positional-misplay" Move "The Positional Misplay" "the-positional-misplay-indicating-a-play-with-a-misplay" [] Missing;
-    8 "L8.double-positional-misplay" Move "The Double Positional Misplay" "the-double-positional-misplay-indicating-two-plays-with-a-misplay" [] Missing;
-    8 "L8.distribution-clue" Move "The Distribution Clue" "the-distribution-clue" [] Missing;
-    8 "L8.team-distribution" Principle "Team Distribution Principle" "team-distribution-principle" [] Missing;
-    8 "L8.pace-plus-one" Principle "The Pace +1 Rule" "the-pace-1-rule" [] Missing;
-    8 "L8.burning" Move "Burning (End-Game Stalling)" "burning-end-game-stalling" [] Missing;
+    8 "L8.end-game" Principle "The End-Game" "the-end-game" [EndGame] Complete;
+    8 "L8.no-chop-moves" Move "No Chop Moves in the End-Game" "no-chop-moves-in-the-end-game" [EndGame, ChopMove] Complete;
+    8 "L8.positional-discard" Move "The Positional Discard" "the-positional-discard-indicating-a-play-with-a-discard" [PositionalDiscard] Complete;
+    8 "L8.positional-misplay" Move "The Positional Misplay" "the-positional-misplay-indicating-a-play-with-a-misplay" [PositionalMisplay] Complete;
+    8 "L8.double-positional-misplay" Move "The Double Positional Misplay" "the-double-positional-misplay-indicating-two-plays-with-a-misplay" [PositionalMisplay] Complete;
+    8 "L8.distribution-clue" Move "The Distribution Clue" "the-distribution-clue" [DistributionClue] Complete;
+    8 "L8.team-distribution" Principle "Team Distribution Principle" "team-distribution-principle" [DistributionClue, Burning] Complete;
+    8 "L8.pace-plus-one" Principle "The Pace +1 Rule" "the-pace-1-rule" [Burning] Complete;
+    8 "L8.burning" Move "Burning (End-Game Stalling)" "burning-end-game-stalling" [Burning] Complete;
 
     9 "L9.stalling-situations" Principle "Stalling Situations" "stalling-situations" [StallFive, StallTempo, StallFillIn, StallLockedSave, StallEightClueSave, StallBurn] Complete;
     9 "L9.stall-table" Principle "Allowable Stall Clues (Stall Table)" "allowable-stall-clues-stall-table" [StallFive, StallTempo, StallFillIn, StallLockedSave, StallEightClueSave, StallBurn] Complete;

@@ -147,6 +147,9 @@ pub fn legible_discard(view: &View, card: CardId) -> bool {
     if view.sarcastic_discard() == Some(card) {
         return true;
     }
+    if view.positional_slot(view.me, card, false).is_some() {
+        return view.positional_signal() == Some((card, false));
+    }
     if view.discard_signal(view.me, card, None).is_some() {
         return view.signal_discard().map(|(c, _)| c) == Some(card)
             || view.generation_discard() == Some(card);

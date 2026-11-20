@@ -1,0 +1,21 @@
+# rule: L8.end-game
+# No chop moves in the end-game: the trash chop move of L4-trash-chop-move.txt, given when
+# pace is already below the number of players (3 suits), protects nothing.
+level 8
+variant 3 Suits
+hand 0: r2 b2 r1 r3 b3
+hand 1: r1 b1 g1 g3 b5
+hand 2: b4 g2 g4 r4 g3
+draws: g4 r2 b4 g2 b2
+clue 0 1 1
+play 1 3
+discard 2 5
+clue 0 1 red
+play 1 3
+discard 2 5
+clue 0 1 red
+play 1 3
+clue 2 0 1
+note * 0 3: ? clued trash
+note * 0 4: ? nocm
+note * 0 5: ? nocm

@@ -60,7 +60,7 @@ mean that all earlier levels are complete. Variant support is listed under
 | [5 — Intermediate Finesses](https://hanabi.github.io/level-5) | Implemented |
 | [6 — Tempo Clues](https://hanabi.github.io/level-6) | Implemented |
 | [7 — Emergency Discards](https://hanabi.github.io/level-7) | Implemented |
-| [8 — End-Game](https://hanabi.github.io/level-8) | No dedicated convention support |
+| [8 — End-Game](https://hanabi.github.io/level-8) | Implemented |
 | [9 — Stalling](https://hanabi.github.io/level-9) | Most stall types implemented; exceptions remain |
 
 ### Level 1 — Fundamentals
@@ -207,12 +207,25 @@ The signals live in [emergency.rs](src/conventions/emergency.rs).
 
 ### Level 8 — End-Game
 
-* **Current behavior:** The game engine handles deck exhaustion and the final
-  round, but the strategy continues using its ordinary action policy.
-* **Not implemented:** Pace-based planning, final-turn-aware search, positional
-  discards or misplays, distribution clues, and a dedicated end-game burning
-  policy. Burns available through level-9 stall contexts do not provide general
-  end-game stalling.
+* **End-game:** Pace is the score plus the cards left in the deck plus the number of
+  players minus the maximum score. The end-game starts when pace drops below the number
+  of players. Chop moves are off from then on; a clue that would be one reads as a stall
+  or by its literal meaning.
+* **Positional discards and misplays:** Once the deck is empty, a player sees every
+  card. A discard from a slot other than the expected one (known trash, else chop) asks
+  the last player in turn order with a playable card on that slot to blind-play it. When
+  that slot is the expected discard, the player misplays it instead; a misplay where a
+  discard would have worked promises two blind plays. The bot signals only when all its
+  unknown cards are trash and every teammate reads the same target.
+* **Distribution clue:** In the end-game a play clue may duplicate a playable card held
+  in a hand that already has two or more queued plays; good touch does not rule it out.
+* **Burning and the Pace +1 rule:** In the end-game a player without a play stalls
+  (burns a clue) instead of discarding when it holds two or more useful clued cards
+  (team distribution), or when pace allows at most one more discard and a teammate
+  without a play will need it.
+
+The end-game rules live in [endgame.rs](src/conventions/endgame.rs); the positional
+signals are tested in [tests/endgame.rs](tests/endgame.rs).
 
 ### Level 9 — Stalling
 

@@ -17,9 +17,15 @@ impl View {
     /// Good touch for a newly clued card: it is none of the identities already clued
     /// elsewhere (except a resolved assignment to this very card).
     fn exclude_clued_elsewhere(&mut self, receiver: Seat, card: CardId) {
+        self.exclude_clued_elsewhere_keeping(receiver, card, IdentitySet::EMPTY);
+    }
+
+    /// [`Self::exclude_clued_elsewhere`], keeping `keep` (distribution clues, level 8).
+    fn exclude_clued_elsewhere_keeping(&mut self, receiver: Seat, card: CardId, keep: IdentitySet) {
         for identity in self.variant.all_identities().iter() {
             let info = self.info[identity.index()];
             if info.clued.is_some()
+                && !keep.contains(identity)
                 && info.clued != Some(Clued::Holder(receiver))
                 && info.locked != Some((receiver, card))
             {
@@ -439,12 +445,20 @@ impl View {
                     .filter(|&c| c != focus && newly_clued.contains(c)),
             )
             .collect();
+        // Distribution clue (end-game): the focus may duplicate a playable card of a loaded
+        // hand.
+        let distribution = self.distribution_identities(receiver);
         for card in order {
             let duplicate = (card == focus && save_options.is_empty() && rank_clue)
                 .then(|| self.duplicated_play(receiver, card))
                 .flatten();
             if !self.note(card).locked {
-                self.exclude_clued_elsewhere(receiver, card);
+                let keep = if card == focus {
+                    distribution
+                } else {
+                    IdentitySet::EMPTY
+                };
+                self.exclude_clued_elsewhere_keeping(receiver, card, keep);
             }
             let identity = self.identity(card);
             if card == focus {
@@ -514,7 +528,7 @@ impl View {
                         .soft
                         .iter()
                         .all(|alternative| self.info[alternative.index()].clued.is_some());
-                    if !sure_trash {
+                    if !sure_trash && !(card == focus && distribution.contains(identity)) {
                         error += 1;
                     }
                 }

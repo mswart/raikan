@@ -1,6 +1,9 @@
 # rule: L4.trash-chop-move
 # Once every 1 is played, a 1 clue touches only trash: every unclued card to the right of
 # the trash card is chop moved and the trash card is a safe discard.
+# Level 7: with only 15 points, pace makes this 3-suit game an end-game (level 8), where
+# chop moves are off.
+level 7
 variant 3 Suits
 hand 0: r2 b2 r1 r3 b3
 hand 1: r1 b1 g1 g3 b5

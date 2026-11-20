@@ -58,15 +58,15 @@ keeps it in sync. Every convention of levels 1–20 is listed, implemented or no
 | 7 | [The Shout Discard Chop Move](https://hanabi.github.io/level-7#the-shout-discard-chop-move) | Move | complete | L7.shout-discard |
 | 7 | [The Generation Discard](https://hanabi.github.io/level-7#the-generation-discard) | Move | complete | L7.generation-discard, L7.emergency-lookahead |
 | 7 | [Blind-Playing Chop Moved Cards](https://hanabi.github.io/level-7#blind-playing-chop-moved-cards) | Principle | complete | L7.blind-play-chop-moved |
-| 8 | [The End-Game](https://hanabi.github.io/level-8#the-end-game) | Principle | missing |  |
-| 8 | [No Chop Moves in the End-Game](https://hanabi.github.io/level-8#no-chop-moves-in-the-end-game) | Move | missing |  |
-| 8 | [The Positional Discard](https://hanabi.github.io/level-8#the-positional-discard-indicating-a-play-with-a-discard) | Move | missing |  |
-| 8 | [The Positional Misplay](https://hanabi.github.io/level-8#the-positional-misplay-indicating-a-play-with-a-misplay) | Move | missing |  |
-| 8 | [The Double Positional Misplay](https://hanabi.github.io/level-8#the-double-positional-misplay-indicating-two-plays-with-a-misplay) | Move | missing |  |
-| 8 | [The Distribution Clue](https://hanabi.github.io/level-8#the-distribution-clue) | Move | missing |  |
-| 8 | [Team Distribution Principle](https://hanabi.github.io/level-8#team-distribution-principle) | Principle | missing |  |
-| 8 | [The Pace +1 Rule](https://hanabi.github.io/level-8#the-pace-1-rule) | Principle | missing |  |
-| 8 | [Burning (End-Game Stalling)](https://hanabi.github.io/level-8#burning-end-game-stalling) | Move | missing |  |
+| 8 | [The End-Game](https://hanabi.github.io/level-8#the-end-game) | Principle | complete | L8.end-game |
+| 8 | [No Chop Moves in the End-Game](https://hanabi.github.io/level-8#no-chop-moves-in-the-end-game) | Move | complete | L8.end-game, L4.chop-move |
+| 8 | [The Positional Discard](https://hanabi.github.io/level-8#the-positional-discard-indicating-a-play-with-a-discard) | Move | complete | L8.positional-discard |
+| 8 | [The Positional Misplay](https://hanabi.github.io/level-8#the-positional-misplay-indicating-a-play-with-a-misplay) | Move | complete | L8.positional-misplay |
+| 8 | [The Double Positional Misplay](https://hanabi.github.io/level-8#the-double-positional-misplay-indicating-two-plays-with-a-misplay) | Move | complete | L8.positional-misplay |
+| 8 | [The Distribution Clue](https://hanabi.github.io/level-8#the-distribution-clue) | Move | complete | L8.distribution-clue |
+| 8 | [Team Distribution Principle](https://hanabi.github.io/level-8#team-distribution-principle) | Principle | complete | L8.distribution-clue, L8.burning |
+| 8 | [The Pace +1 Rule](https://hanabi.github.io/level-8#the-pace-1-rule) | Principle | complete | L8.burning |
+| 8 | [Burning (End-Game Stalling)](https://hanabi.github.io/level-8#burning-end-game-stalling) | Move | complete | L8.burning |
 | 9 | [Stalling Situations](https://hanabi.github.io/level-9#stalling-situations) | Principle | complete | L9.stall.five, L9.stall.tempo, L9.stall.fill-in, L9.stall.locked-save, L9.stall.eight-clue-save, L9.stall.burn |
 | 9 | [Allowable Stall Clues (Stall Table)](https://hanabi.github.io/level-9#allowable-stall-clues-stall-table) | Principle | complete | L9.stall.five, L9.stall.tempo, L9.stall.fill-in, L9.stall.locked-save, L9.stall.eight-clue-save, L9.stall.burn |
 | 9 | [The Early Game (Severity 1)](https://hanabi.github.io/level-9#the-early-game-severity-1-stalling) | Move | complete | L2.five-stall |

@@ -28,6 +28,8 @@ pub enum Reason {
     SignalDiscard(DiscardSignal),
     /// A blind play of a chop-moved card that is probably playable (level 7).
     ChopMovedBlindPlay,
+    /// A positional discard or misplay in the end-game (level 8).
+    Positional,
     Fix,
     Stall(&'static str),
     /// Highest convention worth without a forecast emergency.
@@ -88,6 +90,7 @@ pub fn candidates(view: &View) -> SmallVec<[Action; 48]> {
         && !must_clue
         && (view.discard_signal(view.me, discard, None).is_none()
             || view.sarcastic_discard() == Some(discard))
+        && view.positional_slot(view.me, discard, false).is_none()
     {
         actions.push(Action::Discard(discard));
     }
@@ -118,6 +121,18 @@ pub fn choose_action(view: &View) -> Decision {
 /// Level 7 moves that take precedence over the ordinary choice: scream, shout and
 /// generation discards.
 fn emergency_discard(view: &View) -> Option<Decision> {
+    if view.next_play().is_none()
+        && let Some((card, misplay)) = view.positional_signal()
+    {
+        return Some(Decision {
+            action: if misplay {
+                Action::Play(card)
+            } else {
+                Action::Discard(card)
+            },
+            reason: Reason::Positional,
+        });
+    }
     if let Some((card, signal)) = view.signal_discard() {
         return Some(Decision {
             action: Action::Discard(card),
@@ -281,7 +296,8 @@ fn decide_ordinary(view: &View, scored: &mut Alternatives) -> Decision {
     }
     if !normal_clue_available
         && (severity >= StallSeverity::DoubleDiscard
-            || (severity == StallSeverity::Early && !view.context.early_five_stalled))
+            || (severity == StallSeverity::Early && !view.context.early_five_stalled)
+            || (severity == StallSeverity::EndGame && view.burn_allowed()))
         && let Some((kind, _, action, _)) = best_stall
     {
         return Decision {

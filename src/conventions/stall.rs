@@ -9,6 +9,8 @@ use crate::domain::{CardId, CardSet, ClueId, Seat};
 pub enum StallSeverity {
     Normal,
     Early,
+    /// The end-game (level 8): stalls are read by context, burns are allowed.
+    EndGame,
     DoubleDiscard,
     Locked,
     EightClues,
@@ -94,7 +96,9 @@ impl View {
                 return DoubleDiscard;
             }
         }
-        if self.context.early_game {
+        if self.in_end_game() {
+            EndGame
+        } else if self.context.early_game {
             Early
         } else {
             Normal
@@ -109,6 +113,7 @@ impl View {
             StallKind::FillIn => Rule::StallFillIn,
             StallKind::LockedSave => Rule::StallLockedSave,
             StallKind::EightClueSave => Rule::StallEightClueSave,
+            StallKind::Burn if severity == StallSeverity::EndGame => Rule::Burning,
             StallKind::Burn => Rule::StallBurn,
         })
     }
@@ -171,7 +176,7 @@ impl View {
             }
             return None;
         }
-        if severity < StallSeverity::DoubleDiscard {
+        if severity < StallSeverity::EndGame {
             return None;
         }
         let mut informative = false;

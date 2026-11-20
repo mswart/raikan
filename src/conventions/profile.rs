@@ -10,7 +10,7 @@ use crate::variants::{CATALOGUE_REVISION, Variant};
 use std::hash::{Hash, Hasher};
 
 /// Highest H-Group level whose conventions are all implemented (strict profiles compile).
-pub const COMPLETE_LEVEL: u8 = 7;
+pub const COMPLETE_LEVEL: u8 = 8;
 
 /// Revision of the convention implementation; part of the profile digest.
 pub const CONVENTION_REVISION: u32 = 1;
@@ -58,6 +58,12 @@ pub enum Rule {
     ShoutDiscard,
     GenerationDiscard,
     BlindPlayChopMoved,
+    // level 8
+    EndGame,
+    PositionalDiscard,
+    PositionalMisplay,
+    DistributionClue,
+    Burning,
     // level 9
     StallFive,
     StallTempo,
@@ -450,6 +456,51 @@ pub const RULES: &[RuleMeta] = &[
         Complete,
     ),
     meta(
+        EndGame,
+        "L8.end-game",
+        8,
+        &[],
+        "https://hanabi.github.io/level-8#the-end-game",
+        Situation,
+        Complete,
+    ),
+    meta(
+        PositionalDiscard,
+        "L8.positional-discard",
+        8,
+        &[EndGame],
+        "https://hanabi.github.io/level-8#the-positional-discard-indicating-a-play-with-a-discard",
+        Discard,
+        Complete,
+    ),
+    meta(
+        PositionalMisplay,
+        "L8.positional-misplay",
+        8,
+        &[PositionalDiscard],
+        "https://hanabi.github.io/level-8#the-positional-misplay-indicating-a-play-with-a-misplay",
+        Play,
+        Complete,
+    ),
+    meta(
+        DistributionClue,
+        "L8.distribution-clue",
+        8,
+        &[EndGame],
+        "https://hanabi.github.io/level-8#the-distribution-clue",
+        Clue,
+        Complete,
+    ),
+    meta(
+        Burning,
+        "L8.burning",
+        8,
+        &[EndGame],
+        "https://hanabi.github.io/level-8#burning-end-game-stalling",
+        Situation,
+        Complete,
+    ),
+    meta(
         StallFive,
         "L9.stall.five",
         9,
@@ -673,7 +724,7 @@ mod tests {
         let l9 = Profile::new(9, &variant, false).unwrap();
         let l20 = Profile::new(20, &variant, false).unwrap();
         let l255 = Profile::new(255, &variant, false).unwrap();
-        assert!(l9.missing.contains(&"L8.positional-discard"));
+        assert!(!l9.missing.contains(&"L8.positional-discard"));
         assert!(!l9.missing.contains(&"L11.bluff"));
         assert!(l20.missing.contains(&"L11.bluff"));
         assert!(l20.missing.contains(&"L20.no-information-finesse"));

@@ -725,6 +725,11 @@ impl View {
         } else {
             None
         };
+        let positional = if successful {
+            None
+        } else {
+            self.positional_slot(seat, card, true)
+        };
         if !successful && self.rule(Rule::StrikeRecovery) {
             self.recover_strike(seat, card, note, &hand_after);
         }
@@ -747,6 +752,9 @@ impl View {
         if let Some(chop) = order_chop_move {
             self.notes[chop.index()].chop_moved = true;
         }
+        if let Some((slot, count)) = positional {
+            self.apply_positional(seat, slot, count);
+        }
         self.track(identity);
         if successful {
             for other in self.state.seats() {
@@ -767,7 +775,8 @@ impl View {
         if self.rule(Rule::SarcasticDiscard) {
             self.receive_sarcastic(seat, card, identity);
         }
-        let signal = if self.sarcastic.len() == sarcastic_before {
+        let positional = self.positional_slot(seat, card, false);
+        let signal = if self.sarcastic.len() == sarcastic_before && positional.is_none() {
             self.discard_signal(seat, card, Some(identity))
         } else {
             None
@@ -785,6 +794,9 @@ impl View {
         self.apply_public(event);
         if let Some(signal) = signal {
             self.apply_discard_signal(seat, signal);
+        }
+        if let Some((slot, count)) = positional {
+            self.apply_positional(seat, slot, count);
         }
         self.track(identity);
         self.refresh_derived();

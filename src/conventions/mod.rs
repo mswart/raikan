@@ -9,6 +9,7 @@ pub mod catalogue;
 mod chop_move;
 mod clue;
 mod emergency;
+mod endgame;
 mod grade;
 mod locator;
 pub mod profile;
