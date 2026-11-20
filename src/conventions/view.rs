@@ -151,6 +151,9 @@ pub struct TurnContext {
     /// Seats that deferred a pending blind play once for an urgent clue (Urgency
     /// Principle); their next non-play declines it.
     pub deferred: crate::domain::SeatSet,
+    /// A scream, shout or generation discard asked this seat to clue instead of
+    /// discarding on its next turn (level 7).
+    pub must_clue: Option<Seat>,
 }
 
 impl Default for TurnContext {
@@ -160,6 +163,7 @@ impl Default for TurnContext {
             early_five_stalled: false,
             last_loss: None,
             deferred: crate::domain::SeatSet::EMPTY,
+            must_clue: None,
         }
     }
 }
@@ -710,6 +714,7 @@ impl View {
         }
         self.context.last_loss = (!successful).then_some((seat, identity));
         self.context.deferred.remove(seat);
+        self.context.must_clue = None;
         self.turn += 1;
         let note = self.notes[card.index()];
         let hand_after = self.hand_after(seat, card);
@@ -758,9 +763,16 @@ impl View {
     }
 
     fn discarded(&mut self, seat: Seat, card: CardId, identity: Identity, event: &Event) {
+        let sarcastic_before = self.sarcastic.len();
         if self.rule(Rule::SarcasticDiscard) {
             self.receive_sarcastic(seat, card, identity);
         }
+        let signal = if self.sarcastic.len() == sarcastic_before {
+            self.discard_signal(seat, card, Some(identity))
+        } else {
+            None
+        };
+        self.context.must_clue = None;
         let note = self.notes[card.index()];
         if !note.clued && note.promised.is_none() && !note.trash {
             self.context.early_game = false;
@@ -771,6 +783,9 @@ impl View {
         self.interpretations.on_non_play(seat);
         self.interpretations.on_discard(card);
         self.apply_public(event);
+        if let Some(signal) = signal {
+            self.apply_discard_signal(seat, signal);
+        }
         self.track(identity);
         self.refresh_derived();
         self.refresh_clued_cards();

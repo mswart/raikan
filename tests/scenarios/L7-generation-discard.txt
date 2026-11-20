@@ -1,0 +1,22 @@
+# rule: L7.generation-discard
+# Alice is at 0 clues with a known r1. Playing it would leave Bob (no play, nothing worth
+# saving on his chop) to discard while Cathy's critical r5 rides on chop. Alice discards
+# the r1 instead (a Generation Discard): Bob must clue, and he saves the r5.
+hand 0: g4 r1 y5 b2
+hand 1: y3 g3 p4 b4
+hand 2: g1 y4 r2 r5
+hand 3: b1 p3 g5 y2
+clue 0 3 5
+clue 1 3 2
+clue 2 0 5
+clue 3 0 2
+clue 0 3 1
+clue 1 0 1
+clue 2 0 red
+clue 3 0 blue
+note 0 0 2: r1 clued play
+action 0: discard 2
+discard 0 2
+note * 2 4: ? nocm
+not-action 1: discard 4
+action 1: clue 2 5

@@ -10,7 +10,7 @@ use crate::variants::{CATALOGUE_REVISION, Variant};
 use std::hash::{Hash, Hasher};
 
 /// Highest H-Group level whose conventions are all implemented (strict profiles compile).
-pub const COMPLETE_LEVEL: u8 = 6;
+pub const COMPLETE_LEVEL: u8 = 7;
 
 /// Revision of the convention implementation; part of the profile digest.
 pub const CONVENTION_REVISION: u32 = 1;
@@ -54,6 +54,10 @@ pub enum Rule {
     TempoClueChopMove,
     // level 7
     EmergencyLookahead,
+    ScreamDiscard,
+    ShoutDiscard,
+    GenerationDiscard,
+    BlindPlayChopMoved,
     // level 9
     StallFive,
     StallTempo,
@@ -407,7 +411,43 @@ pub const RULES: &[RuleMeta] = &[
         &[],
         "https://hanabi.github.io/learning-path#emergency-moves",
         Situation,
-        Partial("tactical one-rotation forecast; no scream or shout discards"),
+        Complete,
+    ),
+    meta(
+        ScreamDiscard,
+        "L7.scream-discard",
+        7,
+        &[ChopMove],
+        "https://hanabi.github.io/level-7#the-scream-discard-chop-move-sdcm",
+        Discard,
+        Complete,
+    ),
+    meta(
+        ShoutDiscard,
+        "L7.shout-discard",
+        7,
+        &[ScreamDiscard],
+        "https://hanabi.github.io/level-7#the-shout-discard-chop-move",
+        Discard,
+        Complete,
+    ),
+    meta(
+        GenerationDiscard,
+        "L7.generation-discard",
+        7,
+        &[EmergencyLookahead],
+        "https://hanabi.github.io/level-7#the-generation-discard",
+        Discard,
+        Complete,
+    ),
+    meta(
+        BlindPlayChopMoved,
+        "L7.blind-play-chop-moved",
+        7,
+        &[ChopMove],
+        "https://hanabi.github.io/level-7#blind-playing-chop-moved-cards",
+        Situation,
+        Complete,
     ),
     meta(
         StallFive,

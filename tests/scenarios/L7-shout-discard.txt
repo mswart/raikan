@@ -1,0 +1,27 @@
+# rule: L7.shout-discard
+# After a trash chop move Alice holds known trash (r1). Once she also holds known plays
+# (the 2s), discarding the trash instead of playing is a Shout Discard Chop Move at any
+# clue count: Bob chop moves his chop and must clue on his turn.
+variant 3 Suits
+hand 0: r2 b2 r1 r3 b3
+hand 1: r1 b1 g1 g3 b5
+hand 2: b4 g2 g4 r4 g3
+draws: g4 r2 b4 g2 b2
+clue 0 1 1
+play 1 3
+discard 2 5
+clue 0 1 red
+play 1 3
+discard 2 5
+clue 0 1 red
+play 1 3
+clue 2 0 1
+note * 0 3: ? clued trash
+clue 0 1 5
+clue 1 0 2
+note * 0 1: ? clued play
+discard 2 5
+discard 0 3
+note * 1 4: ? cm
+note * 1 3: ? nocm
+not-action 1: discard 3

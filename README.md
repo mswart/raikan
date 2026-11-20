@@ -59,7 +59,7 @@ mean that all earlier levels are complete. Variant support is listed under
 | [4 — Chop Moves](https://hanabi.github.io/level-4) | Implemented |
 | [5 — Intermediate Finesses](https://hanabi.github.io/level-5) | Implemented |
 | [6 — Tempo Clues](https://hanabi.github.io/level-6) | Implemented |
-| [7 — Emergency Discards](https://hanabi.github.io/level-7) | Limited tactical support; discard signals missing |
+| [7 — Emergency Discards](https://hanabi.github.io/level-7) | Implemented |
 | [8 — End-Game](https://hanabi.github.io/level-8) | No dedicated convention support |
 | [9 — Stalling](https://hanabi.github.io/level-9) | Most stall types implemented; exceptions remain |
 
@@ -186,13 +186,24 @@ The rules live in [chop_move.rs](src/conventions/chop_move.rs).
 
 ### Level 7 — Emergency Discards
 
-* **Implemented:** Action search forecasts other players' plays and forced
-  zero-token discards. It can generate a clue token instead of playing, or avoid
-  spending the final token, when that prevents a predicted critical-card loss.
-* **Gaps:** Scream and shout discards do not communicate a chop move or force the
-  receiver to stall. Token generation is a tactical search result, without the
-  full generation-discard convention. Forecasts stop at the next clue-giving
-  choice or one table rotation; there is no full All 4's Test.
+* **Scream discard:** Discarding the chop while holding a known play (at 0 clues, or at
+  1 clue with a locked next player), or while holding known trash, chop moves the next
+  player's chop. That player must clue instead of discarding; stall clues are allowed.
+  The bot screams only to save a critical card the next player would otherwise discard.
+* **Shout discard:** Discarding known trash while holding a known play has the same
+  effect at any clue count. The bot shouts at 0 or 1 clue to save a critical, playable
+  or unseen-2 chop card.
+* **Generation discard:** Discarding a known-playable clued card asks the next player
+  to clue without a chop move. The bot does it at 0 clues, with a known non-critical
+  card, when the next player would discard and the player after that would lose a
+  critical chop card. Returning a duplicate is a sarcastic or dupe discard instead.
+* **Blind-playing chop-moved cards:** Instead of discarding, the bot blind-plays a
+  chop-moved card that is at least 80% likely to be playable while the team has a strike
+  to spare.
+* **Look-ahead:** Action search forecasts other players' plays and forced zero-token
+  discards for one rotation and intervenes in predictable emergencies.
+
+The signals live in [emergency.rs](src/conventions/emergency.rs).
 
 ### Level 8 — End-Game
 

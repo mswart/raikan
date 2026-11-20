@@ -53,11 +53,11 @@ keeps it in sync. Every convention of levels 1–20 is listed, implemented or no
 | 6 | [The Valuable Tempo Clue](https://hanabi.github.io/level-6#the-valuable-tempo-clue) | Move | complete | L6.valuable-tempo-clue |
 | 6 | [The Tempo Clue Stall](https://hanabi.github.io/level-6#the-tempo-clue-stall-a-non-valuable-tempo-clue) | Move | complete | L9.stall.tempo |
 | 6 | [The Tempo Clue Chop Move](https://hanabi.github.io/level-6#the-tempo-clue-chop-move-tccm) | Move | complete | L6.tempo-clue-chop-move |
-| 7 | [The Scream Discard Chop Move](https://hanabi.github.io/level-7#the-scream-discard-chop-move-sdcm) | Move | missing |  |
-| 7 | [The Scream Discard Chop Move (With Known-Trash)](https://hanabi.github.io/level-7#the-scream-discard-chop-move-with-known-trash) | Move | missing |  |
-| 7 | [The Shout Discard Chop Move](https://hanabi.github.io/level-7#the-shout-discard-chop-move) | Move | missing |  |
-| 7 | [The Generation Discard](https://hanabi.github.io/level-7#the-generation-discard) | Move | partial: tactical look-ahead only; no convention meaning | L7.emergency-lookahead |
-| 7 | [Blind-Playing Chop Moved Cards](https://hanabi.github.io/level-7#blind-playing-chop-moved-cards) | Principle | missing |  |
+| 7 | [The Scream Discard Chop Move](https://hanabi.github.io/level-7#the-scream-discard-chop-move-sdcm) | Move | complete | L7.scream-discard |
+| 7 | [The Scream Discard Chop Move (With Known-Trash)](https://hanabi.github.io/level-7#the-scream-discard-chop-move-with-known-trash) | Move | complete | L7.scream-discard |
+| 7 | [The Shout Discard Chop Move](https://hanabi.github.io/level-7#the-shout-discard-chop-move) | Move | complete | L7.shout-discard |
+| 7 | [The Generation Discard](https://hanabi.github.io/level-7#the-generation-discard) | Move | complete | L7.generation-discard, L7.emergency-lookahead |
+| 7 | [Blind-Playing Chop Moved Cards](https://hanabi.github.io/level-7#blind-playing-chop-moved-cards) | Principle | complete | L7.blind-play-chop-moved |
 | 8 | [The End-Game](https://hanabi.github.io/level-8#the-end-game) | Principle | missing |  |
 | 8 | [No Chop Moves in the End-Game](https://hanabi.github.io/level-8#no-chop-moves-in-the-end-game) | Move | missing |  |
 | 8 | [The Positional Discard](https://hanabi.github.io/level-8#the-positional-discard-indicating-a-play-with-a-discard) | Move | missing |  |

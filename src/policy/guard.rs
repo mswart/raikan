@@ -12,9 +12,9 @@
 //! the position.
 //!
 //! A discard is not permitted while we hold a convention play, unless it is the sarcastic
-//! discard or the card is known trash: from level 7 a discard instead of a known play is a
-//! Scream Discard Chop Move, which the bot neither reads nor gives yet, so a human partner
-//! would misread it.
+//! discard or the card is known trash. A discard that teammates read as a scream, shout or
+//! generation discard (level 7) is permitted only when we mean to give that signal, and no
+//! discard is permitted while a scream asks us to clue.
 //!
 //! A clue is not permitted while we hold a convention play when its focus is a potential
 //! finesse: a playable, non-critical card on the receiver's finesse position. Nothing is
@@ -136,10 +136,22 @@ pub fn delays_play_for_finesse(view: &View, target: Seat, clue: ClueId) -> bool 
             .is_some_and(|identity| view.play_state(identity) == PlayState::Playable)
 }
 
-/// Whether discarding `card` reads as a plain discard: we hold no convention play, the
-/// discard is the sarcastic one the convention asks for, or the card is known trash.
+/// Whether discarding `card` reads as intended: we hold no convention play (and no scream
+/// asks us to clue), the discard is the sarcastic one the convention asks for, the card
+/// is known trash (a shout discard from level 7, so only when we mean one), or it is the
+/// scream, shout or generation discard we mean to give.
 pub fn legible_discard(view: &View, card: CardId) -> bool {
-    view.next_play().is_none() || view.sarcastic_discard() == Some(card) || known_trash(view, card)
+    if view.context.must_clue == Some(view.me) && view.state.clue_tokens() > 0 {
+        return false;
+    }
+    if view.sarcastic_discard() == Some(card) {
+        return true;
+    }
+    if view.discard_signal(view.me, card, None).is_some() {
+        return view.signal_discard().map(|(c, _)| c) == Some(card)
+            || view.generation_discard() == Some(card);
+    }
+    view.next_play().is_none() || known_trash(view, card)
 }
 
 /// Every identity our literal information allows is playable: playing it out of the

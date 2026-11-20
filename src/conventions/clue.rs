@@ -170,6 +170,7 @@ impl View {
             self.context.early_five_stalled = true;
         }
         self.context.last_loss = None;
+        self.context.must_clue = None;
         // Urgency Principle: a finessed player may defer the blind play once for a really
         // important clue: a save of the card on chop.
         let urgent = self.rule(Rule::Urgency)

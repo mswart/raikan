@@ -72,6 +72,10 @@ impl View {
         if view.chop(view.me).is_none() {
             return Locked;
         }
+        // A scream or shout discard told this seat to clue instead of discarding.
+        if self.context.must_clue == Some(giver) {
+            return DoubleDiscard;
+        }
         if let Some((previous, identity)) = self.context.last_loss
             && previous.after(1, self.num_seats()) == giver
             && matches!(

@@ -8,6 +8,7 @@ mod belief;
 pub mod catalogue;
 mod chop_move;
 mod clue;
+mod emergency;
 mod grade;
 mod locator;
 pub mod profile;
@@ -17,6 +18,7 @@ mod stall;
 mod view;
 
 pub use belief::Belief;
+pub use emergency::DiscardSignal;
 pub use grade::{Worth, card_event};
 pub use profile::{Profile, Rule};
 pub use records::{ClueRecord, Hypothesis, Step, StepKind, Tier};

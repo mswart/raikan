@@ -117,11 +117,11 @@ pub const REQUIRED: &[Required] = required! {
     6 "L6.tempo-clue-stall" Move "The Tempo Clue Stall" "the-tempo-clue-stall-a-non-valuable-tempo-clue" [StallTempo] Complete;
     6 "L6.tempo-clue-chop-move" Move "The Tempo Clue Chop Move" "the-tempo-clue-chop-move-tccm" [TempoClueChopMove] Complete;
 
-    7 "L7.scream-discard" Move "The Scream Discard Chop Move" "the-scream-discard-chop-move-sdcm" [] Missing;
-    7 "L7.scream-discard-known-trash" Move "The Scream Discard Chop Move (With Known-Trash)" "the-scream-discard-chop-move-with-known-trash" [] Missing;
-    7 "L7.shout-discard" Move "The Shout Discard Chop Move" "the-shout-discard-chop-move" [] Missing;
-    7 "L7.generation-discard" Move "The Generation Discard" "the-generation-discard" [EmergencyLookahead] Partial("tactical look-ahead only; no convention meaning");
-    7 "L7.blind-play-chop-moved" Principle "Blind-Playing Chop Moved Cards" "blind-playing-chop-moved-cards" [] Missing;
+    7 "L7.scream-discard" Move "The Scream Discard Chop Move" "the-scream-discard-chop-move-sdcm" [ScreamDiscard] Complete;
+    7 "L7.scream-discard-known-trash" Move "The Scream Discard Chop Move (With Known-Trash)" "the-scream-discard-chop-move-with-known-trash" [ScreamDiscard] Complete;
+    7 "L7.shout-discard" Move "The Shout Discard Chop Move" "the-shout-discard-chop-move" [ShoutDiscard] Complete;
+    7 "L7.generation-discard" Move "The Generation Discard" "the-generation-discard" [GenerationDiscard, EmergencyLookahead] Complete;
+    7 "L7.blind-play-chop-moved" Principle "Blind-Playing Chop Moved Cards" "blind-playing-chop-moved-cards" [BlindPlayChopMoved] Complete;
 
     8 "L8.end-game" Principle "The End-Game" "the-end-game" [] Missing;
     8 "L8.no-chop-moves" Move "No Chop Moves in the End-Game" "no-chop-moves-in-the-end-game" [] Missing;

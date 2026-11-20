@@ -7,7 +7,9 @@
 
 use smallvec::SmallVec;
 
-use crate::conventions::{PlayState, Rule, StallKind, StallSeverity, View, Worth, card_event};
+use crate::conventions::{
+    DiscardSignal, PlayState, Rule, StallKind, StallSeverity, View, Worth, card_event,
+};
 use crate::domain::{CardId, ClueId, Identity, Seat};
 use crate::engine::{Action, Event};
 
@@ -22,6 +24,10 @@ pub enum Reason {
     SafeConventionAction,
     /// A play of an unknown 1 out of order that chop moves a teammate's valuable chop.
     OrderChopMove,
+    /// A scream, shout or generation discard (level 7).
+    SignalDiscard(DiscardSignal),
+    /// A blind play of a chop-moved card that is probably playable (level 7).
+    ChopMovedBlindPlay,
     Fix,
     Stall(&'static str),
     /// Highest convention worth without a forecast emergency.
@@ -73,8 +79,17 @@ pub fn candidates(view: &View) -> SmallVec<[Action; 48]> {
     {
         actions.push(Action::Play(card));
     }
-    if view.state.tokens < view.variant.tokens.max {
-        actions.push(Action::Discard(view.discard_choice()));
+    // A scream or shout discard asks us to clue instead of discarding.
+    let must_clue = view.context.must_clue == Some(view.me) && clues > 0;
+    // A discard teammates would read as a scream, shout or generation discard is only
+    // made on purpose (see `emergency_discard`).
+    let discard = view.discard_choice();
+    if view.state.tokens < view.variant.tokens.max
+        && !must_clue
+        && (view.discard_signal(view.me, discard, None).is_none()
+            || view.sarcastic_discard() == Some(discard))
+    {
+        actions.push(Action::Discard(discard));
     }
     if view.state.tokens >= view.variant.tokens.clue_cost {
         for target in view.others() {
@@ -100,6 +115,35 @@ pub fn choose_action(view: &View) -> Decision {
     decide(view, &mut Alternatives::new())
 }
 
+/// Level 7 moves that take precedence over the ordinary choice: scream, shout and
+/// generation discards.
+fn emergency_discard(view: &View) -> Option<Decision> {
+    if let Some((card, signal)) = view.signal_discard() {
+        return Some(Decision {
+            action: Action::Discard(card),
+            reason: Reason::SignalDiscard(signal),
+        });
+    }
+    view.generation_discard().map(|card| Decision {
+        action: Action::Discard(card),
+        reason: Reason::SignalDiscard(DiscardSignal::Generation),
+    })
+}
+
+/// Level 7: rather than discarding, blind-play a chop-moved card that is probably
+/// playable while the team has a strike to spare.
+fn instead_of_discard(view: &View, decision: Decision) -> Decision {
+    if matches!(decision.action, Action::Discard(_))
+        && let Some(card) = view.chop_moved_blind_play()
+    {
+        return Decision {
+            action: Action::Play(card),
+            reason: Reason::ChopMovedBlindPlay,
+        };
+    }
+    decision
+}
+
 /// Actions the blueprint evaluated, with their value (quality minus danger), in
 /// evaluation order. Candidates pruned before evaluation are missing.
 pub type Alternatives = SmallVec<[(Action, f64); 16]>;
@@ -115,6 +159,14 @@ pub fn rank(view: &View) -> (Decision, Alternatives) {
 }
 
 fn decide(view: &View, scored: &mut Alternatives) -> Decision {
+    if let Some(decision) = emergency_discard(view) {
+        return decision;
+    }
+    let decision = decide_ordinary(view, scored);
+    instead_of_discard(view, decision)
+}
+
+fn decide_ordinary(view: &View, scored: &mut Alternatives) -> Decision {
     let prune = true;
     let clues = view.state.clue_tokens();
     let max = max_clues(view);

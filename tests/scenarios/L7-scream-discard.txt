@@ -1,0 +1,22 @@
+# rule: L7.scream-discard
+# Eight stall, save and play clues leave Alice at 0 clues with a known r1. Bob has no
+# play and his critical p5 is on chop, so Alice discards her chop instead of playing: a
+# Scream Discard Chop Move. Bob chop moves the p5 and must clue rather than discard.
+hand 0: g4 r1 y5 b2
+hand 1: y3 g3 p4 p5
+hand 2: g1 y4 r5 r2
+hand 3: b3 p3 g5 y2
+clue 0 2 5
+clue 1 3 5
+clue 2 0 5
+clue 3 2 2
+clue 0 3 2
+clue 1 0 2
+clue 2 0 1
+clue 3 2 1
+action 0: discard 1
+discard 0 1
+note * 1 4: ? cm
+note * 1 3: ? nocm
+not-action 1: discard 3
+not-action 1: discard 4
