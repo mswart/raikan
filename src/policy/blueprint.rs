@@ -30,6 +30,8 @@ pub enum Reason {
     ChopMovedBlindPlay,
     /// A positional discard or misplay in the end-game (level 8).
     Positional,
+    /// A locked player at 0 clues plays its most likely playable card (level 9).
+    AnxietyPlay,
     Fix,
     Stall(&'static str),
     /// Highest convention worth without a forecast emergency.
@@ -121,6 +123,12 @@ pub fn choose_action(view: &View) -> Decision {
 /// Level 7 moves that take precedence over the ordinary choice: scream, shout and
 /// generation discards.
 fn emergency_discard(view: &View) -> Option<Decision> {
+    if let Some(card) = view.anxiety_play() {
+        return Some(Decision {
+            action: Action::Play(card),
+            reason: Reason::AnxietyPlay,
+        });
+    }
     if view.next_play().is_none()
         && let Some((card, misplay)) = view.positional_signal()
     {
@@ -196,6 +204,9 @@ fn decide_ordinary(view: &View, scored: &mut Alternatives) -> Decision {
             .next_play()
             .is_some_and(|card| blind_play_resolves(view, card, &baseline));
     let mut normal_clue_available = false;
+    // Every normal clue is a play clue on a finesse position someone else could finesse
+    // (the 5 Stall Finesse Position Exception).
+    let mut only_finesse_position_clues = true;
     let mut best_stall: Option<(StallKind, u8, Action, Evaluation)> = None;
     let mut best: Option<(Action, f64)> = None;
     let mut preferred: Option<(Action, Evaluation)> = None;
@@ -255,9 +266,13 @@ fn decide_ordinary(view: &View, scored: &mut Alternatives) -> Decision {
                 }
                 continue;
             }
-            normal_clue_available |= evaluation.priority > baseline
+            let normal = evaluation.priority > baseline
                 && evaluation.priority.no_more_errors_than(&baseline)
                 && evaluation.urgent == 0.0;
+            if normal {
+                normal_clue_available = true;
+                only_finesse_position_clues &= view.finesse_position_exception(target, clue);
+            }
         }
         // Preserve the expected play order when it is safe. Skipping a promised play can
         // retract a teammate's connection, so only an emergency warrants it.
@@ -294,11 +309,21 @@ fn decide_ordinary(view: &View, scored: &mut Alternatives) -> Decision {
             reason: Reason::Fix,
         };
     }
-    if !normal_clue_available
+    // Permission to Discard: the previous player saw no clue for us to give, so an early
+    // 5 stall on that player is optional (three or more players).
+    let previous = view.me.after(view.num_seats() - 1, view.num_seats());
+    let permission = |action: &Action| {
+        view.rule(Rule::PermissionToDiscard)
+            && view.num_seats() >= 3
+            && severity == StallSeverity::Early
+            && matches!(*action, Action::Clue { target, .. } if target == previous)
+    };
+    if let Some((kind, _, action, _)) = best_stall
+        && (!normal_clue_available || (kind == StallKind::Five && only_finesse_position_clues))
         && (severity >= StallSeverity::DoubleDiscard
             || (severity == StallSeverity::Early && !view.context.early_five_stalled)
             || (severity == StallSeverity::EndGame && view.burn_allowed()))
-        && let Some((kind, _, action, _)) = best_stall
+        && !permission(&action)
     {
         return Decision {
             action,

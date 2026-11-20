@@ -225,6 +225,84 @@ impl View {
         )
     }
 
+    /// 5 Stall Finesse Position Exception: our play clue to `target` would focus a playable
+    /// card on its finesse position that another teammate could still finesse (its
+    /// successor is visible to that teammate in a third hand, and a clue would be left).
+    pub fn finesse_position_exception(&self, target: Seat, clue: ClueId) -> bool {
+        if !self.rule(Rule::FiveStallFinesseException) || self.state.clue_tokens() < 2 {
+            return false;
+        }
+        let touched = self.visible_touched(target, clue);
+        let Some(focus) = self.clue_focus(target, touched) else {
+            return false;
+        };
+        let finesse_position = self
+            .newest_first(target)
+            .map(|(_, c)| c)
+            .find(|&c| !self.note(c).touched() && !self.note(c).play);
+        if finesse_position != Some(focus) || self.chop(target) == Some(focus) {
+            return false;
+        }
+        let Some(identity) = self.identity(focus) else {
+            return false;
+        };
+        let rank = self.variant.rank_of(identity);
+        if !self.playable_set().contains(identity) || rank >= self.variant.num_ranks {
+            return false;
+        }
+        let successor = self
+            .variant
+            .identity(self.variant.suit_of(identity), rank + 1);
+        self.others().filter(|&z| z != target).any(|finesser| {
+            self.others()
+                .filter(|&w| w != target && w != finesser)
+                .any(|holder| {
+                    self.state
+                        .hand(holder)
+                        .iter()
+                        .any(|&c| !self.note(c).clued && self.identity(c) == Some(successor))
+                })
+        })
+    }
+
+    /// The Anxiety Play: locked at 0 clues with no known play or trash, play the card most
+    /// likely to be playable (the newest on ties), while a strike can be spared.
+    pub fn anxiety_play(&self) -> Option<CardId> {
+        if !self.rule(Rule::AnxietyPlay)
+            || self.chop(self.me).is_some()
+            || self.state.clue_tokens() > 0
+            || self.state.strikes >= 2
+            || self.next_play().is_some()
+            || self.state.hand(self.me).iter().any(|&c| self.note(c).trash)
+        {
+            return None;
+        }
+        let known = self.known_counts();
+        let playable = self.playable_set();
+        let mut best: Option<(u32, u32, CardId)> = None;
+        for (_, card) in self.newest_first(self.me) {
+            let (mut good, mut total) = (0u32, 0u32);
+            for identity in self.note(card).belief.soft.iter() {
+                let remaining = self
+                    .variant
+                    .copies(identity)
+                    .saturating_sub(known[identity.index()]) as u32;
+                total += remaining;
+                if playable.contains(identity) {
+                    good += remaining;
+                }
+            }
+            if total == 0 || good == 0 {
+                continue;
+            }
+            // compare good/total without division; keep the newest on ties
+            if best.is_none_or(|(g, t, _)| good * t > g * total) {
+                best = Some((good, total, card));
+            }
+        }
+        best.map(|(_, _, card)| card)
+    }
+
     /// How far the nearest unclued 5 is from chop (`u8::MAX` if none).
     pub fn five_stall_distance(&self, receiver: Seat) -> u8 {
         let mut distance = 0;

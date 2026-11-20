@@ -61,7 +61,7 @@ mean that all earlier levels are complete. Variant support is listed under
 | [6 — Tempo Clues](https://hanabi.github.io/level-6) | Implemented |
 | [7 — Emergency Discards](https://hanabi.github.io/level-7) | Implemented |
 | [8 — End-Game](https://hanabi.github.io/level-8) | Implemented |
-| [9 — Stalling](https://hanabi.github.io/level-9) | Most stall types implemented; exceptions remain |
+| [9 — Stalling](https://hanabi.github.io/level-9) | Implemented |
 
 ### Level 1 — Fundamentals
 
@@ -245,9 +245,19 @@ signals are tested in [tests/endgame.rs](tests/endgame.rs).
   Safe ordinary plays/discards take precedence when available. Non-tempo stalls
   preserve literal information and existing connections without adding a new
   play or finesse instruction.
-* **Gaps:** Anxiety plays, scream-discard stall recognition, and the 5-stall
-  finesse-position exception are missing. Interpretation is conservative: it
-  does not infer a finesse from the availability of a higher-precedence clue.
+* **Permission to Discard:** With three or more players, an early-game 5 stall on the
+  player right before us is optional: that player saw no clue for us to give, so we may
+  discard instead.
+* **5 Stall Finesse Position Exception:** A 5 stall is still allowed when every
+  remaining play clue would touch a playable card on finesse position that another
+  teammate could finesse (its successor is visible to that teammate in a third hand and
+  a clue would be left).
+* **Anxiety Play:** A locked player at 0 clues with no known play or trash plays the
+  card most likely to be playable (the newest on ties) while a strike can be spared.
+* **Scream-discard stalls:** A player screamed or shouted at must clue and may stall at
+  double-discard severity (level 7).
+* Interpretation is conservative: it does not infer a finesse from the availability of
+  a higher-precedence clue.
 
 ### Implementation and search limits
 

@@ -10,7 +10,7 @@ use crate::variants::{CATALOGUE_REVISION, Variant};
 use std::hash::{Hash, Hasher};
 
 /// Highest H-Group level whose conventions are all implemented (strict profiles compile).
-pub const COMPLETE_LEVEL: u8 = 8;
+pub const COMPLETE_LEVEL: u8 = 9;
 
 /// Revision of the convention implementation; part of the profile digest.
 pub const CONVENTION_REVISION: u32 = 1;
@@ -71,6 +71,9 @@ pub enum Rule {
     StallLockedSave,
     StallEightClueSave,
     StallBurn,
+    PermissionToDiscard,
+    FiveStallFinesseException,
+    AnxietyPlay,
 }
 
 /// What a rule implementation covers (see docs/architecture.md §6.4).
@@ -552,7 +555,34 @@ pub const RULES: &[RuleMeta] = &[
         &[],
         "https://hanabi.github.io/docs/level-9",
         Clue,
-        Partial("anxiety plays and the 5-stall finesse-position exception are missing"),
+        Complete,
+    ),
+    meta(
+        PermissionToDiscard,
+        "L9.permission-to-discard",
+        9,
+        &[FiveStallEarly],
+        "https://hanabi.github.io/level-9#permission-to-discard-ptd",
+        Situation,
+        Complete,
+    ),
+    meta(
+        FiveStallFinesseException,
+        "L9.five-stall-fpe",
+        9,
+        &[StallFive, Finesse],
+        "https://hanabi.github.io/level-9#the-5-stall-finesse-position-exception-fpe",
+        Clue,
+        Complete,
+    ),
+    meta(
+        AnxietyPlay,
+        "L9.anxiety-play",
+        9,
+        &[],
+        "https://hanabi.github.io/level-9#the-anxiety-play-forcing-a-locked-player-to-play",
+        Situation,
+        Complete,
     ),
 ];
 
@@ -700,7 +730,7 @@ mod tests {
         assert!(l9.is_active(Rule::StallBurn));
         assert_ne!(l2.digest, l9.digest);
         assert!(matches!(
-            Profile::new(9, &variant, true),
+            Profile::new(11, &variant, true),
             Err(ProfileError::Incomplete { .. })
         ));
     }

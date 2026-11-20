@@ -136,15 +136,15 @@ pub const REQUIRED: &[Required] = required! {
     9 "L9.stalling-situations" Principle "Stalling Situations" "stalling-situations" [StallFive, StallTempo, StallFillIn, StallLockedSave, StallEightClueSave, StallBurn] Complete;
     9 "L9.stall-table" Principle "Allowable Stall Clues (Stall Table)" "allowable-stall-clues-stall-table" [StallFive, StallTempo, StallFillIn, StallLockedSave, StallEightClueSave, StallBurn] Complete;
     9 "L9.early-game" Move "The Early Game (Severity 1)" "the-early-game-severity-1-stalling" [FiveStallEarly] Complete;
-    9 "L9.permission-to-discard" Move "Permission to Discard" "permission-to-discard-ptd" [] Missing;
+    9 "L9.permission-to-discard" Move "Permission to Discard" "permission-to-discard-ptd" [PermissionToDiscard] Complete;
     9 "L9.double-discard-avoidance" Move "Double Discard Avoidance (Severity 2)" "double-discard-situations--double-discard-avoidance-dda-severity-2-stalling" [StallTempo, StallFillIn, StallBurn] Complete;
     9 "L9.locked-hands" Move "Locked Hands (Severity 3)" "locked-hands-severity-3-stalling" [StallLockedSave] Complete;
     9 "L9.eight-clues" Move "Clues Given While at 8 Clues (Severity 4)" "clues-given-while-at-8-clues-severity-4-stalling" [StallEightClueSave] Complete;
     9 "L9.five-stall" Move "The 5 Stall (Intermediate)" "the-5-stall-intermediate-section" [StallFive] Complete;
-    9 "L9.five-stall-fpe" Move "The 5 Stall Finesse Position Exception" "the-5-stall-finesse-position-exception-fpe" [] Missing;
+    9 "L9.five-stall-fpe" Move "The 5 Stall Finesse Position Exception" "the-5-stall-finesse-position-exception-fpe" [FiveStallFinesseException] Complete;
     9 "L9.fill-in" Move "The Fill-In Clue" "the-fill-in-clue" [StallFillIn] Complete;
     9 "L9.locked-hand-save" Move "The Locked Hand Save" "the-locked-hand-save-lhs" [StallLockedSave] Complete;
-    9 "L9.anxiety-play" Move "The Anxiety Play" "the-anxiety-play-forcing-a-locked-player-to-play" [] Missing;
+    9 "L9.anxiety-play" Move "The Anxiety Play" "the-anxiety-play-forcing-a-locked-player-to-play" [AnxietyPlay] Complete;
     9 "L9.eight-clue-save" Move "The 8 Clue Save" "the-8-clue-save-8cs" [StallEightClueSave] Complete;
 
     10 "L10.gentlemans-discard" Move "The Gentleman's Discard" "the-gentlemans-discard-gd" [] Missing;

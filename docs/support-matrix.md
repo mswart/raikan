@@ -70,15 +70,15 @@ keeps it in sync. Every convention of levels 1–20 is listed, implemented or no
 | 9 | [Stalling Situations](https://hanabi.github.io/level-9#stalling-situations) | Principle | complete | L9.stall.five, L9.stall.tempo, L9.stall.fill-in, L9.stall.locked-save, L9.stall.eight-clue-save, L9.stall.burn |
 | 9 | [Allowable Stall Clues (Stall Table)](https://hanabi.github.io/level-9#allowable-stall-clues-stall-table) | Principle | complete | L9.stall.five, L9.stall.tempo, L9.stall.fill-in, L9.stall.locked-save, L9.stall.eight-clue-save, L9.stall.burn |
 | 9 | [The Early Game (Severity 1)](https://hanabi.github.io/level-9#the-early-game-severity-1-stalling) | Move | complete | L2.five-stall |
-| 9 | [Permission to Discard](https://hanabi.github.io/level-9#permission-to-discard-ptd) | Move | missing |  |
+| 9 | [Permission to Discard](https://hanabi.github.io/level-9#permission-to-discard-ptd) | Move | complete | L9.permission-to-discard |
 | 9 | [Double Discard Avoidance (Severity 2)](https://hanabi.github.io/level-9#double-discard-situations--double-discard-avoidance-dda-severity-2-stalling) | Move | complete | L9.stall.tempo, L9.stall.fill-in, L9.stall.burn |
 | 9 | [Locked Hands (Severity 3)](https://hanabi.github.io/level-9#locked-hands-severity-3-stalling) | Move | complete | L9.stall.locked-save |
 | 9 | [Clues Given While at 8 Clues (Severity 4)](https://hanabi.github.io/level-9#clues-given-while-at-8-clues-severity-4-stalling) | Move | complete | L9.stall.eight-clue-save |
 | 9 | [The 5 Stall (Intermediate)](https://hanabi.github.io/level-9#the-5-stall-intermediate-section) | Move | complete | L9.stall.five |
-| 9 | [The 5 Stall Finesse Position Exception](https://hanabi.github.io/level-9#the-5-stall-finesse-position-exception-fpe) | Move | missing |  |
+| 9 | [The 5 Stall Finesse Position Exception](https://hanabi.github.io/level-9#the-5-stall-finesse-position-exception-fpe) | Move | complete | L9.five-stall-fpe |
 | 9 | [The Fill-In Clue](https://hanabi.github.io/level-9#the-fill-in-clue) | Move | complete | L9.stall.fill-in |
 | 9 | [The Locked Hand Save](https://hanabi.github.io/level-9#the-locked-hand-save-lhs) | Move | complete | L9.stall.locked-save |
-| 9 | [The Anxiety Play](https://hanabi.github.io/level-9#the-anxiety-play-forcing-a-locked-player-to-play) | Move | missing |  |
+| 9 | [The Anxiety Play](https://hanabi.github.io/level-9#the-anxiety-play-forcing-a-locked-player-to-play) | Move | complete | L9.anxiety-play |
 | 9 | [The 8 Clue Save](https://hanabi.github.io/level-9#the-8-clue-save-8cs) | Move | complete | L9.stall.eight-clue-save |
 | 10 | [The Gentleman's Discard](https://hanabi.github.io/level-10#the-gentlemans-discard-gd) | Move | missing |  |
 | 10 | [The Layered Gentleman's Discard](https://hanabi.github.io/level-10#the-layered-gentlemans-discard) | Move | missing |  |
