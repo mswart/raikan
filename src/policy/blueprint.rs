@@ -77,7 +77,14 @@ pub fn candidates(view: &View) -> SmallVec<[Action; 48]> {
     if view.state.tokens >= view.variant.tokens.clue_cost {
         for target in view.others() {
             for clue in view.variant.clue_ids() {
-                if !view.visible_touched(target, clue).is_empty() {
+                // alternating clues: not the type of the previous clue
+                let rank = matches!(
+                    view.variant.clue_value(clue),
+                    crate::variants::ClueValue::Rank(_)
+                );
+                let legal =
+                    !(view.variant.alternating_clues && view.state.last_clue_rank == Some(rank));
+                if legal && !view.visible_touched(target, clue).is_empty() {
                     actions.push(Action::Clue { target, clue });
                 }
             }
@@ -88,6 +95,24 @@ pub fn candidates(view: &View) -> SmallVec<[Action; 48]> {
 
 /// Choose an action for `view.me`.
 pub fn choose_action(view: &View) -> Decision {
+    decide(view, &mut Alternatives::new())
+}
+
+/// Actions the blueprint evaluated, with their value (quality minus danger), in
+/// evaluation order. Candidates pruned before evaluation are missing.
+pub type Alternatives = SmallVec<[(Action, f64); 16]>;
+
+/// The blueprint's decision and the other actions it evaluated (for the partner model's
+/// spread). A convention obligation (safe play, sarcastic discard) returns before the
+/// remaining candidates are evaluated.
+pub fn rank(view: &View) -> (Decision, Alternatives) {
+    let mut alternatives = Alternatives::new();
+    let decision = decide(view, &mut alternatives);
+    alternatives.retain(|(action, _)| *action != decision.action);
+    (decision, alternatives)
+}
+
+fn decide(view: &View, scored: &mut Alternatives) -> Decision {
     let prune = true;
     let clues = view.state.clue_tokens();
     let max = max_clues(view);
@@ -122,6 +147,7 @@ pub fn choose_action(view: &View) -> Decision {
             continue;
         };
         let value = evaluation.value;
+        scored.push((action, value));
         if best.is_none_or(|(_, previous)| value > previous) {
             best = Some((action, value));
         }
@@ -464,6 +490,11 @@ impl Forecast {
                 // This seat can choose a clue; do not invent one.
                 break;
             };
+            // A hypothetical view (a teammate's, predicted by the legibility guard) does
+            // not know the giver's unidentified cards: the forecast cannot go on.
+            if self.views[0].identity(action.0).is_none() {
+                break;
+            }
             self.apply_visible_card(k, seat, action.0, action.1);
         }
     }

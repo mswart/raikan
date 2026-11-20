@@ -5,7 +5,7 @@
 use crate::conventions::CardNote;
 use crate::domain::{CardId, ClueId, IdentitySet, Seat};
 use crate::engine::{Action, GameState, World};
-use crate::variants::{ClueValue, Stack, Variant};
+use crate::variants::{ClueValue, Direction, START_RANK, Variant};
 
 /// Names of the seats of one table, for printing and parsing.
 #[derive(Clone, Debug)]
@@ -235,8 +235,17 @@ pub fn note(variant: &Variant, note: &CardNote) -> String {
 pub fn stacks(variant: &Variant, state: &GameState) -> String {
     (0..variant.num_suits())
         .map(|s| {
-            let Stack::Up(top) = state.stacks[s];
-            format!("{}{top}", variant.suits[s].abbreviation)
+            let stack = state.stacks[s];
+            let top = match stack.top {
+                START_RANK => "s".to_string(),
+                rank => rank.to_string(),
+            };
+            let arrow = match stack.direction {
+                Direction::Down => "v",
+                Direction::Undecided => "?",
+                Direction::Up => "",
+            };
+            format!("{}{top}{arrow}", variant.suits[s].abbreviation)
         })
         .collect::<Vec<_>>()
         .join(" ")

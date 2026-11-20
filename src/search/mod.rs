@@ -51,6 +51,14 @@ pub struct SearchConfig {
     pub seed: Option<u64>,
     /// Weight of a world that violates a convention inference (`[teammates] trust_epsilon`).
     pub epsilon: f64,
+    /// Probability that a teammate without a convention obligation does not take the
+    /// blueprint's choice but one of its best alternatives (partner model, §7.1).
+    pub partner_spread: f64,
+    /// Threads for the rollouts of one decision. The result does not depend on it.
+    pub threads: usize,
+    /// Stop sequential halving after the round in which this time is exceeded. Decisions
+    /// are then no longer reproducible; leave unset for comparisons.
+    pub time_limit: Option<std::time::Duration>,
 }
 
 impl SearchConfig {
@@ -68,6 +76,9 @@ impl SearchConfig {
             blueprint_margin: 1.0,
             seed: None,
             epsilon: 0.02,
+            partner_spread: 0.0,
+            threads: 1,
+            time_limit: None,
         }
     }
 

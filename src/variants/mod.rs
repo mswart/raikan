@@ -10,6 +10,7 @@ pub mod catalogue;
 use crate::domain::{ClueId, Identity, IdentitySet, MAX_CARDS, MAX_IDENTITIES, MAX_SUITS};
 use catalogue::{SuitJson, VariantJson, catalogue};
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 
 pub use catalogue::CATALOGUE_REVISION;
 
@@ -58,19 +59,49 @@ pub struct SuitInfo {
     pub all_clue_ranks: bool,
     pub no_clue_ranks: bool,
     pub prism: bool,
+    /// Played from the highest rank down (outside Up or Down).
+    pub reversed: bool,
+    /// Orange: a play command discards the card and a discard command plays it.
+    pub inverted: bool,
 }
 
-/// State of one play stack.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Stack {
-    /// Built upwards; the value is the highest played rank (0 = empty).
-    Up(u8),
+/// Rank number of the Up or Down START card (as hanab.live numbers it).
+pub const START_RANK: u8 = 7;
+
+/// Direction of a play stack.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Direction {
+    #[default]
+    Up,
+    Down,
+    /// Up or Down before a 1, 2, 4 or 5 decides it.
+    Undecided,
 }
 
-impl Default for Stack {
-    fn default() -> Self {
-        Stack::Up(0)
-    }
+/// State of one play stack. Which ranks it still needs is the variant's business
+/// ([`Variant::playable`]); nothing outside this module assumes "rank + 1".
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Stack {
+    /// Cards played on the stack.
+    pub played: u8,
+    /// Rank of the last card played (0 = empty).
+    pub top: u8,
+    /// Rank of the first card played (0 = empty).
+    pub start: u8,
+    pub direction: Direction,
+}
+
+/// How the stacks of a suit are built.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StackKind {
+    /// 1 up to the top rank.
+    Up,
+    /// The top rank down to 1 (reversed suits).
+    Down,
+    /// Up or Down: 1 or START up, or 5 or START down.
+    UpOrDown,
+    /// Sudoku: any rank not started by another suit, then upwards wrapping round.
+    Sudoku,
 }
 
 /// All play stacks, indexed by suit.
@@ -94,8 +125,15 @@ pub struct Variant {
     pub id: u32,
     pub name: String,
     pub suits: Vec<SuitInfo>,
-    /// Ranks per suit (5 normally, 4 with a reduced stack size).
+    /// Ranks per suit (5 normally, 4 with a reduced stack size), START excluded.
     pub num_ranks: u8,
+    /// Identities per suit: `num_ranks`, plus the START card in Up or Down.
+    stride: u8,
+    pub stack_kinds: Vec<StackKind>,
+    /// Clues must alternate between colour and rank.
+    pub alternating_clues: bool,
+    /// Colour (`.0`) or rank (`.1`) clues touch nothing and may be given anyway.
+    pub empty_clues: (bool, bool),
     pub clue_colors: Vec<String>,
     pub clue_ranks: Vec<u8>,
     clues: Vec<ClueValue>,
@@ -142,41 +180,26 @@ impl Variant {
             feature,
         };
         for (flag, feature) in [
-            (json.up_or_down, "up-or-down"),
             (json.throw_it_in_a_hole, "throw-it-in-a-hole"),
             (json.cow_and_pig, "cow-and-pig"),
             (json.duck, "duck"),
-            (json.alternating_clues, "alternating-clues"),
-            (json.sudoku, "sudoku"),
-            // Upstream permits clues that touch nothing in these variants; the engine and
-            // the clue reader require a touched card.
-            (
-                json.color_clues_touch_nothing,
-                "empty clues (color clues touch nothing)",
-            ),
-            (
-                json.rank_clues_touch_nothing,
-                "empty clues (rank clues touch nothing)",
-            ),
         ] {
             if flag {
                 return Err(unsupported(feature));
             }
         }
 
-        let mut suit_jsons: Vec<&SuitJson> = Vec::with_capacity(json.suits.len());
+        let mut suit_jsons: Vec<(&SuitJson, bool)> = Vec::with_capacity(json.suits.len());
         for name in &json.suits {
-            if name.ends_with(" Reversed") {
-                return Err(unsupported("reversed suits"));
-            }
+            let (base, reversed) = match name.strip_suffix(" Reversed") {
+                Some(base) => (base, true),
+                None => (name.as_str(), false),
+            };
             let suit = catalogue()
                 .suits
-                .get(name)
+                .get(base)
                 .ok_or_else(|| VariantError::UnknownSuit(name.clone()))?;
-            if suit.inverted {
-                return Err(unsupported("inverted suits"));
-            }
-            suit_jsons.push(suit);
+            suit_jsons.push((suit, reversed));
         }
         if suit_jsons.len() > MAX_SUITS {
             return Err(unsupported("more than six suits"));
@@ -184,14 +207,20 @@ impl Variant {
 
         let suits: Vec<SuitInfo> = suit_jsons
             .iter()
-            .map(|s| {
+            .map(|&(s, reversed)| {
                 let clue_colors = match &s.clue_colors {
                     Some(colors) => colors.clone(),
                     None if s.all_clue_colors || s.no_clue_colors || s.prism => Vec::new(),
                     None => vec![s.name.clone()],
                 };
                 SuitInfo {
-                    name: s.name.clone(),
+                    name: if reversed {
+                        format!("{} Reversed", s.name)
+                    } else {
+                        s.name.clone()
+                    },
+                    reversed,
+                    inverted: s.inverted,
                     abbreviation: s
                         .abbreviation
                         .clone()
@@ -239,23 +268,46 @@ impl Variant {
             clues.push(ClueValue::Rank(rank));
         }
 
-        let num_identities = suits.len() * num_ranks as usize;
+        let up_or_down = json.up_or_down;
+        let stride = num_ranks + u8::from(up_or_down);
+        let ranks: Vec<u8> = (1..=num_ranks)
+            .chain(up_or_down.then_some(START_RANK))
+            .collect();
+        let num_identities = suits.len() * stride as usize;
         assert!(num_identities <= MAX_IDENTITIES);
+        let index = |suit: usize, rank: u8| {
+            suit * stride as usize
+                + if rank == START_RANK {
+                    num_ranks as usize
+                } else {
+                    rank as usize - 1
+                }
+        };
 
+        // Copies as hanab.live's getNumCopiesOfCard.
         let mut copies = [0u8; MAX_IDENTITIES];
         for (suit_index, suit) in suits.iter().enumerate() {
-            for rank in 1..=num_ranks {
+            for &rank in &ranks {
                 let count = if suit.one_of_each || json.critical_rank == Some(rank) {
                     1
-                } else {
-                    match rank {
-                        1 if json.scarce_ones => 2,
-                        1 => 3,
-                        5 => 1,
-                        _ => 2,
+                } else if json.sudoku {
+                    2
+                } else if rank == START_RANK {
+                    1
+                } else if rank == 1 {
+                    if up_or_down || suit.reversed {
+                        1
+                    } else if json.scarce_ones {
+                        2
+                    } else {
+                        3
                     }
+                } else if rank == 5 {
+                    if suit.reversed { 3 } else { 1 }
+                } else {
+                    2
                 };
-                copies[suit_index * num_ranks as usize + rank as usize - 1] = count;
+                copies[index(suit_index, rank)] = count;
             }
         }
         let num_cards: usize = copies.iter().map(|&c| c as usize).sum();
@@ -265,7 +317,7 @@ impl Variant {
         for clue in &clues {
             let mut set = IdentitySet::EMPTY;
             for (suit_index, suit) in suits.iter().enumerate() {
-                for rank in 1..=num_ranks {
+                for &rank in &ranks {
                     let touched = match *clue {
                         ClueValue::Color(color) => touches_color(
                             json,
@@ -279,12 +331,26 @@ impl Variant {
                         }
                     };
                     if touched {
-                        set.insert(Identity((suit_index * num_ranks as usize) as u8 + rank - 1));
+                        set.insert(Identity(index(suit_index, rank) as u8));
                     }
                 }
             }
             touch.push(set);
         }
+        let stack_kinds = suits
+            .iter()
+            .map(|suit| {
+                if json.sudoku {
+                    StackKind::Sudoku
+                } else if up_or_down {
+                    StackKind::UpOrDown
+                } else if suit.reversed {
+                    StackKind::Down
+                } else {
+                    StackKind::Up
+                }
+            })
+            .collect();
 
         let tokens = if json.clue_starved {
             TokenRules {
@@ -318,6 +384,9 @@ impl Variant {
             (json.stack_size.is_some(), "stack-size"),
             (json.clue_colors.is_some(), "clue-colors"),
             (json.clue_ranks.is_some(), "clue-ranks"),
+            (up_or_down, "up-or-down"),
+            (json.sudoku, "sudoku"),
+            (json.alternating_clues, "alternating-clues"),
         ]
         .into_iter()
         .filter_map(|(set, name)| set.then_some(name))
@@ -329,6 +398,13 @@ impl Variant {
             name: json.name.clone(),
             suits,
             num_ranks,
+            stride,
+            stack_kinds,
+            alternating_clues: json.alternating_clues,
+            empty_clues: (
+                json.color_clues_touch_nothing,
+                json.rank_clues_touch_nothing,
+            ),
             clue_colors,
             clue_ranks,
             clues,
@@ -346,29 +422,54 @@ impl Variant {
     }
 
     pub fn num_identities(&self) -> usize {
-        self.suits.len() * self.num_ranks as usize
+        self.suits.len() * self.stride as usize
     }
 
     pub fn all_identities(&self) -> IdentitySet {
         IdentitySet::first(self.num_identities())
     }
 
+    /// Whether the variant has Up or Down START cards.
+    pub fn has_start(&self) -> bool {
+        self.stride > self.num_ranks
+    }
+
+    /// The ranks of a suit, START last.
+    pub fn ranks(&self) -> impl Iterator<Item = u8> + use<> {
+        (1..=self.num_ranks).chain(self.has_start().then_some(START_RANK))
+    }
+
     pub fn identity(&self, suit: usize, rank: u8) -> Identity {
-        debug_assert!(suit < self.suits.len() && (1..=self.num_ranks).contains(&rank));
-        Identity((suit * self.num_ranks as usize) as u8 + rank - 1)
+        debug_assert!(
+            suit < self.suits.len()
+                && ((1..=self.num_ranks).contains(&rank)
+                    || (rank == START_RANK && self.has_start()))
+        );
+        let offset = if rank == START_RANK {
+            self.num_ranks
+        } else {
+            rank - 1
+        };
+        Identity((suit * self.stride as usize) as u8 + offset)
     }
 
     pub fn suit_of(&self, identity: Identity) -> usize {
-        identity.index() / self.num_ranks as usize
+        identity.index() / self.stride as usize
     }
 
+    /// The rank number (`START_RANK` for a START card).
     pub fn rank_of(&self, identity: Identity) -> u8 {
-        (identity.index() % self.num_ranks as usize) as u8 + 1
+        let offset = (identity.index() % self.stride as usize) as u8;
+        if offset == self.num_ranks {
+            START_RANK
+        } else {
+            offset + 1
+        }
     }
 
     /// All identities of one suit.
     pub fn suit_identities(&self, suit: usize) -> IdentitySet {
-        IdentitySet(((1u64 << self.num_ranks) - 1) << (suit * self.num_ranks as usize))
+        IdentitySet(((1u64 << self.stride) - 1) << (suit * self.stride as usize))
     }
 
     /// All identities of one rank.
@@ -390,25 +491,31 @@ impl Variant {
         self.suits.len() as u8 * self.num_ranks
     }
 
-    /// Short text form such as `r1` or `m5`.
+    /// Short text form such as `r1`, `m5` or `rs` (START).
     pub fn identity_name(&self, identity: Identity) -> String {
-        format!(
-            "{}{}",
-            self.suits[self.suit_of(identity)].abbreviation,
-            self.rank_of(identity)
-        )
+        let rank = self.rank_of(identity);
+        let abbreviation = &self.suits[self.suit_of(identity)].abbreviation;
+        if rank == START_RANK {
+            format!("{abbreviation}s")
+        } else {
+            format!("{abbreviation}{rank}")
+        }
     }
 
     /// Parse the short text form produced by [`Variant::identity_name`].
     pub fn parse_identity(&self, text: &str) -> Option<Identity> {
-        let rank: u8 = text.get(text.len().checked_sub(1)?..)?.parse().ok()?;
+        let last = text.get(text.len().checked_sub(1)?..)?;
+        let rank: u8 = if last == "s" && self.has_start() {
+            START_RANK
+        } else {
+            last.parse().ok()?
+        };
         let abbreviation = &text[..text.len() - 1];
         let suit = self
             .suits
             .iter()
             .position(|s| s.abbreviation == abbreviation)?;
-        (1..=self.num_ranks)
-            .contains(&rank)
+        ((1..=self.num_ranks).contains(&rank) || rank == START_RANK)
             .then(|| self.identity(suit, rank))
     }
 
@@ -509,6 +616,9 @@ impl Variant {
                     || suit.no_clue_ranks
                     || suit.prism
                     || suit.one_of_each);
+            if suit.reversed || suit.inverted {
+                return Err(format!("{} suit", suit.name));
+            }
             let rainbow = suit.all_clue_colors
                 && !(suit.no_clue_colors
                     || suit.all_clue_ranks
@@ -529,34 +639,171 @@ impl Variant {
 
     // ----- stacks -----
 
+    /// The stacks before the first play.
+    pub fn initial_stacks(&self) -> Stacks {
+        let mut stacks = Stacks::default();
+        for (suit, kind) in self.stack_kinds.iter().enumerate() {
+            stacks[suit].direction = match kind {
+                StackKind::Down => Direction::Down,
+                StackKind::UpOrDown => Direction::Undecided,
+                StackKind::Up | StackKind::Sudoku => Direction::Up,
+            };
+        }
+        stacks
+    }
+
+    /// Every complete line of ranks the stack of `suit` can still be built along (the
+    /// cards already played first). One line once the stack's direction and start are
+    /// fixed; several for an empty Up or Down or Sudoku stack.
+    pub fn lines(&self, stacks: &Stacks, suit: usize) -> SmallVec<[Line; 4]> {
+        let n = self.num_ranks;
+        let stack = stacks[suit];
+        let up = |first: u8| -> Line {
+            std::iter::once(first)
+                .chain((if first == START_RANK { 2 } else { first + 1 })..=n)
+                .collect()
+        };
+        let down = |first: u8| -> Line {
+            let from = if first == START_RANK {
+                n - 1
+            } else {
+                first - 1
+            };
+            std::iter::once(first).chain((1..=from).rev()).collect()
+        };
+        let mut lines = SmallVec::new();
+        match self.stack_kinds[suit] {
+            StackKind::Up => lines.push(up(1)),
+            StackKind::Down => lines.push(down(n)),
+            StackKind::UpOrDown => {
+                let first = if stack.played == 0 { 0 } else { stack.start };
+                match stack.direction {
+                    Direction::Up => lines.push(up(first)),
+                    Direction::Down => lines.push(down(first)),
+                    Direction::Undecided => {
+                        if stack.played == 0 {
+                            lines.push(up(1));
+                            lines.push(down(n));
+                        }
+                        lines.push(up(START_RANK));
+                        lines.push(down(START_RANK));
+                    }
+                }
+            }
+            StackKind::Sudoku => {
+                let wrap =
+                    |first: u8| -> Line { (0..n).map(|k| (first - 1 + k) % n + 1).collect() };
+                if stack.played > 0 {
+                    lines.push(wrap(stack.start));
+                } else {
+                    let taken: SmallVec<[u8; 6]> = (0..self.suits.len())
+                        .filter(|&other| other != suit && stacks[other].played > 0)
+                        .map(|other| stacks[other].start)
+                        .collect();
+                    for first in 1..=n {
+                        if !taken.contains(&first) {
+                            lines.push(wrap(first));
+                        }
+                    }
+                }
+            }
+        }
+        lines
+    }
+
     /// Identities that can be played successfully now.
     pub fn playable(&self, stacks: &Stacks) -> IdentitySet {
         let mut set = IdentitySet::EMPTY;
-        for (suit, &Stack::Up(top)) in stacks.iter().enumerate().take(self.suits.len()) {
-            if top < self.num_ranks {
-                set.insert(self.identity(suit, top + 1));
+        for suit in 0..self.suits.len() {
+            let played = stacks[suit].played as usize;
+            for line in self.lines(stacks, suit) {
+                if let Some(&rank) = line.get(played) {
+                    set.insert(self.identity(suit, rank));
+                }
             }
         }
         set
     }
 
-    /// Identities that can never be played anymore: already played, or a lower rank has no
-    /// copy left.
-    pub fn trash(&self, stacks: &Stacks, discarded: &IdentityCounts) -> IdentitySet {
+    /// Identities already on the stacks.
+    pub fn played(&self, stacks: &Stacks) -> IdentitySet {
         let mut set = IdentitySet::EMPTY;
-        for (suit, &Stack::Up(top)) in stacks.iter().enumerate().take(self.suits.len()) {
-            let mut blocked = false;
-            for rank in 1..=self.num_ranks {
-                let identity = self.identity(suit, rank);
-                if rank <= top || blocked {
-                    set.insert(identity);
-                }
-                if rank > top && discarded[identity.index()] >= self.copies(identity) {
-                    blocked = true;
+        for suit in 0..self.suits.len() {
+            let played = stacks[suit].played as usize;
+            if let Some(line) = self.lines(stacks, suit).first() {
+                for &rank in &line[..played.min(line.len())] {
+                    set.insert(self.identity(suit, rank));
                 }
             }
         }
         set
+    }
+
+    /// Play `identity` on its stack, which must accept it. Returns whether the stack is
+    /// now complete.
+    pub fn play(&self, stacks: &mut Stacks, identity: Identity) -> bool {
+        let suit = self.suit_of(identity);
+        let rank = self.rank_of(identity);
+        let stack = &mut stacks[suit];
+        if stack.played == 0 {
+            stack.start = rank;
+        }
+        if stack.direction == Direction::Undecided {
+            let n = self.num_ranks;
+            if rank == 1 || rank == 2 {
+                stack.direction = Direction::Up;
+            } else if rank + 1 == n || rank == n {
+                stack.direction = Direction::Down;
+            }
+        }
+        stack.played += 1;
+        stack.top = rank;
+        stack.played == self.num_ranks
+    }
+
+    /// The live part of each line of `suit`: the ranks still to play, up to the first one
+    /// with no copy left.
+    fn live_remainders(
+        &self,
+        stacks: &Stacks,
+        discarded: &IdentityCounts,
+        suit: usize,
+    ) -> SmallVec<[Line; 4]> {
+        let played = stacks[suit].played as usize;
+        self.lines(stacks, suit)
+            .into_iter()
+            .map(|line| {
+                line[played.min(line.len())..]
+                    .iter()
+                    .copied()
+                    .take_while(|&rank| {
+                        let identity = self.identity(suit, rank);
+                        discarded[identity.index()] < self.copies(identity)
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Identities that can never be played anymore: already played, or not on any line
+    /// before a rank with no copy left.
+    pub fn trash(&self, stacks: &Stacks, discarded: &IdentityCounts) -> IdentitySet {
+        // The first rank with no copy left is lost, not trash (callers treat lost cards
+        // separately); everything behind it is trash.
+        let mut useful = IdentitySet::EMPTY;
+        for suit in 0..self.suits.len() {
+            let played = stacks[suit].played as usize;
+            for line in self.lines(stacks, suit) {
+                for &rank in &line[played.min(line.len())..] {
+                    let identity = self.identity(suit, rank);
+                    useful.insert(identity);
+                    if discarded[identity.index()] >= self.copies(identity) {
+                        break;
+                    }
+                }
+            }
+        }
+        self.all_identities() - useful
     }
 
     /// Identities that are still needed and have exactly one copy left.
@@ -569,44 +816,74 @@ impl Variant {
             .collect()
     }
 
-    /// Identities that must be played before `identity` can be played.
+    /// Identities that must be played before `identity` can be played (on the first line
+    /// that contains it).
     pub fn predecessors(&self, identity: Identity, stacks: &Stacks) -> IdentitySet {
         let suit = self.suit_of(identity);
-        let Stack::Up(top) = stacks[suit];
-        (top + 1..self.rank_of(identity))
-            .map(|rank| self.identity(suit, rank))
-            .collect()
-    }
-
-    /// Highest score still reachable given the discarded cards.
-    pub fn max_reachable_score(&self, discarded: &IdentityCounts) -> u8 {
-        let mut score = 0;
-        for suit in 0..self.suits.len() {
-            for rank in 1..=self.num_ranks {
-                let identity = self.identity(suit, rank);
-                if discarded[identity.index()] >= self.copies(identity) {
-                    break;
-                }
-                score += 1;
+        let rank = self.rank_of(identity);
+        let played = stacks[suit].played as usize;
+        for line in self.lines(stacks, suit) {
+            let rest = &line[played.min(line.len())..];
+            if let Some(position) = rest.iter().position(|&r| r == rank) {
+                return rest[..position]
+                    .iter()
+                    .map(|&r| self.identity(suit, r))
+                    .collect();
             }
         }
-        score
+        IdentitySet::EMPTY
     }
 
-    pub fn stack_score(&self, stacks: &Stacks) -> u8 {
-        stacks[..self.suits.len()]
-            .iter()
-            .map(|s| match s {
-                Stack::Up(top) => *top,
+    /// Highest score still reachable given the stacks and the discarded cards.
+    pub fn max_reachable(&self, stacks: &Stacks, discarded: &IdentityCounts) -> u8 {
+        (0..self.suits.len())
+            .map(|suit| {
+                stacks[suit].played
+                    + self
+                        .live_remainders(stacks, discarded, suit)
+                        .iter()
+                        .map(|line| line.len() as u8)
+                        .max()
+                        .unwrap_or(0)
             })
             .sum()
     }
 
-    /// Whether a played identity completes its stack.
+    /// Highest score reachable from the start given the discarded cards.
+    pub fn max_reachable_score(&self, discarded: &IdentityCounts) -> u8 {
+        self.max_reachable(&self.initial_stacks(), discarded)
+    }
+
+    pub fn stack_score(&self, stacks: &Stacks) -> u8 {
+        stacks[..self.suits.len()].iter().map(|s| s.played).sum()
+    }
+
+    /// Whether a played identity is the last rank of its stack in the standard order (the
+    /// top rank, or 1 for a reversed suit). Prefer the result of [`Variant::play`].
     pub fn completes_stack(&self, identity: Identity) -> bool {
-        self.rank_of(identity) == self.num_ranks
+        let rank = self.rank_of(identity);
+        match self.stack_kinds[self.suit_of(identity)] {
+            StackKind::Down => rank == 1,
+            _ => rank == self.num_ranks,
+        }
+    }
+
+    /// Whether any suit is inverted (orange): a discard is then legal at maximum tokens.
+    pub fn has_inverted(&self) -> bool {
+        self.suits.iter().any(|s| s.inverted)
+    }
+
+    /// Whether a clue of this kind may touch no card.
+    pub fn may_touch_nothing(&self, clue: ClueId) -> bool {
+        match self.clue_value(clue) {
+            ClueValue::Color(_) => self.empty_clues.0,
+            ClueValue::Rank(_) => self.empty_clues.1,
+        }
     }
 }
+
+/// One way a stack can be built: its ranks in play order.
+pub type Line = SmallVec<[u8; 6]>;
 
 fn default_abbreviation(name: &str) -> String {
     match name {
@@ -626,6 +903,19 @@ fn touches_color(
 ) -> bool {
     if json.color_clues_touch_nothing {
         return false;
+    }
+    if rank == START_RANK {
+        // START counts as rank 0: a prism START shows the last colour.
+        if suit.all_clue_colors {
+            return true;
+        }
+        if suit.no_clue_colors {
+            return false;
+        }
+        if suit.prism {
+            return clue_colors.last().is_some_and(|c| c == color);
+        }
+        return suit.clue_colors.iter().any(|c| c == color);
     }
     let rank_color = || clue_colors.get((rank as usize - 1) % clue_colors.len().max(1));
     if json.synesthesia && !suit.no_clue_ranks && rank_color().is_some_and(|c| c == color) {
@@ -667,6 +957,10 @@ fn touches_rank(
     }
     if suit.no_clue_ranks {
         return false;
+    }
+    if rank == START_RANK {
+        // START counts as rank 0: only Funnels ("rank <= value") touch it.
+        return json.funnels;
     }
     if json.funnels {
         return rank <= clue_rank;
@@ -849,11 +1143,9 @@ mod tests {
     #[test]
     fn unsupported_mechanics_are_reported() {
         for name in [
-            "Orange (6 Suits)",
-            "Up or Down (6 Suits)",
             "Throw It in a Hole (6 Suits)",
-            "Color Blind (5 Suits)",
-            "Number Blind (5 Suits)",
+            "Cow & Pig (6 Suits)",
+            "Duck (6 Suits)",
         ] {
             assert!(
                 matches!(
@@ -863,13 +1155,147 @@ mod tests {
                 "{name}"
             );
         }
+        for name in [
+            "Orange (6 Suits)",
+            "Up or Down (6 Suits)",
+            "Color Blind (5 Suits)",
+            "Number Blind (5 Suits)",
+            "Sudoku (5 Suits)",
+            "Alternating Clues (6 Suits)",
+        ] {
+            let variant = Variant::by_name(name).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(variant.convention_support().is_err(), "{name}");
+        }
+    }
+
+    /// Plays every card of `ranks` (in order) on the stack of suit `suit`.
+    fn build(v: &Variant, stacks: &mut Stacks, suit: usize, ranks: &[u8]) -> bool {
+        let mut completed = false;
+        for &rank in ranks {
+            let identity = v.identity(suit, rank);
+            assert!(
+                v.playable(stacks).contains(identity),
+                "{} not playable",
+                v.identity_name(identity)
+            );
+            completed = v.play(stacks, identity);
+        }
+        completed
+    }
+
+    #[test]
+    fn reversed_suits() {
+        let v = Variant::by_name("Reversed (6 Suits)").unwrap();
+        let suit = v
+            .suits
+            .iter()
+            .position(|s| s.reversed)
+            .expect("a reversed suit");
+        assert_eq!(v.copies(v.identity(suit, 5)), 3);
+        assert_eq!(v.copies(v.identity(suit, 1)), 1);
+        assert_eq!(v.num_cards(), 60);
+        let mut stacks = v.initial_stacks();
+        assert!(v.playable(&stacks).contains(v.identity(suit, 5)));
+        assert!(!v.playable(&stacks).contains(v.identity(suit, 1)));
+        assert!(
+            v.critical(&stacks, &[0; MAX_IDENTITIES])
+                .contains(v.identity(suit, 1))
+        );
+        assert!(build(&v, &mut stacks, suit, &[5, 4, 3, 2, 1]));
+        assert_eq!(v.stack_score(&stacks), 5);
+        // a lost 3 makes 2 and 1 trash
+        let mut stacks = v.initial_stacks();
+        let mut discarded = [0u8; MAX_IDENTITIES];
+        discarded[v.identity(suit, 3).index()] = 2;
+        let trash = v.trash(&stacks, &discarded);
+        assert!(trash.contains(v.identity(suit, 2)) && !trash.contains(v.identity(suit, 4)));
+        assert!(!trash.contains(v.identity(suit, 3)), "lost, not trash");
+        assert_eq!(v.max_reachable(&stacks, &discarded), 6 * 5 - 3);
+        build(&v, &mut stacks, suit, &[5]);
+        assert_eq!(
+            names(&v, v.predecessors(v.identity(suit, 2), &stacks)),
+            [
+                v.identity_name(v.identity(suit, 3)),
+                v.identity_name(v.identity(suit, 4))
+            ]
+        );
+    }
+
+    #[test]
+    fn up_or_down() {
+        let v = Variant::by_name("Up or Down (5 Suits)").unwrap();
+        assert!(v.has_start());
+        let start = v.identity(0, START_RANK);
+        assert_eq!(v.identity_name(start), "rs");
+        assert_eq!(v.parse_identity("rs"), Some(start));
+        assert_eq!(v.rank_of(start), START_RANK);
+        assert_eq!(v.suit_of(start), 0);
+        assert_eq!(v.copies(start), 1);
+        assert_eq!(v.copies(v.identity(0, 1)), 1);
+        assert_eq!(v.num_cards(), 45);
+        // START is touched by its colour, never by a rank
+        for clue in v.clue_ids() {
+            let touches = v.touch(clue).contains(start);
+            match v.clue_value(clue) {
+                ClueValue::Rank(_) => assert!(!touches),
+                ClueValue::Color(c) => assert_eq!(touches, c == 0),
+            }
+        }
+        let empty = v.initial_stacks();
+        assert_eq!(
+            names(&v, v.playable(&empty) & v.suit_identities(0)),
+            ["r1", "r5", "rs"]
+        );
+        let mut stacks = v.initial_stacks();
+        build(&v, &mut stacks, 0, &[START_RANK]);
+        assert_eq!(
+            names(&v, v.playable(&stacks) & v.suit_identities(0)),
+            ["r2", "r4"]
+        );
+        assert!(build(&v, &mut stacks, 0, &[4, 3, 2, 1]));
+        let mut stacks = v.initial_stacks();
+        assert!(build(&v, &mut stacks, 1, &[1, 2, 3, 4, 5]));
+        let mut stacks = v.initial_stacks();
+        assert!(build(&v, &mut stacks, 2, &[5, 4, 3, 2, 1]));
+        assert_eq!(v.max_score(), 25);
+        // nothing is trash on an empty stack, and both 1 and 5 are critical
+        assert!(v.trash(&empty, &[0; MAX_IDENTITIES]).is_empty());
+        let critical = v.critical(&empty, &[0; MAX_IDENTITIES]);
+        assert!(critical.contains(v.identity(0, 1)) && critical.contains(v.identity(0, 5)));
+    }
+
+    #[test]
+    fn sudoku() {
+        let v = Variant::by_name("Sudoku (5 Suits)").unwrap();
+        assert!(v.all_identities().iter().all(|i| v.copies(i) == 2));
+        let mut stacks = v.initial_stacks();
+        // any rank starts a stack
+        assert_eq!(
+            names(&v, v.playable(&stacks) & v.suit_identities(0)),
+            ["r1", "r2", "r3", "r4", "r5"]
+        );
+        assert!(!build(&v, &mut stacks, 0, &[3]));
+        // ... but not one another suit started with
+        assert!(!v.playable(&stacks).contains(v.identity(1, 3)));
+        assert!(build(&v, &mut stacks, 0, &[4, 5, 1, 2]));
+    }
+
+    #[test]
+    fn empty_clues_and_alternation() {
+        let v = Variant::by_name("Color Blind (5 Suits)").unwrap();
+        let red = color(&v, "Red");
+        assert!(v.touch(red).is_empty() && v.may_touch_nothing(red));
+        assert!(!v.may_touch_nothing(rank(&v, 1)));
+        let v = Variant::by_name("Alternating Clues (5 Suits)").unwrap();
+        assert!(v.alternating_clues);
     }
 
     #[test]
     fn stacks() {
         let v = Variant::no_variant();
-        let mut stacks = Stacks::default();
-        stacks[0] = Stack::Up(2);
+        let mut stacks = v.initial_stacks();
+        v.play(&mut stacks, v.identity(0, 1));
+        v.play(&mut stacks, v.identity(0, 2));
         let mut discarded = [0u8; MAX_IDENTITIES];
         assert_eq!(
             names(&v, v.playable(&stacks)),

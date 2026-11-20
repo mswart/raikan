@@ -263,7 +263,13 @@ fn readings(view: &View, names: &Names, target: Seat, clue: crate::domain::ClueI
 
 fn guard_verdict(view: &View, baseline: &crate::conventions::Worth, action: Action) -> String {
     match action {
+        Action::Play(card) if policy::guard::known_playable(view, card) => {
+            "ok (known playable)".to_string()
+        }
         Action::Play(_) => "ok".to_string(),
+        Action::Discard(card) if policy::guard::known_trash(view, card) => {
+            "ok (known trash)".to_string()
+        }
         Action::Discard(card) => {
             if policy::guard::legible_discard(view, card) {
                 "ok".to_string()
@@ -271,7 +277,12 @@ fn guard_verdict(view: &View, baseline: &crate::conventions::Worth, action: Acti
                 "rejected: discard while holding a convention play".to_string()
             }
         }
-        Action::Clue { target, clue } => match view.clue_views(target, clue, |_, _| true) {
+        Action::Clue { target, clue } => match view.clue_views_expecting(
+            target,
+            clue,
+            |_, _| true,
+            Some(&policy::guard::expected_action),
+        ) {
             None => "rejected: touches nothing".to_string(),
             Some((worth, _)) if worth.no_more_errors_than(baseline) => {
                 format!(
@@ -324,7 +335,7 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
     for (i, &action) in actions.iter().take(prefix).enumerate() {
         engine::check_legal(&variant, &state, action)
             .map_err(|e| format!("turn {}: {action:?} is illegal: {e:?}", i + 1))?;
-        for event in engine::step(&variant, &mut state, world, action) {
+        for event in engine::step_recorded(&variant, &mut state, world, action) {
             feed(&mut bots, &event);
             events.push((i + 1, event));
         }
@@ -335,7 +346,8 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
 
     let seat = state.current;
     let bot = &mut bots[seat.index()];
-    let view = bot.view().detached();
+    // a full copy: the comparison must see the kept teammate views, as the planner does
+    let view = bot.view().clone();
     let blueprint = policy::choose_action(&view);
     let chosen_action = bot.choose_action(&state);
     let plan = bot.last_plan().cloned();
@@ -434,7 +446,7 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
     // Rollouts in one world: the requested actions, else the blueprint's and the chosen.
     let mut rollouts = Vec::new();
     if let Some(w) = request.world {
-        let (_, samples) = search::sample_worlds(&view, &compare_config);
+        let (seed, samples) = search::sample_worlds(&view, &compare_config);
         let sampled = samples.worlds.get(w).ok_or_else(|| {
             format!(
                 "world {w} does not exist ({} worlds sampled)",
@@ -453,7 +465,16 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
             }
         }
         for action in shown {
-            rollouts.push(rollout(&variant, &names, &view, sampled, w, action));
+            rollouts.push(rollout(
+                &variant,
+                &names,
+                &view,
+                &compare_config,
+                seed,
+                sampled,
+                w,
+                action,
+            ));
         }
     }
 
@@ -609,16 +630,20 @@ fn card_history(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn rollout(
     variant: &Variant,
     names: &Names,
     view: &View,
+    config: &SearchConfig,
+    seed: u64,
     world: &World,
     index: usize,
     action: Action,
 ) -> RolloutTrace {
     let views = search::rollout::seat_views(view, world);
-    let (leaf, steps) = search::simulate_traced(view, world, views, action);
+    let partners = search::rollout::Partners::for_world(config.partner_spread, seed, index);
+    let (leaf, steps) = search::simulate_traced(view, world, views, action, partners);
     let mut state = view.state;
     let hand = state
         .hand(view.me)
@@ -636,6 +661,9 @@ fn rollout(
         );
         if let Some(reason) = step.reason {
             line.push_str(&format!(" [{reason:?}]"));
+        }
+        if step.alternative {
+            line.push_str(" [partner alternative]");
         }
         if step.fallback {
             line.push_str(" [fallback: prediction illegal in this world]");

@@ -219,8 +219,13 @@ minimization would apply to uncertain outcomes, not opposing players.
 
 ## Variants
 
-The engine simulates every hanab.live catalogue variant except orange, up-or-down,
-sudoku, alternating clues, reversed suits and the hidden-information variants. The
+The engine simulates every hanab.live catalogue variant except the hidden-information
+variants (Throw It in a Hole, Cow & Pig, Duck): reversed suits, Up or Down (with START
+cards), Sudoku, orange (a play command on an orange card discards it and a discard
+command plays it; replays record the effect), alternating clues and empty clues (Color
+Blind, Number Blind) included. Stacks are a direction and a start, and the variant
+answers what each stack still needs. The bot plays these variants legally, but the
+conventions do not cover them (`raikan-web` refuses such tables). The
 conventions cover plain suits and the
 [rainbow suit](https://hanabi.github.io/variant-specific/rainbow):
 
@@ -261,7 +266,10 @@ raikan explain REPLAY --turn T [--candidate ACTION]... [--all] [--world W]
 
 Every command that plays accepts `--search off|fast|full` (default `off`: the blueprint
 policy alone) and the budget options `--simulations N`, `--worlds W`, `--margin M` and
-`--search-seed S`. With search on, each decision samples worlds from the bot's beliefs,
+`--search-seed S`, plus `--spread P` (the partner model's spread, default 0),
+`--threads N` (rollouts of one decision on N threads; the result does not depend on it)
+and `--time-limit-ms MS` (stop sequential halving early; no longer reproducible). The web
+client uses all cores and `RAIKAN_TIME_LIMIT_MS` (default 3000). With search on, each decision samples worlds from the bot's beliefs,
 simulates every permitted candidate (clues only if every teammate reads them as
 intended) for one rotation of teammate moves (to the real end
 once the deck is small) and replaces the blueprint's choice only when another candidate

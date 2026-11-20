@@ -52,6 +52,9 @@ pub struct GameState {
     pub status: Status,
     /// Cards touched by at least one clue (public).
     pub clued: CardSet,
+    /// Whether the last clue was a rank clue (`None` before the first clue); alternating
+    /// clue variants forbid the same type twice in a row.
+    pub last_clue_rank: Option<bool>,
 }
 
 impl GameState {
@@ -63,7 +66,7 @@ impl GameState {
             hand_size: hand_size(num_seats),
             hands: [[CardId(0); MAX_HAND]; MAX_SEATS],
             hand_lens: [0; MAX_SEATS],
-            stacks: Stacks::default(),
+            stacks: variant.initial_stacks(),
             discarded: [0; crate::domain::MAX_IDENTITIES],
             tokens: variant.tokens.start,
             strikes: 0,
@@ -74,6 +77,7 @@ impl GameState {
             final_turns: None,
             status: Status::Running,
             clued: CardSet::EMPTY,
+            last_clue_rank: None,
         }
     }
 

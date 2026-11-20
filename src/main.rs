@@ -14,6 +14,7 @@
 //!
 //! search options (every command that plays):
 //!   --search off|fast|full  --simulations N  --worlds W  --margin M  --search-seed S
+//!   --spread P  --threads N  --time-limit-ms MS
 //! ```
 
 use std::io::{self, BufRead};
@@ -63,6 +64,7 @@ fn parse_options(args: &[String]) -> Options {
         json: false,
     };
     let (mut simulations, mut worlds, mut margin) = (None, None, None);
+    let (mut spread, mut threads, mut time_limit) = (None, None, None);
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         let mut value = || {
@@ -107,6 +109,23 @@ fn parse_options(args: &[String]) -> Options {
             "--margin" => {
                 margin = Some(value().parse().unwrap_or_else(|_| usage("invalid margin")))
             }
+            "--spread" => {
+                spread = Some(value().parse().unwrap_or_else(|_| usage("invalid spread")))
+            }
+            "--threads" => {
+                threads = Some(
+                    value()
+                        .parse()
+                        .unwrap_or_else(|_| usage("invalid thread count")),
+                )
+            }
+            "--time-limit-ms" => {
+                time_limit = Some(std::time::Duration::from_millis(
+                    value()
+                        .parse()
+                        .unwrap_or_else(|_| usage("invalid time limit")),
+                ))
+            }
             "--search-seed" => {
                 options.search.seed =
                     Some(value().parse().unwrap_or_else(|_| usage("invalid seed")))
@@ -139,6 +158,13 @@ fn parse_options(args: &[String]) -> Options {
     if let Some(margin) = margin {
         options.search.blueprint_margin = margin;
     }
+    if let Some(spread) = spread {
+        options.search.partner_spread = spread;
+    }
+    if let Some(threads) = threads {
+        options.search.threads = threads;
+    }
+    options.search.time_limit = time_limit;
     if !(2..=6).contains(&options.players) {
         usage("players must be 2..=6");
     }
@@ -157,7 +183,7 @@ fn usage(message: &str) -> ! {
         "  raikan explain REPLAY --turn T [--candidate ACTION]... [--all] [--world W] [--card CARD [--viewer SEAT]] [--json]"
     );
     eprintln!(
-        "  search: --search off|fast|full [--simulations N] [--worlds W] [--margin M] [--search-seed S]"
+        "  search: --search off|fast|full [--simulations N] [--worlds W] [--margin M] [--search-seed S] [--spread P] [--threads N] [--time-limit-ms MS]"
     );
     std::process::exit(2)
 }

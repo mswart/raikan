@@ -7,7 +7,8 @@
 use crate::conventions::View;
 use crate::domain::Seat;
 use crate::engine::{self, Action, GameState, World};
-use crate::policy::{Reason, partner_decision};
+use crate::policy::Reason;
+use crate::policy::partner::{Prediction, partner_distribution, pick};
 
 use super::value::{self, Breakdown};
 
@@ -44,17 +45,62 @@ pub struct RolloutStep {
     pub seat: Seat,
     /// The command actually applied.
     pub action: Action,
-    /// The partner model's reason; `None` for the root candidate.
+    /// The partner model's reason; `None` for the root candidate and for alternatives.
     pub reason: Option<Reason>,
+    /// The partner model drew an alternative to the blueprint's choice (its spread).
+    pub alternative: bool,
     /// The predicted action was illegal in this world and replaced by a fallback.
     pub fallback: bool,
+}
+
+/// How the other seats act in one rollout: the partner model's spread and the random
+/// stream for its draws. The stream depends only on the world and the step, so every
+/// candidate meets the same draws (common random numbers).
+#[derive(Clone, Copy, Debug)]
+pub struct Partners {
+    pub spread: f64,
+    pub seed: u64,
+}
+
+impl Partners {
+    /// The blueprint alone.
+    pub const BLUEPRINT: Partners = Partners {
+        spread: 0.0,
+        seed: 0,
+    };
+
+    /// The stream of world `w` of a decision with seed `seed`.
+    pub fn for_world(spread: f64, seed: u64, w: usize) -> Self {
+        Self {
+            spread,
+            seed: splitmix(seed ^ splitmix(w as u64 + 1)),
+        }
+    }
+
+    fn uniform(&self, step: usize) -> f64 {
+        (splitmix(self.seed ^ (step as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)) >> 11) as f64
+            / (1u64 << 53) as f64
+    }
+}
+
+fn splitmix(mut x: u64) -> u64 {
+    x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    x ^ (x >> 31)
 }
 
 /// Apply `action` for the root seat, then let the other seats act by the partner model
 /// until the root seat is to move again (or, near the end of the deck, until the game
 /// ends, the root seat included). Returns the leaf value.
-pub fn simulate(root: &View, world: &World, views: Vec<View>, action: Action) -> Breakdown {
-    run(root, world, views, action, None)
+pub fn simulate(
+    root: &View,
+    world: &World,
+    views: Vec<View>,
+    action: Action,
+    partners: Partners,
+) -> Breakdown {
+    run(root, world, views, action, partners, None)
 }
 
 /// [`simulate`], recording every step.
@@ -63,9 +109,10 @@ pub fn simulate_traced(
     world: &World,
     views: Vec<View>,
     action: Action,
+    partners: Partners,
 ) -> (Breakdown, Vec<RolloutStep>) {
     let mut steps = Vec::new();
-    let leaf = run(root, world, views, action, Some(&mut steps));
+    let leaf = run(root, world, views, action, partners, Some(&mut steps));
     (leaf, steps)
 }
 
@@ -74,6 +121,7 @@ fn run(
     world: &World,
     mut views: Vec<View>,
     action: Action,
+    partners: Partners,
     mut trace: Option<&mut Vec<RolloutStep>>,
 ) -> Breakdown {
     let variant = root.variant.clone();
@@ -85,20 +133,28 @@ fn run(
     let mut steps = 0;
     while !state.is_over() && steps < 200 {
         let seat = state.current;
-        let (predicted, reason) = match next.take() {
-            Some(action) => (action, None),
+        let prediction = match next.take() {
+            Some(action) => Prediction {
+                action,
+                probability: 1.0,
+                reason: None,
+            },
             None if seat == me && !to_end => break,
             None => {
-                let decision = partner_decision(&views[seat.index()]);
-                (decision.action, Some(decision.reason))
+                let distribution = partner_distribution(&views[seat.index()], partners.spread);
+                pick(&distribution, partners.uniform(steps))
             }
         };
+        let predicted = prediction.action;
+        let alternative = steps > 0 && prediction.reason.is_none();
+        let reason = prediction.reason;
         let command = legal_or_fallback(&variant, &state, world, seat, predicted);
         if let Some(trace) = trace.as_deref_mut() {
             trace.push(RolloutStep {
                 seat,
                 action: command,
                 reason,
+                alternative,
                 fallback: command != predicted,
             });
         }

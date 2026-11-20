@@ -18,7 +18,7 @@ use crate::knowledge::{ExactSampler, MAX_EXACT_CONSTRAINED, SampleSet, WorldSamp
 use crate::policy::{Decision, permitted_candidates};
 
 use super::SearchConfig;
-use super::rollout::{seat_views, simulate};
+use super::rollout::{Partners, seat_views, simulate};
 use super::value::Breakdown;
 
 /// Why the planner chose its action.
@@ -129,16 +129,16 @@ pub fn compare(view: &View, actions: &[Action], config: &SearchConfig) -> Compar
     let (seed, samples) = sample_worlds(view, config);
     let worlds = samples.worlds.len();
     let mut candidates: Vec<CandidateStats> = Vec::with_capacity(actions.len());
-    let base: Vec<Vec<View>> = samples
-        .worlds
-        .iter()
-        .map(|world| seat_views(view, world))
+    let evaluator = Evaluator::new(view, &samples, config, seed);
+    let jobs: Vec<(usize, usize)> = (0..actions.len())
+        .flat_map(|c| (0..worlds).map(move |w| (c, w)))
         .collect();
+    let mut leaves = evaluator.run(&jobs, actions).into_iter();
     for (rank, &action) in actions.iter().enumerate() {
         let mut breakdown = Breakdown::default();
         let mut values = Vec::with_capacity(worlds);
-        for (w, world) in samples.worlds.iter().enumerate() {
-            let leaf = simulate(view, world, base[w].clone(), action);
+        for w in 0..worlds {
+            let leaf = leaves.next().expect("one leaf per job");
             breakdown.add_scaled(&leaf, samples.weights[w]);
             values.push(leaf.total());
         }
@@ -185,6 +185,67 @@ pub fn compare(view: &View, actions: &[Action], config: &SearchConfig) -> Compar
     }
 }
 
+/// Evaluates (candidate, world) pairs, on several threads when configured. Each pair is
+/// independent (its own copy of the seat views and its own random stream), so results do
+/// not depend on the thread count.
+struct Evaluator<'a> {
+    view: &'a View,
+    samples: &'a SampleSet,
+    spread: f64,
+    seed: u64,
+    threads: usize,
+    /// The seat views of each world, built on first use.
+    base: Vec<std::sync::OnceLock<Vec<View>>>,
+}
+
+impl<'a> Evaluator<'a> {
+    fn new(view: &'a View, samples: &'a SampleSet, config: &SearchConfig, seed: u64) -> Self {
+        Self {
+            view,
+            samples,
+            spread: config.partner_spread,
+            seed,
+            threads: config.threads.max(1),
+            base: (0..samples.worlds.len())
+                .map(|_| std::sync::OnceLock::new())
+                .collect(),
+        }
+    }
+
+    fn one(&self, action: Action, w: usize) -> Breakdown {
+        let world = &self.samples.worlds[w];
+        let views = self.base[w]
+            .get_or_init(|| seat_views(self.view, world))
+            .clone();
+        let partners = Partners::for_world(self.spread, self.seed, w);
+        simulate(self.view, world, views, action, partners)
+    }
+
+    /// Leaf values of `jobs` (candidate index into `actions`, world), in job order.
+    fn run(&self, jobs: &[(usize, usize)], actions: &[Action]) -> Vec<Breakdown> {
+        if self.threads <= 1 || jobs.len() < 2 {
+            return jobs.iter().map(|&(c, w)| self.one(actions[c], w)).collect();
+        }
+        let chunk = jobs.len().div_ceil(self.threads);
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = jobs
+                .chunks(chunk)
+                .map(|part| {
+                    scope.spawn(move || {
+                        part.iter()
+                            .map(|&(c, w)| self.one(actions[c], w))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .flat_map(|h| h.join().expect("rollout thread"))
+                .collect()
+        })
+    }
+}
+
 /// Choose an action for `view.me` by simulation. `blueprint` is the blueprint's decision
 /// in the same view; it is the reference the search must beat.
 pub fn plan(view: &View, blueprint: &Decision, config: &SearchConfig) -> PlanResult {
@@ -228,8 +289,9 @@ pub fn plan(view: &View, blueprint: &Decision, config: &SearchConfig) -> PlanRes
     }
     let worlds = samples.worlds.len();
     let weights = &samples.weights;
-    let mut root_views: Vec<Option<Vec<View>>> = vec![None; worlds];
+    let root_views = Evaluator::new(view, &samples, config, seed);
     let mut breakdowns: Vec<Breakdown> = vec![Breakdown::default(); actions.len()];
+    let started = std::time::Instant::now();
 
     // Sequential halving.
     let rounds = (actions.len() as f64).log2().ceil().max(1.0) as usize;
@@ -237,22 +299,29 @@ pub fn plan(view: &View, blueprint: &Decision, config: &SearchConfig) -> PlanRes
     let mut alive: Vec<usize> = (0..actions.len()).collect();
     for round in 0..rounds {
         let target_add = (per_round / alive.len()).max(2);
+        let jobs: Vec<(usize, usize)> = alive
+            .iter()
+            .flat_map(|&c| {
+                let start = stats[c].values.len();
+                let end = (start + target_add).min(worlds);
+                (start..end).map(move |w| (c, w))
+            })
+            .collect();
+        for ((c, w), leaf) in jobs.iter().zip(root_views.run(&jobs, &actions)) {
+            breakdowns[*c].add_scaled(&leaf, weights[*w]);
+            stats[*c].values.push(leaf.total());
+        }
         for &c in &alive {
-            let start = stats[c].values.len();
-            let end = (start + target_add).min(worlds);
-            for w in start..end {
-                let world = &samples.worlds[w];
-                let views = root_views[w]
-                    .get_or_insert_with(|| seat_views(view, world))
-                    .clone();
-                let leaf = simulate(view, world, views, actions[c]);
-                breakdowns[c].add_scaled(&leaf, weights[w]);
-                stats[c].values.push(leaf.total());
-            }
             let (mean, stderr) = weighted_stats(&stats[c].values, weights);
             stats[c].mean = mean;
             stats[c].stderr = stderr;
             stats[c].visits = stats[c].values.len();
+        }
+        if config
+            .time_limit
+            .is_some_and(|limit| started.elapsed() >= limit)
+        {
+            break;
         }
         if round + 1 == rounds || alive.len() <= 2 {
             continue;

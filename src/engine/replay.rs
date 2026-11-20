@@ -201,7 +201,7 @@ impl Replay {
         let mut deck = Vec::with_capacity(game.deck.len());
         for card in &game.deck {
             if card.suit_index as usize >= variant.num_suits()
-                || !(1..=variant.num_ranks).contains(&card.rank)
+                || !variant.ranks().any(|r| r == card.rank)
             {
                 return Err(ReplayError::Format(format!(
                     "card {}/{} out of range",
@@ -231,8 +231,14 @@ impl Replay {
         url.push_str(URL_PREFIX);
         url.push_str(&self.num_seats().to_string());
         url.push('1');
-        url.push(char::from_digit(variant.num_ranks as u32, 10).unwrap());
-        let ranks = variant.num_ranks as usize;
+        // the rank range: 1..=stack size, or 1..=7 with START cards (rank 7)
+        let max_rank = if variant.has_start() {
+            crate::variants::START_RANK
+        } else {
+            variant.num_ranks
+        };
+        url.push(char::from_digit(max_rank as u32, 10).unwrap());
+        let ranks = max_rank as usize;
         for &identity in self.deck.as_slice() {
             let index = variant.suit_of(identity) * ranks + variant.rank_of(identity) as usize - 1;
             url.push(BASE62[index] as char);
@@ -302,7 +308,7 @@ impl Replay {
         for &c in &deck[3..] {
             let index = decode(c)?;
             let (suit, rank) = (index / ranks, (index % ranks + min_rank) as u8);
-            if suit >= variant.num_suits() || rank > variant.num_ranks {
+            if suit >= variant.num_suits() || !variant.ranks().any(|r| r == rank) {
                 return Err(ReplayError::Format(format!(
                     "card index {index} out of range"
                 )));

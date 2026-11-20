@@ -10,7 +10,7 @@ pub use replay::{Replay, ReplayAction, ReplayError};
 pub use state::{Action, EndReason, GameState, Status, World, hand_size};
 
 use crate::domain::{CardId, CardSet, ClueId, Identity, Seat};
-use crate::variants::{Stack, Variant};
+use crate::variants::{ClueValue, Variant};
 use rand::SeedableRng;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
@@ -126,6 +126,8 @@ pub enum Illegal {
     NoTokens,
     BadTarget,
     EmptyClue,
+    /// Alternating clues: the same clue type as the previous clue.
+    SameClueType,
 }
 
 /// Check whether the current seat may submit `action`.
@@ -143,7 +145,7 @@ pub fn check_legal(variant: &Variant, state: &GameState, action: Action) -> Resu
             if !state.hand(state.current).contains(&card) {
                 return Err(Illegal::NotInHand);
             }
-            if state.tokens >= variant.tokens.max {
+            if state.tokens >= variant.tokens.max && !variant.has_inverted() {
                 return Err(Illegal::DiscardAtMaxTokens);
             }
         }
@@ -156,6 +158,12 @@ pub fn check_legal(variant: &Variant, state: &GameState, action: Action) -> Resu
             }
             if clue.index() >= variant.num_clues() {
                 return Err(Illegal::BadTarget);
+            }
+            if variant.alternating_clues
+                && state.last_clue_rank
+                    == Some(matches!(variant.clue_value(clue), ClueValue::Rank(_)))
+            {
+                return Err(Illegal::SameClueType);
             }
             // Touch is decided by the real cards, so emptiness is checked in `step`.
         }
@@ -238,10 +246,8 @@ pub fn apply_event(variant: &Variant, state: &mut GameState, event: &Event) {
             state.remove_card(seat, card);
             if let Some(identity) = identity {
                 if success {
-                    let suit = variant.suit_of(identity);
-                    let Stack::Up(top) = state.stacks[suit];
-                    state.stacks[suit] = Stack::Up(top + 1);
-                    if variant.completes_stack(identity) && state.tokens < tokens.max {
+                    let completed = variant.play(&mut state.stacks, identity);
+                    if completed && state.tokens < tokens.max {
                         state.tokens = (state.tokens + tokens.stack_complete_gain).min(tokens.max);
                     }
                 } else {
@@ -265,9 +271,10 @@ pub fn apply_event(variant: &Variant, state: &mut GameState, event: &Event) {
             state.tokens = (state.tokens + tokens.discard_gain).min(tokens.max);
             end_turn(state);
         }
-        Event::Clue { touched, .. } => {
+        Event::Clue { touched, clue, .. } => {
             state.tokens = state.tokens.saturating_sub(tokens.clue_cost);
             state.clued |= touched;
+            state.last_clue_rank = Some(matches!(variant.clue_value(clue), ClueValue::Rank(_)));
             end_turn(state);
         }
         Event::GameOver { reason } => state.status = Status::Over(reason),
@@ -275,15 +282,37 @@ pub fn apply_event(variant: &Variant, state: &mut GameState, event: &Event) {
 }
 
 /// Apply one command of the current seat. Illegal commands end the game with
-/// [`EndReason::Illegal`].
+/// [`EndReason::Illegal`]. An inverted (orange) card turns a play command into a discard
+/// and a discard command into a play.
 pub fn step(variant: &Variant, state: &mut GameState, world: &World, action: Action) -> Events {
+    step_as(variant, state, world, action, true)
+}
+
+/// Apply one recorded action of a replay. Replays record the effect (hanab.live's
+/// "recorded" interpretation), so inverted cards are not flipped again.
+pub fn step_recorded(
+    variant: &Variant,
+    state: &mut GameState,
+    world: &World,
+    action: Action,
+) -> Events {
+    step_as(variant, state, world, action, false)
+}
+
+fn step_as(
+    variant: &Variant,
+    state: &mut GameState,
+    world: &World,
+    action: Action,
+    live: bool,
+) -> Events {
     let mut events = Events::new();
     let seat = state.current;
     let mut touched = CardSet::EMPTY;
     let legal = check_legal(variant, state, action).and_then(|()| {
         if let Action::Clue { target, clue } = action {
             touched = touched_cards(variant, state, world, target, clue);
-            if touched.is_empty() {
+            if touched.is_empty() && !variant.may_touch_nothing(clue) {
                 return Err(Illegal::EmptyClue);
             }
         }
@@ -302,8 +331,18 @@ pub fn step(variant: &Variant, state: &mut GameState, world: &World, action: Act
     let final_turns_before = state.final_turns;
     state.turn += 1;
     let tokens = variant.tokens;
-    match action {
-        Action::Discard(card) => {
+    // An inverted (orange) card turns a play command into a discard and a discard command
+    // into a play: the event is the effect.
+    let effect = match action {
+        Action::Play(card) | Action::Discard(card) => {
+            let inverted = live && variant.suits[variant.suit_of(world.identity(card))].inverted;
+            let play = matches!(action, Action::Play(_)) != inverted;
+            Some((card, play))
+        }
+        Action::Clue { .. } => None,
+    };
+    match (action, effect) {
+        (_, Some((card, false))) => {
             state.remove_card(seat, card);
             let identity = world.identity(card);
             state.discarded[identity.index()] += 1;
@@ -314,15 +353,13 @@ pub fn step(variant: &Variant, state: &mut GameState, world: &World, action: Act
                 identity: Some(identity),
             });
         }
-        Action::Play(card) => {
+        (_, Some((card, true))) => {
             state.remove_card(seat, card);
             let identity = world.identity(card);
             let success = variant.playable(&state.stacks).contains(identity);
             if success {
-                let suit = variant.suit_of(identity);
-                let Stack::Up(top) = state.stacks[suit];
-                state.stacks[suit] = Stack::Up(top + 1);
-                if variant.completes_stack(identity) && state.tokens < tokens.max {
+                let completed = variant.play(&mut state.stacks, identity);
+                if completed && state.tokens < tokens.max {
                     state.tokens = (state.tokens + tokens.stack_complete_gain).min(tokens.max);
                 }
             } else {
@@ -344,15 +381,19 @@ pub fn step(variant: &Variant, state: &mut GameState, world: &World, action: Act
                 return events;
             }
         }
-        Action::Clue { target, clue } => {
+        (Action::Clue { target, clue }, None) => {
             state.tokens -= tokens.clue_cost;
             state.clued |= touched;
+            state.last_clue_rank = Some(matches!(variant.clue_value(clue), ClueValue::Rank(_)));
             events.push(Event::Clue {
                 giver: seat,
                 target,
                 clue,
                 touched,
             });
+        }
+        (Action::Play(_) | Action::Discard(_), None) => {
+            unreachable!("effects exist exactly for card commands")
         }
     }
 
@@ -416,6 +457,144 @@ mod tests {
             4
         );
         assert!(legal.iter().any(|a| matches!(a, Action::Clue { .. })));
+    }
+
+    fn play_game(variant: &Variant, seed: u64) -> GameState {
+        let world = shuffled_world(variant, seed);
+        let (mut state, _) = deal(variant, 3, &world);
+        // a fixed, simple policy: play the newest card unless it would be the third strike
+        while !state.is_over() {
+            let hand = state.hand(state.current);
+            let card = hand[hand.len() - 1];
+            let action = if state.strikes < 2 || state.tokens >= variant.tokens.max {
+                Action::Play(card)
+            } else {
+                Action::Discard(hand[0])
+            };
+            step(variant, &mut state, &world, action);
+        }
+        state
+    }
+
+    #[test]
+    fn inverted_cards_swap_play_and_discard() {
+        let variant = Variant::by_name("Orange (6 Suits)").unwrap();
+        let orange = variant.suits.iter().position(|s| s.inverted).unwrap();
+        // a deal that gives seat 0 an orange card
+        let (world, mut state, card) = (0..100)
+            .find_map(|seed| {
+                let world = shuffled_world(&variant, seed);
+                let (state, _) = deal(&variant, 3, &world);
+                let card = state
+                    .hand(Seat(0))
+                    .iter()
+                    .copied()
+                    .find(|&c| variant.suit_of(world.identity(c)) == orange)?;
+                Some((world, state, card))
+            })
+            .expect("some deal has an orange card in seat 0's hand");
+        // a discard at maximum tokens is legal in variants with inverted suits
+        assert!(check_legal(&variant, &state, Action::Discard(card)).is_ok());
+        let before = state;
+        let events = step(&variant, &mut state, &world, Action::Play(card));
+        assert!(matches!(events[0], Event::Discard { card: c, .. } if c == card));
+        assert_eq!(state.strikes, 0);
+        // a replay records the effect and applies it unflipped
+        let mut replayed = before;
+        step_recorded(&variant, &mut replayed, &world, Action::Discard(card));
+        assert_eq!(replayed, state);
+    }
+
+    #[test]
+    fn alternating_clues() {
+        let variant = Variant::by_name("Alternating Clues (5 Suits)").unwrap();
+        let world = shuffled_world(&variant, 1);
+        let (mut state, _) = deal(&variant, 3, &world);
+        let rank_clue = |state: &GameState| {
+            variant
+                .clue_ids()
+                .filter(|&c| matches!(variant.clue_value(c), ClueValue::Rank(_)))
+                .find(|&c| !touched_cards(&variant, state, &world, Seat(1), c).is_empty())
+                .unwrap()
+        };
+        let clue = rank_clue(&state);
+        step(
+            &variant,
+            &mut state,
+            &world,
+            Action::Clue {
+                target: Seat(1),
+                clue,
+            },
+        );
+        // seat 1 may not give a rank clue now
+        let again = Action::Clue {
+            target: Seat(2),
+            clue,
+        };
+        assert_eq!(
+            check_legal(&variant, &state, again),
+            Err(Illegal::SameClueType)
+        );
+    }
+
+    #[test]
+    fn empty_clues_are_legal_where_the_variant_allows() {
+        let variant = Variant::by_name("Color Blind (5 Suits)").unwrap();
+        let world = shuffled_world(&variant, 2);
+        let (mut state, _) = deal(&variant, 3, &world);
+        let red = variant.clue_id(ClueValue::Color(0)).unwrap();
+        let events = step(
+            &variant,
+            &mut state,
+            &world,
+            Action::Clue {
+                target: Seat(1),
+                clue: red,
+            },
+        );
+        assert!(matches!(events[0], Event::Clue { touched, .. } if touched.is_empty()));
+        assert_eq!(state.clue_tokens(), 7);
+        let variant = Variant::no_variant();
+        let world = shuffled_world(&variant, 2);
+        let (mut state, _) = deal(&variant, 3, &world);
+        let absent = variant
+            .clue_ids()
+            .find(|&c| touched_cards(&variant, &state, &world, Seat(1), c).is_empty());
+        if let Some(clue) = absent {
+            let events = step(
+                &variant,
+                &mut state,
+                &world,
+                Action::Clue {
+                    target: Seat(1),
+                    clue,
+                },
+            );
+            assert!(matches!(
+                events[0],
+                Event::GameOver {
+                    reason: EndReason::Illegal
+                }
+            ));
+        }
+    }
+
+    #[test]
+    fn new_stack_kinds_play_to_the_end() {
+        for name in [
+            "Reversed (6 Suits)",
+            "Up or Down (5 Suits)",
+            "Sudoku (5 Suits)",
+            "Orange (6 Suits)",
+        ] {
+            let variant = Variant::by_name(name).unwrap();
+            for seed in 0..20 {
+                let state = play_game(&variant, seed);
+                assert!(state.is_over(), "{name}");
+                assert!(state.score(&variant) <= variant.max_score());
+            }
+        }
     }
 
     #[test]

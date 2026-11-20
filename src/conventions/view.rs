@@ -245,14 +245,7 @@ impl PlaySets {
             .iter()
             .filter(|&i| state.discarded[i.index()] >= variant.copies(i))
             .collect();
-        let played: IdentitySet = variant
-            .all_identities()
-            .iter()
-            .filter(|&i| {
-                let crate::variants::Stack::Up(top) = state.stacks[variant.suit_of(i)];
-                variant.rank_of(i) <= top
-            })
-            .collect();
+        let played: IdentitySet = variant.played(&state.stacks);
         let trash = variant.trash(&state.stacks, &state.discarded) | lost;
         let critical = variant
             .all_identities()

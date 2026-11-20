@@ -10,7 +10,7 @@
 use crate::conventions::View;
 use crate::domain::{CardSet, Seat};
 use crate::engine::{EndReason, GameState, Status, World};
-use crate::variants::{Stack, Variant};
+use crate::variants::Variant;
 
 /// Weight of a play the holder already knows to make and that will succeed. Well below 1:
 /// with a one-rotation horizon a known play kept in hand would otherwise look almost as
@@ -71,19 +71,7 @@ impl Breakdown {
 
 /// The highest score still reachable given the discards.
 pub fn max_reachable(variant: &Variant, state: &GameState) -> u8 {
-    (0..variant.num_suits())
-        .map(|suit| {
-            let Stack::Up(top) = state.stacks[suit];
-            let mut cap = variant.num_ranks;
-            for identity in variant.suit_identities(suit).iter() {
-                let rank = variant.rank_of(identity);
-                if rank > top && state.discarded[identity.index()] >= variant.copies(identity) {
-                    cap = cap.min(rank - 1);
-                }
-            }
-            cap
-        })
-        .sum()
+    variant.max_reachable(&state.stacks, &state.discarded)
 }
 
 /// Value of the position `state` in `world`. `views[s]` is seat `s`'s own view; it decides
@@ -128,7 +116,7 @@ pub fn evaluate(variant: &Variant, state: &GameState, world: &World, views: &[Vi
             .find(|&c| playable.contains(world.identity(c)));
         let Some(card) = next else { break };
         let identity = world.identity(card);
-        stacks[variant.suit_of(identity)] = Stack::Up(variant.rank_of(identity));
+        variant.play(&mut stacks, identity);
         pending.remove(card);
         secured += 1;
     }

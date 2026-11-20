@@ -6,10 +6,13 @@ use smallvec::SmallVec;
 use super::records::StepKind;
 use super::view::{PlayState, View};
 use crate::domain::{CardId, ClueId, Identity, Seat};
-use crate::engine::Event;
-use crate::variants::{Stack, Stacks};
+use crate::engine::{Action, Event};
+use crate::variants::Stacks;
 
 const CRITICAL_CARD_VALUE: i32 = 5;
+
+/// A seat's predicted free choice, from that seat's view (see [`View::clue_views_expecting`]).
+pub type ExpectedAction = dyn Fn(&View) -> Option<Action>;
 
 /// Named terms of a position's worth.
 #[derive(PartialEq, Eq, Clone, Debug, Default, serde::Serialize)]
@@ -85,9 +88,7 @@ fn play_on(stacks: &mut Stacks, view: &View, identity: Identity) -> bool {
     if !view.variant.playable(stacks).contains(identity) {
         return false;
     }
-    let suit = view.variant.suit_of(identity);
-    let Stack::Up(top) = stacks[suit];
-    stacks[suit] = Stack::Up(top + 1);
+    view.variant.play(stacks, identity);
     true
 }
 
@@ -294,6 +295,20 @@ impl View {
         clue: ClueId,
         accept: impl FnOnce(&View, &Worth) -> bool,
     ) -> Option<(Worth, Vec<View>)> {
+        self.clue_views_expecting(receiver, clue, accept, None)
+    }
+
+    /// [`View::clue_views`] where a seat between us and the receiver without a convention
+    /// obligation may also give the clue `expected` predicts from its view (its free
+    /// choice, docs/architecture.md §7.5): the clue must stay safe in both branches.
+    /// `expected` must not use this check itself, so the recursion depth is one.
+    pub fn clue_views_expecting(
+        &self,
+        receiver: Seat,
+        clue: ClueId,
+        accept: impl FnOnce(&View, &Worth) -> bool,
+        expected: Option<&ExpectedAction>,
+    ) -> Option<(Worth, Vec<View>)> {
         let mut after = self.detached();
         let error = after.give_clue(receiver, clue)?;
         let mut worth = after.worth(error);
@@ -314,23 +329,39 @@ impl View {
             view.clued(self.me, receiver, clue, touched, &event);
             views.push(view);
         }
-        if !after.first_round_is_safe(&views) {
+        let receiver_offset = self
+            .others()
+            .position(|s| s == receiver)
+            .map_or(0, |p| p + 1);
+        if !after.round_is_safe(views.clone(), 1, receiver_offset, expected) {
             worth.errors = worth.errors.saturating_add(2);
         }
         Some((worth, views))
     }
 
-    /// Check the next turn of each other seat using what that seat can see. A valid-looking
-    /// chain can still cause an immediate misplay when another holder reads the clue
-    /// differently.
-    fn first_round_is_safe(&self, initial: &[View]) -> bool {
-        let mut views = initial.to_vec();
+    /// Check the next turn of each other seat, from offset `from` on, using what that seat
+    /// can see. A valid-looking chain can still cause an immediate misplay when another
+    /// holder reads the clue differently. Seats before `receiver_offset` without an
+    /// obligation branch on their expected clue.
+    fn round_is_safe(
+        &self,
+        mut views: Vec<View>,
+        from: usize,
+        receiver_offset: usize,
+        expected: Option<&ExpectedAction>,
+    ) -> bool {
         let max = self.variant.tokens.max;
-        for (offset, seat) in self.others().enumerate() {
+        let seats: SmallVec<[Seat; 6]> = self.others().collect();
+        for (offset, &seat) in seats.iter().enumerate().skip(from - 1) {
             let k = offset + 1;
             if views[k].state.tokens < max
                 && let Some(card) = views[k].sarcastic_discard()
             {
+                // In a hypothetical view (a teammate's, predicted by the legibility guard)
+                // the giver's unidentified cards are unknown: the round cannot go on.
+                if self.identity(card).is_none() {
+                    break;
+                }
                 let event = card_event(self, seat, card, false);
                 for view in &mut views {
                     view.observe(&event);
@@ -353,15 +384,45 @@ impl View {
                 for view in &mut views {
                     view.observe(&event);
                 }
-            } else {
-                for view in &mut views {
-                    if view.interpretations.on_non_play(seat) {
-                        view.refresh_derived();
-                        view.refresh_clued_cards();
+                continue;
+            }
+            // A free choice: the seat may clue instead of discarding.
+            if k < receiver_offset
+                && let Some(expected) = expected
+                && let Some(Action::Clue { target, clue }) = expected(&views[k])
+                && target != self.me
+                && views[0].state.clue_tokens() > 0
+            {
+                let touched = self.visible_touched(target, clue);
+                if !touched.is_empty() {
+                    let event = Event::Clue {
+                        giver: seat,
+                        target,
+                        clue,
+                        touched,
+                    };
+                    let mut branch = views.clone();
+                    for view in &mut branch {
+                        view.observe(&event);
+                    }
+                    if !self.round_is_safe(branch, k + 1, receiver_offset, Some(expected)) {
+                        return false;
                     }
                 }
             }
+            for view in &mut views {
+                if view.interpretations.on_non_play(seat) {
+                    view.refresh_derived();
+                    view.refresh_clued_cards();
+                }
+            }
         }
+        self.readings_survive(&views[0])
+    }
+
+    /// Whether the true identity of every focus of this turn's clue is still among the
+    /// readings in `after` (our view at the end of the round).
+    fn readings_survive(&self, after: &View) -> bool {
         self.interpretations
             .records
             .iter()
@@ -373,13 +434,13 @@ impl View {
                 let Some(identity) = self.identity(record.focus) else {
                     return true;
                 };
-                views[0].state.holder(record.focus).is_none()
-                    || views[0].play_state(identity) == PlayState::Trash
-                    || views[0].interpretations.records.iter().any(|remaining| {
+                after.state.holder(record.focus).is_none()
+                    || after.play_state(identity) == PlayState::Trash
+                    || after.interpretations.records.iter().any(|remaining| {
                         remaining.focus == record.focus
                             && remaining.turn == record.turn
                             && remaining.hypotheses.iter().any(|h| {
-                                h.focus_identity == identity && views[0].matches_visible_hand(h)
+                                h.focus_identity == identity && after.matches_visible_hand(h)
                             })
                     })
             })

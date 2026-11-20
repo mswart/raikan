@@ -1091,7 +1091,8 @@ struct Slot {
 }
 
 /// The bot: H-Group conventions capped at `RAIKAN_LEVEL=<n>` (default 9), with the root
-/// planner when `RAIKAN_SEARCH=fast|full` (default off).
+/// planner when `RAIKAN_SEARCH=fast|full` (default off; all cores, at most
+/// `RAIKAN_TIME_LIMIT_MS`, default 3000, per decision).
 fn new_agent() -> Box<dyn Agent> {
     let mut config = Config::default();
     if let Some(level) = std::env::var("RAIKAN_LEVEL")
@@ -1105,6 +1106,14 @@ fn new_agent() -> Box<dyn Agent> {
             Ok(mode) => config.search = raikan::search::SearchConfig::new(mode),
             Err(err) => eprintln!("ignoring RAIKAN_SEARCH: {err}"),
         }
+        // A live table has one decision at a time: use the cores, and keep a turn short.
+        config.search.threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+        config.search.time_limit = Some(std::time::Duration::from_millis(
+            std::env::var("RAIKAN_TIME_LIMIT_MS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(3000),
+        ));
     }
     Box::new(BotAgent::new(config))
 }
@@ -1214,7 +1223,7 @@ impl HanabGame {
 
     fn identity(&self, identity: &CardIdentity) -> Option<raikan::domain::Identity> {
         ((identity.suit_index as usize) < self.variant.num_suits()
-            && (1..=self.variant.num_ranks).contains(&identity.rank))
+            && self.variant.ranks().any(|r| r == identity.rank))
         .then(|| {
             self.variant
                 .identity(identity.suit_index as usize, identity.rank)

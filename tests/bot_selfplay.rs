@@ -202,3 +202,47 @@ fn teammate_predictions_do_not_depend_on_their_hidden_cards() {
     }
     assert!(compared > 100, "only {compared} positions compared");
 }
+
+/// Variants with other stack rules, START cards, inverted suits and clue restrictions:
+/// the bot plays them without illegal moves (the conventions do not cover them), and the
+/// replay survives JSON and URL and reproduces the game.
+#[test]
+fn engine_variants_play_and_replay() {
+    use raikan::agent::{BotAgent, replay_prefix};
+    use raikan::engine::Replay;
+    for name in [
+        "Reversed (6 Suits)",
+        "Up or Down (5 Suits)",
+        "Sudoku (5 Suits)",
+        "Orange (6 Suits)",
+        "Alternating Clues (5 Suits)",
+        "Color Blind (5 Suits)",
+    ] {
+        let variant = Variant::by_name(name).unwrap();
+        for seed in 0..2 {
+            let world = shuffled_world(&variant, seed);
+            let mut agents: Vec<BotAgent> = (0..3).map(|_| BotAgent::default()).collect();
+            let mut refs: Vec<&mut dyn Agent> =
+                agents.iter_mut().map(|a| a as &mut dyn Agent).collect();
+            let result = run_game(&variant, &world, &mut refs);
+            let end = result.replay.actions.iter().find_map(|a| match a {
+                ReplayAction::GameOver { reason, .. } => Some(*reason),
+                _ => None,
+            });
+            assert_ne!(end, Some(EndReason::Illegal), "{name} seed {seed}");
+            for replay in [
+                Replay::from_json(&result.replay.to_json()).unwrap(),
+                Replay::from_url(&result.replay.to_url()).unwrap(),
+            ] {
+                assert_eq!(replay.deck, result.replay.deck, "{name}");
+                let turns = replay.game_actions().count();
+                let mut bots: Vec<BotAgent> = (0..3).map(|_| BotAgent::default()).collect();
+                let mut refs: Vec<&mut dyn Agent> =
+                    bots.iter_mut().map(|a| a as &mut dyn Agent).collect();
+                let state = replay_prefix(&replay, turns, &mut refs).expect("replays");
+                assert_eq!(state.score(&variant), result.score, "{name} seed {seed}");
+                assert_eq!(state.strikes, result.state.strikes, "{name} seed {seed}");
+            }
+        }
+    }
+}

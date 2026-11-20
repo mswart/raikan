@@ -52,6 +52,16 @@ impl View {
         touched: CardSet,
         event: &Event,
     ) -> u8 {
+        if touched.is_empty() {
+            // A clue that touches nothing (Color Blind and similar variants) carries no
+            // information and no convention meaning; it only passes the turn.
+            self.push_snapshot();
+            self.interpretations.on_non_play(giver);
+            self.turn += 1;
+            self.apply_public(event);
+            self.refresh_derived();
+            return 0;
+        }
         self.last_rule = "L1.play-clue";
         let focus_before = self.clue_focus(receiver, touched);
         // For our own clues: how the receiver will read it, from its view before the clue.

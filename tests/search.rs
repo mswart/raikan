@@ -167,3 +167,79 @@ fn searched_actions_pass_the_legibility_guard() {
     }
     assert_eq!(checked, 4);
 }
+
+/// The planner's result does not depend on the thread count (§10), with and without the
+/// partner model's spread.
+#[test]
+fn plans_do_not_depend_on_threads() {
+    let variant = Variant::no_variant();
+    for (seed, turns, spread) in [(21u64, 8usize, 0.0), (22, 13, 0.2)] {
+        let bots = bots_at(&variant, 3, seed, turns);
+        let view = bots[turns % 3].view();
+        let blueprint = raikan::policy::choose_action(view);
+        let mut config = small_search().search;
+        config.partner_spread = spread;
+        let one = raikan::search::plan(view, &blueprint, &config);
+        config.threads = 3;
+        let three = raikan::search::plan(view, &blueprint, &config);
+        assert_eq!(one.action, three.action, "seed {seed}");
+        let means = |p: &raikan::search::PlanResult| -> Vec<(usize, f64)> {
+            p.candidates.iter().map(|c| (c.visits, c.mean)).collect()
+        };
+        assert_eq!(means(&one), means(&three), "seed {seed}");
+    }
+}
+
+/// The partner model predicts obligations with certainty and otherwise spreads over the
+/// blueprint's alternatives; probabilities sum to one and the blueprint's choice is first.
+#[test]
+fn partner_distribution_is_normalised() {
+    use raikan::policy::partner::{is_obligation, partner_distribution};
+    let variant = Variant::no_variant();
+    let mut spread_seen = false;
+    for (seed, turns) in [(31u64, 3usize), (32, 7), (33, 12), (34, 18), (35, 25)] {
+        let bots = bots_at(&variant, 4, seed, turns);
+        for bot in &bots {
+            let view = bot.view();
+            let blueprint = raikan::policy::partner_decision(view);
+            let alone = partner_distribution(view, 0.0);
+            assert_eq!(alone.len(), 1);
+            assert_eq!(alone[0].action, blueprint.action);
+            let spread = partner_distribution(view, 0.2);
+            assert_eq!(spread[0].action, blueprint.action);
+            let total: f64 = spread.iter().map(|p| p.probability).sum();
+            assert!((total - 1.0).abs() < 1e-12);
+            if is_obligation(blueprint.reason) {
+                assert_eq!(spread.len(), 1);
+            }
+            spread_seen |= spread.len() > 1;
+            let actions: Vec<_> = spread.iter().map(|p| p.action).collect();
+            for (i, a) in actions.iter().enumerate() {
+                assert!(!actions[..i].contains(a), "duplicate prediction");
+            }
+        }
+    }
+    assert!(spread_seen);
+}
+
+/// Extra search candidates (known plays and known trash from any slot) are legal and
+/// pass the guard.
+#[test]
+fn permitted_candidates_are_legal() {
+    let variant = Variant::no_variant();
+    for (seed, turns) in [(41u64, 10usize), (42, 20), (43, 30), (44, 40)] {
+        let bots = bots_at(&variant, 3, seed, turns);
+        let view = bots[turns % 3].view();
+        if view.state.is_over() {
+            continue;
+        }
+        let baseline = view.worth(0);
+        for action in raikan::policy::permitted_candidates(view) {
+            assert!(raikan::engine::check_legal(&variant, &view.state, action).is_ok());
+            assert!(
+                raikan::policy::permitted(view, &baseline, action),
+                "{action:?}"
+            );
+        }
+    }
+}

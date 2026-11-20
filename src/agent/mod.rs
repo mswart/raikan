@@ -77,8 +77,15 @@ pub fn run_game(variant: &Variant, world: &World, agents: &mut [&mut dyn Agent])
 }
 
 fn finish_step(replay: &mut Replay, seat: Seat, action: Action, events: &[Event]) {
-    if events.iter().any(Event::is_action) {
-        replay.actions.push(ReplayAction::Action(action));
+    // hanab.live records the effect: an orange card's play command is a discard.
+    let effect = events.iter().find_map(|e| match *e {
+        Event::Play { card, .. } => Some(Action::Play(card)),
+        Event::Discard { card, .. } => Some(Action::Discard(card)),
+        Event::Clue { .. } => Some(action),
+        _ => None,
+    });
+    if let Some(effect) = effect {
+        replay.actions.push(ReplayAction::Action(effect));
     }
     for event in events {
         if let Event::GameOver { reason } = event {
@@ -115,7 +122,7 @@ pub fn replay_prefix(
                 state.turn
             ));
         }
-        for event in engine::step(&variant, &mut state, &replay.deck, action) {
+        for event in engine::step_recorded(&variant, &mut state, &replay.deck, action) {
             for (seat, agent) in agents.iter_mut().enumerate() {
                 agent.observe(&event.observed_by(Seat(seat as u8)));
             }
