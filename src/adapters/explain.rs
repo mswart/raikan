@@ -267,6 +267,9 @@ fn guard_verdict(view: &View, baseline: &crate::conventions::Worth, action: Acti
             "ok (known playable)".to_string()
         }
         Action::Play(_) => "ok".to_string(),
+        Action::Discard(card) if policy::guard::discard_passes_play_clue(view, card) => {
+            "rejected: fills the clue tokens while a play clue is available".to_string()
+        }
         Action::Discard(card) if policy::guard::known_trash(view, card) => {
             "ok (known trash)".to_string()
         }

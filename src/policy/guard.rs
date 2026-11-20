@@ -20,6 +20,13 @@
 //! finesse: a playable, non-critical card on the receiver's finesse position. Nothing is
 //! lost by playing first, because the card can still be played through a finesse of its
 //! successor (or clued later), while the delayed play costs tempo.
+//!
+//! A discard that fills the clue tokens to the maximum is not permitted while a legible
+//! play clue is available (unless it is the sarcastic discard): the next seat then has to
+//! clue, and typically gives our play clue for us, so the discard only passes our clue on
+//! and wastes that seat's turn. A one-rotation rollout misses this cost, because the
+//! clue the next seat would otherwise have given pays off beyond the horizon, and credits
+//! the discard with two tokens.
 
 use smallvec::SmallVec;
 
@@ -41,13 +48,49 @@ pub fn legible_clue(view: &View, baseline: &Worth, target: Seat, clue: ClueId) -
 /// free choices; `None` when the clue touches nothing or already the optimistic grade
 /// has more errors than `baseline`.
 pub fn clue_errors(view: &View, baseline: &Worth, target: Seat, clue: ClueId) -> Option<u8> {
+    clue_worth(view, baseline, target, clue).map(|worth| worth.errors)
+}
+
+/// The worth of the position after our clue, as [`clue_errors`] grades it.
+fn clue_worth(view: &View, baseline: &Worth, target: Seat, clue: ClueId) -> Option<Worth> {
     view.clue_views_expecting(
         target,
         clue,
         |_, upper| upper.no_more_errors_than(baseline),
         Some(&expected_action),
     )
-    .map(|(worth, _)| worth.errors)
+    .map(|(worth, _)| worth)
+}
+
+/// The clue is permitted, and the play clue flag: it gets more cards played.
+fn grade_clue(view: &View, baseline: &Worth, target: Seat, clue: ClueId) -> (bool, bool) {
+    if delays_play_for_finesse(view, target, clue) {
+        return (false, false);
+    }
+    match clue_worth(view, baseline, target, clue) {
+        Some(worth) if worth.errors <= baseline.errors => (true, worth.plays > baseline.plays),
+        _ => (false, false),
+    }
+}
+
+/// Whether a discard would fill the clue tokens to the maximum.
+pub fn discard_fills_tokens(view: &View) -> bool {
+    let tokens = &view.variant.tokens;
+    view.state.tokens < tokens.max
+        && view.state.tokens.saturating_add(tokens.discard_gain) >= tokens.max
+}
+
+/// Whether discarding `card` would fill the clue tokens to the maximum while a legible
+/// play clue is available (not the sarcastic discard).
+pub fn discard_passes_play_clue(view: &View, card: CardId) -> bool {
+    if !discard_fills_tokens(view) || view.sarcastic_discard() == Some(card) {
+        return false;
+    }
+    let baseline = view.worth(0);
+    super::candidates(view).into_iter().any(|action| match action {
+        Action::Clue { target, clue } => grade_clue(view, &baseline, target, clue) == (true, true),
+        _ => false,
+    })
 }
 
 /// Whether the guard permits `action`: plays always, discards only without a convention
@@ -112,17 +155,31 @@ pub fn known_trash(view: &View, card: CardId) -> bool {
 
 /// The blueprint's candidates that pass the guard, in blueprint order, followed by plays
 /// of other known-playable cards and discards of other known-trash cards (any slot, §7.1).
+/// Discards that fill the clue tokens while a play clue is permitted are dropped.
 pub fn permitted_candidates(view: &View) -> SmallVec<[Action; 48]> {
     let baseline = view.worth(0);
+    let mut play_clue = false;
     let mut actions: SmallVec<[Action; 48]> = super::candidates(view)
         .into_iter()
-        .filter(|&action| permitted(view, &baseline, action))
+        .filter(|&action| match action {
+            Action::Clue { target, clue } => {
+                let (permitted, plays) = grade_clue(view, &baseline, target, clue);
+                play_clue |= plays;
+                permitted
+            }
+            _ => permitted(view, &baseline, action),
+        })
         .collect();
+    let passes_clue = |card| {
+        play_clue && discard_fills_tokens(view) && view.sarcastic_discard() != Some(card)
+    };
+    actions.retain(|action| !matches!(*action, Action::Discard(card) if passes_clue(card)));
     let can_discard = view.state.tokens < view.variant.tokens.max;
     for &card in view.state.hand(view.me) {
         let extra = [
             known_playable(view, card).then_some(Action::Play(card)),
-            (can_discard && known_trash(view, card)).then_some(Action::Discard(card)),
+            (can_discard && known_trash(view, card) && !passes_clue(card))
+                .then_some(Action::Discard(card)),
         ];
         for action in extra.into_iter().flatten() {
             if !actions.contains(&action) {

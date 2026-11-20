@@ -1,0 +1,15 @@
+# rule: L1.play-clue
+# hanab.live game 2073141, turn 2: Bob (seat 1) has 7 clues and can give Alice 1 for g1
+# and p1. With search the bot discarded instead: in a one-rotation rollout Cathy then
+# gives Alice the same 1 clue, so the discard looks two tokens richer, while the clue
+# Cathy would otherwise have given pays off beyond the horizon. A discard that fills the
+# clue tokens is not permitted while a legible play clue is available.
+variant Rainbow (6 Suits)
+search full
+hand 0: p2 g1 r4 p1
+hand 1: g5 y2 g3 y4
+hand 2: m5 p4 p3 r4
+hand 3: y3 b1 p4 b4
+clue 0 3 1
+not-action 1: discard 4
+action 1: clue 0 1
