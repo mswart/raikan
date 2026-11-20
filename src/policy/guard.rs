@@ -15,10 +15,15 @@
 //! discard or the card is known trash: from level 7 a discard instead of a known play is a
 //! Scream Discard Chop Move, which the bot neither reads nor gives yet, so a human partner
 //! would misread it.
+//!
+//! A clue is not permitted while we hold a convention play when its focus is a potential
+//! finesse: a playable, non-critical card on the receiver's finesse position. Nothing is
+//! lost by playing first, because the card can still be played through a finesse of its
+//! successor (or clued later), while the delayed play costs tempo.
 
 use smallvec::SmallVec;
 
-use crate::conventions::{View, Worth};
+use crate::conventions::{PlayState, View, Worth};
 use crate::domain::{CardId, ClueId, Seat};
 use crate::engine::Action;
 
@@ -49,10 +54,39 @@ pub fn clue_errors(view: &View, baseline: &Worth, target: Seat, clue: ClueId) ->
 /// play (or as the sarcastic discard, or of known trash), clues when legible.
 pub fn permitted(view: &View, baseline: &Worth, action: Action) -> bool {
     match action {
-        Action::Clue { target, clue } => legible_clue(view, baseline, target, clue),
+        Action::Clue { target, clue } => {
+            !delays_play_for_finesse(view, target, clue)
+                && legible_clue(view, baseline, target, clue)
+        }
         Action::Play(_) => true,
         Action::Discard(card) => legible_discard(view, card),
     }
+}
+
+/// The card of `seat` a finesse would blind-play: the newest card that is neither clued,
+/// promised nor already called to play.
+pub fn finesse_position(view: &View, seat: Seat) -> Option<CardId> {
+    view.newest_first(seat).map(|(_, card)| card).find(|&card| {
+        let note = view.note(card);
+        !note.clued && note.promised.is_none() && !note.play
+    })
+}
+
+/// Whether `clue` would delay our convention play only to clue a potential finesse: its
+/// focus is a playable, non-critical card on the receiver's finesse position, not on chop.
+pub fn delays_play_for_finesse(view: &View, target: Seat, clue: ClueId) -> bool {
+    if view.next_play().is_none() {
+        return false;
+    }
+    let touched = view.visible_touched(target, clue);
+    let Some(focus) = view.clue_focus(target, touched) else {
+        return false;
+    };
+    finesse_position(view, target) == Some(focus)
+        && view.chop(target) != Some(focus)
+        && view
+            .identity(focus)
+            .is_some_and(|identity| view.play_state(identity) == PlayState::Playable)
 }
 
 /// Whether discarding `card` reads as a plain discard: we hold no convention play, the

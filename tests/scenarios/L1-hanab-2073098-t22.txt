@@ -1,0 +1,38 @@
+# rule: L1.finesse-position
+# hanab.live game 2073098, turn 22: Bob (seat 1) holds a known r2 with one clue left.
+# Alice's newest card, on her finesse position, is b3 (b2 played). With search the bot gave
+# Alice blue instead of playing: the clue only delays the play, as b3 can still be
+# finessed (or clued) later. A clue focusing a playable card on the finesse position is
+# not permitted while the giver holds a convention play.
+variant Rainbow (6 Suits)
+search full
+hand 0: b1 b5 p3 y3
+hand 1: r2 p4 g1 r4
+hand 2: y2 y1 p5 m5
+hand 3: r4 m3 p4 y5
+draws: r1 m1 y1 b2 y3 r1 g3 g3 g2 r3 b3
+clue 0 1 green
+play 1 3
+clue 2 0 1
+clue 3 2 1
+play 0 1
+clue 1 0 blue
+clue 2 3 5
+clue 3 1 1
+play 0 1
+play 1 1
+play 2 2
+discard 3 3
+clue 0 2 3
+clue 1 2 5
+play 2 2
+clue 3 1 2
+discard 0 4
+play 1 1
+play 2 2
+clue 3 1 red
+discard 0 4
+note 1 1 2: r2 clued play
+not-action 1: clue 0 blue
+not-action 1: clue 0 3
+action 1: play 2

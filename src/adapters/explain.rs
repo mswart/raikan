@@ -277,6 +277,11 @@ fn guard_verdict(view: &View, baseline: &crate::conventions::Worth, action: Acti
                 "rejected: discard while holding a convention play".to_string()
             }
         }
+        Action::Clue { target, clue }
+            if policy::guard::delays_play_for_finesse(view, target, clue) =>
+        {
+            "rejected: delays a convention play for a potential finesse".to_string()
+        }
         Action::Clue { target, clue } => match view.clue_views_expecting(
             target,
             clue,
