@@ -1,0 +1,23 @@
+# rule: L5.urgency
+# Urgency Principle: Bob is finessed for r2 but first saves Cathy's critical y2 on chop.
+# That defers his blind play once: Dana keeps waiting instead of playing her red card as
+# r2, and Bob still owes the r2 on his next turn.
+hand 0: p5 y3 b4 p4
+hand 1: r2 g4 y4 b3
+hand 2: b2 g2 y2 r1
+hand 3: r3 g1 p3 y2
+draws: g4 b1 p1 y1 g5
+clue 0 2 1
+clue 1 0 5
+play 2 4
+discard 3 4
+clue 0 3 red
+note 1 1 1: r2 promised play
+clue 1 2 2
+note 1 1 1: r2 promised play
+note 3 3 2: ? noplay
+discard 2 4
+not-action 3: play 2
+discard 3 4
+discard 0 4
+action 1: play 1

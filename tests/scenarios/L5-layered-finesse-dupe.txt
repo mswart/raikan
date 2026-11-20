@@ -1,0 +1,17 @@
+# rule: L5.layered-finesse-dupe
+# Layered Finesse Dupe Clue: Cathy's b1 is the layer of a finesse for Emily's r2. Before
+# Cathy unravels it (she defers once to save a 5), Alice's b1 gets clued until she knows it
+# exactly. It duplicates the layer card, so Alice passes it back with a discard.
+hand 0: b1 g3 y3 p4
+hand 1: g4 y4 p3 g2
+hand 2: b1 r1 y2 p2
+hand 3: b3 y1 g4 p5
+hand 4: r2 g3 b4 p3
+clue 0 4 red
+note 0 2 1: b1 promised play
+clue 1 0 1
+clue 2 3 5
+clue 3 0 blue
+note 0 0 1: b1 clued
+discard 4 4
+action 0: discard 1

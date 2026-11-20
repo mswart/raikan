@@ -57,7 +57,7 @@ mean that all earlier levels are complete. Variant support is listed under
 | [2 — Basic Moves](https://hanabi.github.io/level-2) | Implemented for the standard five-suit game |
 | [3 — Basic Strategy](https://hanabi.github.io/level-3) | Implemented for the standard five-suit game |
 | [4 — Chop Moves](https://hanabi.github.io/level-4) | Implemented |
-| [5 — Intermediate Finesses](https://hanabi.github.io/level-5) | Partial |
+| [5 — Intermediate Finesses](https://hanabi.github.io/level-5) | Implemented |
 | [6 — Tempo Clues](https://hanabi.github.io/level-6) | Partial |
 | [7 — Emergency Discards](https://hanabi.github.io/level-7) | Limited tactical support; discard signals missing |
 | [8 — End-Game](https://hanabi.github.io/level-8) | No dedicated convention support |
@@ -152,15 +152,24 @@ The rules live in [chop_move.rs](src/conventions/chop_move.rs).
 
 ### Level 5 — Intermediate Finesses
 
-* **Implemented:** Layered finesses track playable cards ahead of a connecting
-  target, including layered self-finesses. Queued connections reserve their cards
-  across turns and hand shifts. Candidate clues are checked for unsafe or
-  duplicate layers, and resolved finesse cards participate in good-touch deductions.
+* **Layered, hidden and clandestine finesses:** Layered finesses track playable cards
+  ahead of a connecting target, including layered self-finesses. A player who plays a
+  clued card as a perceived prompt and finds another playable card blind-plays the next
+  finesse position (hidden finesse); observers do not read that play as declining the
+  finesse. When a layer connects to the clue too (clandestine), the receiver keeps both
+  readings until the finessed player's next turn shows which one was meant.
+* **Queued and ambiguous finesses:** A finessed card counts as clued, so a second
+  finesse uses the next finesse position and the blind plays happen in order. When two
+  players hold the card on finesse position, each sees the other's copy; once the first
+  passes, the second plays, even if a teammate's clue reads wrongly until then.
+* **Urgency Principle:** Finessed players blind-play as soon as possible. A save of a
+  card on chop defers the blind play once; teammates keep waiting for one more turn.
+* **Layered Finesse Dupe Clue:** A clued card whose exact identity is already promised
+  to a blind play elsewhere is passed back with a discard.
+* **Schrödinger's Cat Principle:** Receivers keep every live reading of a clue until
+  plays, discards and clues of the intervening seats decide it.
 * **Multi-colour prompts** (rainbow): a prompt goes to the clued card with the most
   positive clue information, ties to the newest; negative information is ignored.
-* **Gaps:** Double prompts in multi-colour variants are not covered. Hidden
-  and clandestine finesse cases are not comprehensively covered by the current
-  resolver and regression tests; layered-finesse support is not full level-5 support.
 
 ### Level 6 — Tempo Clues
 

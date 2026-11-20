@@ -1,0 +1,24 @@
+# rule: L2.finesse
+# Queued finesse: a finessed card counts as clued, so a second finesse on the same player
+# uses the next finesse position. The player blind-plays them in order, and the second
+# receiver waits for both.
+hand 0: b2 g3 y3 p4
+hand 1: g4 y4 p3 g2
+hand 2: r1 b1 y2 p2
+hand 3: r2 y5 p5 g1
+draws: g1 y1 p1 r3
+clue 0 3 red
+note 2 2 1: r1 promised play
+clue 1 0 blue
+note 2 2 2: b1 promised
+note 0 0 1: b1,b2 noplay
+action 2: play 1
+play 2 1
+note 2 2 2: b1 promised play
+discard 3 4
+note 0 0 1: b1,b2 noplay
+discard 0 4
+clue 1 3 5
+action 2: play 2
+play 2 2
+note 0 0 2: b2 play

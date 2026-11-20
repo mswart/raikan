@@ -10,7 +10,7 @@ use crate::variants::{CATALOGUE_REVISION, Variant};
 use std::hash::{Hash, Hasher};
 
 /// Highest H-Group level whose conventions are all implemented (strict profiles compile).
-pub const COMPLETE_LEVEL: u8 = 4;
+pub const COMPLETE_LEVEL: u8 = 5;
 
 /// Revision of the convention implementation; part of the profile digest.
 pub const CONVENTION_REVISION: u32 = 1;
@@ -44,6 +44,8 @@ pub enum Rule {
     OrderChopMove,
     // level 5
     LayeredFinesse,
+    Urgency,
+    LayeredFinesseDupe,
     MultiColorPrompt,
     FreeChoiceFinesse,
     // level 6
@@ -321,7 +323,25 @@ pub const RULES: &[RuleMeta] = &[
         &[Finesse],
         "https://hanabi.github.io/learning-path#the-layered-finesse",
         Clue,
-        Partial("hidden and clandestine finesses are not covered"),
+        Complete,
+    ),
+    meta(
+        Urgency,
+        "L5.urgency",
+        5,
+        &[Finesse],
+        "https://hanabi.github.io/level-5#urgency-principle-playing-into-finesses-as-soon-as-possible",
+        Clue,
+        Complete,
+    ),
+    meta(
+        LayeredFinesseDupe,
+        "L5.layered-finesse-dupe",
+        5,
+        &[LayeredFinesse, SarcasticDiscard],
+        "https://hanabi.github.io/level-5#the-layered-finesse-dupe-clue",
+        Discard,
+        Complete,
     ),
     RuleMeta {
         applies: multi_color,
@@ -332,7 +352,7 @@ pub const RULES: &[RuleMeta] = &[
             &[Prompt],
             "https://hanabi.github.io/level-5#prompts-in-multi-color-variants",
             Clue,
-            Partial("double prompts in multi-colour variants are not covered"),
+            Complete,
         )
     },
     // The rainbow page assigns no level; it needs prompts and finesses, so it is reviewed
@@ -610,10 +630,10 @@ mod tests {
             other => panic!("strict level 20 must be refused: {other:?}"),
         }
         // variant-specific entries only apply to their variants
-        assert!(!l9.partial.contains(&"L5.multi-color-prompt"));
+        assert!(!l9.partial.contains(&"L5.free-choice-finesse"));
         let rainbow = Variant::by_name("Rainbow (6 Suits)").unwrap();
         let r9 = Profile::new(9, &rainbow, false).unwrap();
-        assert!(r9.partial.contains(&"L5.multi-color-prompt"));
+        assert!(r9.partial.contains(&"L5.free-choice-finesse"));
     }
 
     #[test]

@@ -1,0 +1,25 @@
+# rule: L5.layered-finesse
+# Clandestine finesse: a 3 clue to Cathy's r3 finesses Bob, whose finesse position holds b2
+# before r2. Bob blind-plays b2, which also connects to a 3, so Cathy cannot tell r3 from
+# b3 yet and must wait; Bob knows he still owes the r2 on his next finesse position.
+hand 0: p5 g4 y4 g3 r4
+hand 1: b2 r2 g2 y3 p3
+hand 2: r3 y2 p2 r1 b1
+draws: g1 y1 p1 y3
+clue 0 2 1
+clue 1 0 5
+play 2 5
+discard 0 5
+clue 1 2 2
+play 2 5
+clue 0 2 3
+note 1 1 1: ? promised play
+play 1 1
+note 2 2 3: r3,b3 noplay
+note 1 1 2: r2 promised play
+note 0 1 2: r2 promised play
+# If Bob does something else on his next turn, Cathy had the b3.
+discard 2 2
+discard 0 5
+discard 1 5
+note 2 2 3: b3 play

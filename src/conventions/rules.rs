@@ -378,14 +378,16 @@ impl View {
             if trash.contains(identity) {
                 return None;
             }
+            // Layered Finesse Dupe Clue: a copy already promised to a blind play elsewhere
+            // (a layer, or a finesse) makes ours a duplicate as well.
+            let dupe = self.rule(Rule::LayeredFinesseDupe);
             self.others()
                 .any(|seat| {
                     self.state.hand(seat).iter().any(|&other| {
                         let n = self.note(other);
-                        n.clued
-                            && !n.stopped
-                            && self.identity(other) == Some(identity)
-                            && n.belief.contains_hard(identity)
+                        self.identity(other) == Some(identity)
+                            && ((n.clued && !n.stopped && n.belief.contains_hard(identity))
+                                || (dupe && !n.clued && n.promised.is_some()))
                     })
                 })
                 .then_some(card)

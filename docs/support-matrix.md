@@ -39,16 +39,16 @@ keeps it in sync. Every convention of levels 1–20 is listed, implemented or no
 | 4 | [The Trash Chop Move](https://hanabi.github.io/level-4#the-trash-chop-move-tcm) | Move | complete | L4.trash-chop-move |
 | 4 | [The 5's Chop Move](https://hanabi.github.io/level-4#the-5s-chop-move-5cm) | Move | complete | L4.five-chop-move |
 | 4 | [The Order Chop Move](https://hanabi.github.io/level-4#the-order-chop-move-ocm) | Move | complete | L4.order-chop-move |
-| 5 | [Prompts in Multi-Color Variants](https://hanabi.github.io/level-5#prompts-in-multi-color-variants) | Move | partial: no double prompts in multi-colour variants | L5.multi-color-prompt |
+| 5 | [Prompts in Multi-Color Variants](https://hanabi.github.io/level-5#prompts-in-multi-color-variants) | Move | complete | L5.multi-color-prompt |
 | 5 | [The Free Choice Finesse (rainbow)](https://hanabi.github.io/variant-specific/rainbow#the-free-choice-finesse) | Move | partial: receivers keep both readings; never given deliberately | L5.free-choice-finesse |
-| 5 | [The Hidden Finesse](https://hanabi.github.io/level-5#the-hidden-finesse) | Move | partial: only through the layered-finesse resolver | L5.layered-finesse |
-| 5 | [The Layered Finesse](https://hanabi.github.io/level-5#the-layered-finesse) | Move | partial: layered self-finesses and retargeting; not every case | L5.layered-finesse |
-| 5 | [The Clandestine Finesse](https://hanabi.github.io/level-5#the-clandestine-finesse) | Move | missing |  |
-| 5 | [The Queued Finesse](https://hanabi.github.io/level-5#the-queued-finesse) | Move | partial: queued connections reserve cards; no explicit waiting rule | L2.finesse |
-| 5 | [The Ambiguous Finesse](https://hanabi.github.io/level-5#the-ambiguous-finesse) | Move | missing |  |
-| 5 | [The Layered Finesse Dupe Clue](https://hanabi.github.io/level-5#the-layered-finesse-dupe-clue) | Move | missing |  |
-| 5 | [Urgency Principle](https://hanabi.github.io/level-5#urgency-principle-playing-into-finesses-as-soon-as-possible) | Principle | missing |  |
-| 5 | [Schrödinger's Cat Principle](https://hanabi.github.io/level-5#schrödingers-cat-principle) | Principle | missing |  |
+| 5 | [The Hidden Finesse](https://hanabi.github.io/level-5#the-hidden-finesse) | Move | complete | L5.layered-finesse |
+| 5 | [The Layered Finesse](https://hanabi.github.io/level-5#the-layered-finesse) | Move | complete | L5.layered-finesse |
+| 5 | [The Clandestine Finesse](https://hanabi.github.io/level-5#the-clandestine-finesse) | Move | complete | L5.layered-finesse |
+| 5 | [The Queued Finesse](https://hanabi.github.io/level-5#the-queued-finesse) | Move | complete | L2.finesse |
+| 5 | [The Ambiguous Finesse](https://hanabi.github.io/level-5#the-ambiguous-finesse) | Move | complete | L2.finesse |
+| 5 | [The Layered Finesse Dupe Clue](https://hanabi.github.io/level-5#the-layered-finesse-dupe-clue) | Move | complete | L5.layered-finesse-dupe |
+| 5 | [Urgency Principle](https://hanabi.github.io/level-5#urgency-principle-playing-into-finesses-as-soon-as-possible) | Principle | complete | L5.urgency |
+| 5 | [Schrödinger's Cat Principle](https://hanabi.github.io/level-5#schrödingers-cat-principle) | Principle | complete | L2.prompt, L2.finesse |
 | 6 | [The Tempo Clue](https://hanabi.github.io/level-6#the-tempo-clue) | Move | partial: re-touch play clues; focus shifting only in stalls | L1.play-clue, L6.tempo-clue |
 | 6 | [The Valuable Tempo Clue](https://hanabi.github.io/level-6#the-valuable-tempo-clue) | Move | missing |  |
 | 6 | [The Tempo Clue Stall](https://hanabi.github.io/level-6#the-tempo-clue-stall-a-non-valuable-tempo-clue) | Move | complete | L9.stall.tempo |

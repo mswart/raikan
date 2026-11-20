@@ -101,16 +101,16 @@ pub const REQUIRED: &[Required] = required! {
     4 "L4.five-chop-move" Move "The 5's Chop Move" "the-5s-chop-move-5cm" [FiveChopMove] Complete;
     4 "L4.order-chop-move" Move "The Order Chop Move" "the-order-chop-move-ocm" [OrderChopMove] Complete;
 
-    5 "L5.multi-color-prompt" Move "Prompts in Multi-Color Variants" "prompts-in-multi-color-variants" [MultiColorPrompt] Partial("no double prompts in multi-colour variants");
+    5 "L5.multi-color-prompt" Move "Prompts in Multi-Color Variants" "prompts-in-multi-color-variants" [MultiColorPrompt] Complete;
     5 "L5.free-choice-finesse" Move "The Free Choice Finesse (rainbow)" "https://hanabi.github.io/variant-specific/rainbow#the-free-choice-finesse" [FreeChoiceFinesse] Partial("receivers keep both readings; never given deliberately");
-    5 "L5.hidden-finesse" Move "The Hidden Finesse" "the-hidden-finesse" [LayeredFinesse] Partial("only through the layered-finesse resolver");
-    5 "L5.layered-finesse" Move "The Layered Finesse" "the-layered-finesse" [LayeredFinesse] Partial("layered self-finesses and retargeting; not every case");
-    5 "L5.clandestine-finesse" Move "The Clandestine Finesse" "the-clandestine-finesse" [] Missing;
-    5 "L5.queued-finesse" Move "The Queued Finesse" "the-queued-finesse" [Finesse] Partial("queued connections reserve cards; no explicit waiting rule");
-    5 "L5.ambiguous-finesse" Move "The Ambiguous Finesse" "the-ambiguous-finesse" [] Missing;
-    5 "L5.layered-finesse-dupe" Move "The Layered Finesse Dupe Clue" "the-layered-finesse-dupe-clue" [] Missing;
-    5 "L5.urgency" Principle "Urgency Principle" "urgency-principle-playing-into-finesses-as-soon-as-possible" [] Missing;
-    5 "L5.schrodingers-cat" Principle "Schrödinger's Cat Principle" "schrödingers-cat-principle" [] Missing;
+    5 "L5.hidden-finesse" Move "The Hidden Finesse" "the-hidden-finesse" [LayeredFinesse] Complete;
+    5 "L5.layered-finesse" Move "The Layered Finesse" "the-layered-finesse" [LayeredFinesse] Complete;
+    5 "L5.clandestine-finesse" Move "The Clandestine Finesse" "the-clandestine-finesse" [LayeredFinesse] Complete;
+    5 "L5.queued-finesse" Move "The Queued Finesse" "the-queued-finesse" [Finesse] Complete;
+    5 "L5.ambiguous-finesse" Move "The Ambiguous Finesse" "the-ambiguous-finesse" [Finesse] Complete;
+    5 "L5.layered-finesse-dupe" Move "The Layered Finesse Dupe Clue" "the-layered-finesse-dupe-clue" [LayeredFinesseDupe] Complete;
+    5 "L5.urgency" Principle "Urgency Principle" "urgency-principle-playing-into-finesses-as-soon-as-possible" [Urgency] Complete;
+    5 "L5.schrodingers-cat" Principle "Schrödinger's Cat Principle" "schrödingers-cat-principle" [Prompt, Finesse] Complete;
 
     6 "L6.tempo-clue" Move "The Tempo Clue" "the-tempo-clue" [PlayClue, TempoClue] Partial("re-touch play clues; focus shifting only in stalls");
     6 "L6.valuable-tempo-clue" Move "The Valuable Tempo Clue" "the-valuable-tempo-clue" [] Missing;

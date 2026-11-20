@@ -122,6 +122,12 @@ fn decide(view: &View, scored: &mut Alternatives) -> Decision {
     let baseline = view.worth(0);
     let lookahead = view.rule(Rule::EmergencyLookahead);
     let sarcastic = view.sarcastic_discard();
+    // A promised blind play that itself removes the position's errors (a teammate would
+    // misread a clue unless we play into the finesse now) is still the convention play.
+    let resolving_play = baseline.has_errors()
+        && view
+            .next_play()
+            .is_some_and(|card| blind_play_resolves(view, card, &baseline));
     let mut normal_clue_available = false;
     let mut best_stall: Option<(StallKind, u8, Action, Evaluation)> = None;
     let mut best: Option<(Action, f64)> = None;
@@ -188,7 +194,7 @@ fn decide(view: &View, scored: &mut Alternatives) -> Decision {
         }
         // Preserve the expected play order when it is safe. Skipping a promised play can
         // retract a teammate's connection, so only an emergency warrants it.
-        if ((matches!(action, Action::Play(_)) && !baseline.has_errors())
+        if ((matches!(action, Action::Play(_)) && (!baseline.has_errors() || resolving_play))
             || (clues < max && matches!(action, Action::Discard(c) if Some(c) == sarcastic)))
             && evaluation.danger == 0.0
         {
@@ -262,6 +268,26 @@ fn decide(view: &View, scored: &mut Alternatives) -> Decision {
         action,
         reason: Reason::Fallback,
     }
+}
+
+/// Whether blind-playing our promised `card` as the identity it was promised as leaves
+/// fewer convention errors than `baseline`.
+fn blind_play_resolves(view: &View, card: CardId, baseline: &Worth) -> bool {
+    let note = view.note(card);
+    if note.clued || note.promised.is_none() {
+        return false;
+    }
+    let Some(identity) = note.belief.identity() else {
+        return false;
+    };
+    let mut after = view.detached();
+    after.observe(&Event::Play {
+        seat: view.me,
+        card,
+        identity: Some(identity),
+        success: view.playable_set().contains(identity),
+    });
+    after.worth(0).errors < baseline.errors
 }
 
 fn evaluate(

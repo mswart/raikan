@@ -170,12 +170,30 @@ impl View {
             self.context.early_five_stalled = true;
         }
         self.context.last_loss = None;
+        // Urgency Principle: a finessed player may defer the blind play once for a really
+        // important clue: a save of the card on chop.
+        let urgent = self.rule(Rule::Urgency)
+            && fix.is_none()
+            && !save_options.is_empty()
+            && old_chop == Some(focus)
+            && newly_clued.contains(focus)
+            && !self.context.deferred.contains(giver)
+            && {
+                let mut probe = self.interpretations.clone();
+                probe.on_non_play(giver)
+            };
         let skipped_finesse = giver == self.me
+            && !urgent
             && self.state.hand(self.me).iter().any(|&c| {
                 let note = self.note(c);
                 note.promised.is_some() && note.play && !note.clued
             });
-        self.interpretations.on_non_play(giver);
+        if urgent {
+            self.context.deferred.insert(giver);
+        } else {
+            self.context.deferred.remove(giver);
+            self.interpretations.on_non_play(giver);
+        }
         let touched_cards: SmallVec<[CardId; 6]> = touched.iter().collect();
         self.interpretations.on_clue(&touched_cards);
         self.turn += 1;

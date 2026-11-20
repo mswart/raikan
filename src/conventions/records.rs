@@ -205,7 +205,10 @@ impl Interpretations {
     }
 
     /// React to a play: confirm, advance, decline or kill readings; retarget layered
-    /// finesses when a blind play turned out to be a layer.
+    /// finesses when a blind play turned out to be a layer. `prompt_like` holds the
+    /// identities the played card could be if it was a clued card: playing such a card is
+    /// the holder answering a perceived prompt (a hidden finesse), not declining.
+    #[allow(clippy::too_many_arguments)]
     pub fn on_play(
         &mut self,
         player: Seat,
@@ -214,6 +217,7 @@ impl Interpretations {
         successful: bool,
         hand_after: &[HandEntry],
         ones: Option<IdentitySet>,
+        prompt_like: IdentitySet,
     ) {
         let prior_obligation = self
             .records
@@ -272,6 +276,7 @@ impl Interpretations {
                                 || (s.kind == StepKind::Prompt && player != receiver))
                             && s.card != played
                             && !matches_play(s)
+                            && !prompt_like.contains(s.identity)
                     });
                 if declined {
                     return false;

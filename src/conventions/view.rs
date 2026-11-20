@@ -148,6 +148,9 @@ pub struct TurnContext {
     pub early_five_stalled: bool,
     /// The previous action discarded or misplayed this identity.
     pub last_loss: Option<(Seat, Identity)>,
+    /// Seats that deferred a pending blind play once for an urgent clue (Urgency
+    /// Principle); their next non-play declines it.
+    pub deferred: crate::domain::SeatSet,
 }
 
 impl Default for TurnContext {
@@ -156,6 +159,7 @@ impl Default for TurnContext {
             early_game: true,
             early_five_stalled: false,
             last_loss: None,
+            deferred: crate::domain::SeatSet::EMPTY,
         }
     }
 }
@@ -700,6 +704,7 @@ impl View {
                 .retain(|transfer| transfer.identity != identity);
         }
         self.context.last_loss = (!successful).then_some((seat, identity));
+        self.context.deferred.remove(seat);
         self.turn += 1;
         let note = self.notes[card.index()];
         let hand_after = self.hand_after(seat, card);
@@ -715,8 +720,20 @@ impl View {
         }
         self.apply_public(event);
         let ones = self.ones_for_reactions();
-        self.interpretations
-            .on_play(seat, card, identity, successful, &hand_after, ones);
+        let prompt_like = if note.clued {
+            note.belief.hard
+        } else {
+            IdentitySet::EMPTY
+        };
+        self.interpretations.on_play(
+            seat,
+            card,
+            identity,
+            successful,
+            &hand_after,
+            ones,
+            prompt_like,
+        );
         if let Some(chop) = order_chop_move {
             self.notes[chop.index()].chop_moved = true;
         }
@@ -744,6 +761,7 @@ impl View {
             self.context.early_game = false;
         }
         self.context.last_loss = Some((seat, identity));
+        self.context.deferred.remove(seat);
         self.turn += 1;
         self.interpretations.on_non_play(seat);
         self.interpretations.on_discard(card);

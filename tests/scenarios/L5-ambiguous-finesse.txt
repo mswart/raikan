@@ -1,0 +1,12 @@
+# rule: L2.finesse
+# Ambiguous finesse: Bob and Cathy both hold r1 on finesse position. Each sees the other's
+# r1, so Bob does not blind-play; once Bob passes, Cathy knows it is her and plays.
+hand 0: b2 g3 y3 p4
+hand 1: r1 y4 p3 g2
+hand 2: r1 b3 y2 p2
+hand 3: r2 y5 p5 g1
+clue 0 3 red
+not-action 1: play 1
+discard 1 4
+note 2 2 1: r1 promised play
+action 2: play 1
