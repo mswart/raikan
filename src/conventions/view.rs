@@ -831,6 +831,7 @@ impl View {
                 step.kind = StepKind::Finesse;
                 step.fallback = None;
                 step.layers = 0;
+                step.known_play = false;
                 // In the holder's view a later finesse may have occupied the same unknown
                 // card. Shift that suffix across the original hand, leaving fixed prompts and
                 // other clues' cards reserved.

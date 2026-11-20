@@ -58,6 +58,10 @@ impl PlayEvaluation {
                     .map(|(_, c)| c)
             })
             .flatten();
+        let known_play = kind == StepKind::Prompt && {
+            let note = view.note(card);
+            note.play || note.delayed > 0
+        };
         self.steps.push(Step {
             identity,
             holder,
@@ -66,6 +70,7 @@ impl PlayEvaluation {
             fallback,
             layers: 0,
             done: false,
+            known_play,
         });
     }
 

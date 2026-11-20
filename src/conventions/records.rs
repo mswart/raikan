@@ -40,6 +40,9 @@ pub struct Step {
     /// Cards that must be played blind before this one (layered finesse).
     pub layers: u8,
     pub done: bool,
+    /// A prompt on a card its holder already knew to play: that play would happen anyway,
+    /// so it confirms nothing about this reading.
+    pub known_play: bool,
 }
 
 /// One reading of a play clue.
@@ -252,6 +255,7 @@ impl Interpretations {
                     (Some(h.tier) == active_tier || active_identities.contains(&h.focus_identity))
                         && h.expected_now().is_some_and(|s| {
                             matches!(s.kind, StepKind::Finesse | StepKind::Prompt)
+                                && !s.known_play
                                 && matches_play(s)
                         })
                 });
@@ -502,6 +506,7 @@ fn retarget_finesses(
             return false;
         };
         step.card = entry.card;
+        step.known_play = false;
         step.kind = if entry.clued {
             StepKind::Prompt
         } else {
