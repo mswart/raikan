@@ -54,6 +54,16 @@ impl View {
                 .or_else(|| fresh.max())
         } else if !new.is_empty() {
             new.max()
+        } else if self.rule(Rule::TempoClue) {
+            // Focus shifting (level 6): skip touched cards already known to be playable.
+            self.newest_first(receiver)
+                .map(|(_, c)| c)
+                .filter(|&c| touched.contains(c))
+                .find(|&c| {
+                    let note = self.note(c);
+                    !(note.play && note.delayed == 0)
+                })
+                .or_else(|| touched.max())
         } else {
             touched.max()
         }

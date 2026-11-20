@@ -58,7 +58,7 @@ mean that all earlier levels are complete. Variant support is listed under
 | [3 — Basic Strategy](https://hanabi.github.io/level-3) | Implemented for the standard five-suit game |
 | [4 — Chop Moves](https://hanabi.github.io/level-4) | Implemented |
 | [5 — Intermediate Finesses](https://hanabi.github.io/level-5) | Implemented |
-| [6 — Tempo Clues](https://hanabi.github.io/level-6) | Partial |
+| [6 — Tempo Clues](https://hanabi.github.io/level-6) | Implemented |
 | [7 — Emergency Discards](https://hanabi.github.io/level-7) | Limited tactical support; discard signals missing |
 | [8 — End-Game](https://hanabi.github.io/level-8) | No dedicated convention support |
 | [9 — Stalling](https://hanabi.github.io/level-9) | Most stall types implemented; exceptions remain |
@@ -173,12 +173,16 @@ The rules live in [chop_move.rs](src/conventions/chop_move.rs).
 
 ### Level 6 — Tempo Clues
 
-* **Implemented:** Re-cluing can request a play from an already-clued card. In
-  supported stalling situations, a tempo clue promises only its focus to play,
-  shifting that focus past touched cards already known to be playable.
-* **Gaps:** No tempo chop moves, general focus-shifting rule outside stalls, or
-  dedicated discard-modulation policy. The full distinction between valuable
-  tempo clues and low-value tempo clues is not encoded.
+* **Tempo clues:** A clue that touches no new card asks the receiver to play its focus,
+  the newest touched card. Focus shifts past touched cards already known to be playable;
+  a clue on known-playable cards only is a burn.
+* **Valuable tempo clues:** A tempo clue is valuable when it gets two or more clued cards
+  played, when its focus (not a 5) could not have been prompted directly because a newer
+  clued card would take the prompt, or when it unlocks a locked hand. Valuable tempo
+  clues are ordinary play clues and satisfy the minimum clue value.
+* **Tempo Clue Chop Move:** Outside stalling situations, a tempo clue that is not
+  valuable also chop moves the receiver's chop. The bot gives one only when the chop is
+  worth protecting. Stalling situations read it as a tempo clue stall instead (level 9).
 
 ### Level 7 — Emergency Discards
 

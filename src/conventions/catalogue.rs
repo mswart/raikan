@@ -112,10 +112,10 @@ pub const REQUIRED: &[Required] = required! {
     5 "L5.urgency" Principle "Urgency Principle" "urgency-principle-playing-into-finesses-as-soon-as-possible" [Urgency] Complete;
     5 "L5.schrodingers-cat" Principle "Schrödinger's Cat Principle" "schrödingers-cat-principle" [Prompt, Finesse] Complete;
 
-    6 "L6.tempo-clue" Move "The Tempo Clue" "the-tempo-clue" [PlayClue, TempoClue] Partial("re-touch play clues; focus shifting only in stalls");
-    6 "L6.valuable-tempo-clue" Move "The Valuable Tempo Clue" "the-valuable-tempo-clue" [] Missing;
+    6 "L6.tempo-clue" Move "The Tempo Clue" "the-tempo-clue" [PlayClue, TempoClue] Complete;
+    6 "L6.valuable-tempo-clue" Move "The Valuable Tempo Clue" "the-valuable-tempo-clue" [ValuableTempoClue] Complete;
     6 "L6.tempo-clue-stall" Move "The Tempo Clue Stall" "the-tempo-clue-stall-a-non-valuable-tempo-clue" [StallTempo] Complete;
-    6 "L6.tempo-clue-chop-move" Move "The Tempo Clue Chop Move" "the-tempo-clue-chop-move-tccm" [] Missing;
+    6 "L6.tempo-clue-chop-move" Move "The Tempo Clue Chop Move" "the-tempo-clue-chop-move-tccm" [TempoClueChopMove] Complete;
 
     7 "L7.scream-discard" Move "The Scream Discard Chop Move" "the-scream-discard-chop-move-sdcm" [] Missing;
     7 "L7.scream-discard-known-trash" Move "The Scream Discard Chop Move (With Known-Trash)" "the-scream-discard-chop-move-with-known-trash" [] Missing;

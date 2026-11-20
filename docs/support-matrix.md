@@ -49,10 +49,10 @@ keeps it in sync. Every convention of levels 1–20 is listed, implemented or no
 | 5 | [The Layered Finesse Dupe Clue](https://hanabi.github.io/level-5#the-layered-finesse-dupe-clue) | Move | complete | L5.layered-finesse-dupe |
 | 5 | [Urgency Principle](https://hanabi.github.io/level-5#urgency-principle-playing-into-finesses-as-soon-as-possible) | Principle | complete | L5.urgency |
 | 5 | [Schrödinger's Cat Principle](https://hanabi.github.io/level-5#schrödingers-cat-principle) | Principle | complete | L2.prompt, L2.finesse |
-| 6 | [The Tempo Clue](https://hanabi.github.io/level-6#the-tempo-clue) | Move | partial: re-touch play clues; focus shifting only in stalls | L1.play-clue, L6.tempo-clue |
-| 6 | [The Valuable Tempo Clue](https://hanabi.github.io/level-6#the-valuable-tempo-clue) | Move | missing |  |
+| 6 | [The Tempo Clue](https://hanabi.github.io/level-6#the-tempo-clue) | Move | complete | L1.play-clue, L6.tempo-clue |
+| 6 | [The Valuable Tempo Clue](https://hanabi.github.io/level-6#the-valuable-tempo-clue) | Move | complete | L6.valuable-tempo-clue |
 | 6 | [The Tempo Clue Stall](https://hanabi.github.io/level-6#the-tempo-clue-stall-a-non-valuable-tempo-clue) | Move | complete | L9.stall.tempo |
-| 6 | [The Tempo Clue Chop Move](https://hanabi.github.io/level-6#the-tempo-clue-chop-move-tccm) | Move | missing |  |
+| 6 | [The Tempo Clue Chop Move](https://hanabi.github.io/level-6#the-tempo-clue-chop-move-tccm) | Move | complete | L6.tempo-clue-chop-move |
 | 7 | [The Scream Discard Chop Move](https://hanabi.github.io/level-7#the-scream-discard-chop-move-sdcm) | Move | missing |  |
 | 7 | [The Scream Discard Chop Move (With Known-Trash)](https://hanabi.github.io/level-7#the-scream-discard-chop-move-with-known-trash) | Move | missing |  |
 | 7 | [The Shout Discard Chop Move](https://hanabi.github.io/level-7#the-shout-discard-chop-move) | Move | missing |  |

@@ -10,7 +10,7 @@ use crate::variants::{CATALOGUE_REVISION, Variant};
 use std::hash::{Hash, Hasher};
 
 /// Highest H-Group level whose conventions are all implemented (strict profiles compile).
-pub const COMPLETE_LEVEL: u8 = 5;
+pub const COMPLETE_LEVEL: u8 = 6;
 
 /// Revision of the convention implementation; part of the profile digest.
 pub const CONVENTION_REVISION: u32 = 1;
@@ -50,6 +50,8 @@ pub enum Rule {
     FreeChoiceFinesse,
     // level 6
     TempoClue,
+    ValuableTempoClue,
+    TempoClueChopMove,
     // level 7
     EmergencyLookahead,
     // level 9
@@ -378,7 +380,25 @@ pub const RULES: &[RuleMeta] = &[
         &[PlayClue],
         "https://hanabi.github.io/learning-path#the-tempo-clue",
         Clue,
-        Partial("tempo clues only in stalling situations; no tempo clue chop move"),
+        Complete,
+    ),
+    meta(
+        ValuableTempoClue,
+        "L6.valuable-tempo-clue",
+        6,
+        &[TempoClue],
+        "https://hanabi.github.io/level-6#the-valuable-tempo-clue",
+        Clue,
+        Complete,
+    ),
+    meta(
+        TempoClueChopMove,
+        "L6.tempo-clue-chop-move",
+        6,
+        &[ValuableTempoClue, ChopMove],
+        "https://hanabi.github.io/level-6#the-tempo-clue-chop-move-tccm",
+        Clue,
+        Complete,
     ),
     meta(
         EmergencyLookahead,

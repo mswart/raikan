@@ -373,6 +373,11 @@ impl View {
         self.trace.0.get_or_insert_with(Vec::new);
     }
 
+    /// The rule that classified the last clue this view read.
+    pub fn last_rule(&self) -> &'static str {
+        self.last_rule
+    }
+
     pub fn rule(&self, rule: Rule) -> bool {
         self.profile.is_active(rule)
     }

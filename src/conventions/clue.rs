@@ -392,8 +392,11 @@ impl View {
             return error;
         }
         if newly_clued.is_empty() {
+            let queued_before = self.queued_clued_cards();
+            let prompt_blocked = self.prompt_blocked(receiver, focus);
             let note = self.note_mut(focus);
-            if note.play && !note.locked && !note.fixed {
+            let burn = note.play && !note.locked && !note.fixed;
+            if burn {
                 // useless re-clue
                 error += 1;
             }
@@ -402,6 +405,26 @@ impl View {
             self.refresh_derived();
             self.refresh_clued_cards();
             self.last_rule = "L1.play-clue";
+            if self.rule(Rule::ValuableTempoClue) && !burn {
+                // A tempo clue is valuable when it gets two or more clued cards played,
+                // when its focus (not a 5) could not have been prompted directly, or when
+                // it unlocks a locked hand. Otherwise it also chop moves (level 6).
+                let gained = (self.queued_clued_cards() - queued_before).len();
+                let valuable = gained >= 2 || prompt_blocked || old_chop.is_none();
+                self.last_rule = "L6.valuable-tempo-clue";
+                if !valuable
+                    && self.rule(Rule::TempoClueChopMove)
+                    && self.chop_moves_allowed()
+                    && let Some(chop) = old_chop
+                {
+                    if giver == self.me && !self.worth_protecting(chop) {
+                        error += 2;
+                    }
+                    self.note_mut(chop).chop_moved = true;
+                    self.refresh_derived();
+                    self.last_rule = "L6.tempo-clue-chop-move";
+                }
+            }
             return error;
         }
 
@@ -500,6 +523,35 @@ impl View {
         self.refresh_derived();
         self.refresh_clued_cards();
         error
+    }
+
+    /// Clued cards (any hand) that are queued to play.
+    fn queued_clued_cards(&self) -> CardSet {
+        self.state
+            .seats()
+            .flat_map(|seat| self.state.hand(seat).iter().copied())
+            .filter(|&c| {
+                let note = self.note(c);
+                note.clued && (note.play || note.delayed > 0)
+            })
+            .collect()
+    }
+
+    /// A prompt for the identities `focus` may have would take another clued card of the
+    /// receiver first (a newer clued card that may share an identity), and `focus` is not
+    /// a known 5: a tempo clue on it is valuable.
+    fn prompt_blocked(&self, receiver: Seat, focus: CardId) -> bool {
+        let belief = self.note(focus).belief.soft;
+        if belief.is_subset(self.variant.rank_identities(self.variant.num_ranks)) {
+            return false;
+        }
+        self.newest_first(receiver)
+            .map(|(_, c)| c)
+            .take_while(|&c| c != focus)
+            .any(|c| {
+                let note = self.note(c);
+                note.clued && !note.play && note.delayed == 0 && note.belief.intersects(belief)
+            })
     }
 
     /// How the Free Choice rule applies to a colour clue, as this view can tell. A view that

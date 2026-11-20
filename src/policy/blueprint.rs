@@ -312,9 +312,11 @@ fn evaluate(
                                 || (after.chop_moved && !before.chop_moved))
                     })
                 });
-                // Minimum clue value: ordinary tempo clues must not replace a discard. Fixes
-                // and stalls have their own reason to spend a clue.
-                needs_fix = !gets_new_card && view.clue_stall(target, clue).is_none();
+                // Minimum clue value: ordinary tempo clues must not replace a discard. Fixes,
+                // stalls and valuable tempo clues have their own reason to spend a clue.
+                needs_fix = !gets_new_card
+                    && view.clue_stall(target, clue).is_none()
+                    && after.last_rule() != "L6.valuable-tempo-clue";
                 if needs_fix && baseline.no_more_errors_than(upper) {
                     return false;
                 }
