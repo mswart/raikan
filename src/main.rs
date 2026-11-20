@@ -5,9 +5,10 @@
 //! raikan stats [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L]
 //! raikan support                    # H-Group levels 1-20: required conventions and coverage
 //! raikan diff OLD.list NEW.list [--level L]
-//! raikan explain REPLAY --turn T [--candidate ACTION]... [--all] [--world W]
+//! raikan explain REPLAY [--turn T] [--candidate ACTION]... [--all] [--world W]
 //!                [--card CARD [--viewer SEAT]] [--json] [--level L]
-//!     REPLAY: a hanab.live replay JSON file, a replay URL (or a file holding one), or
+//!     REPLAY: a hanab.live replay JSON file, a replay URL (or a file holding one), a
+//!     hanab.live game id or replay URL (downloaded; `#T` gives the turn), or
 //!     `seed:N` for a self-play game with the given options. ACTION: `play 2`,
 //!     `discard 4`, `clue Bob red` (slots count from the newest card). CARD: `#17` or
 //!     `Bob:2`.
@@ -21,7 +22,7 @@ use std::io::{self, BufRead};
 use std::thread;
 
 use raikan::agent::{Agent, BotAgent, Config, GameResult, replay_prefix, run_game};
-use raikan::engine::{EndReason, Replay, ReplayAction, shuffled_world};
+use raikan::engine::{EndReason, GameReference, Replay, ReplayAction, shuffled_world};
 use raikan::search::SearchConfig;
 use raikan::variants::Variant;
 
@@ -180,7 +181,7 @@ fn usage(message: &str) -> ! {
     );
     eprintln!("  raikan diff OLD.list NEW.list [--level L]");
     eprintln!(
-        "  raikan explain REPLAY --turn T [--candidate ACTION]... [--all] [--world W] [--card CARD [--viewer SEAT]] [--json]"
+        "  raikan explain REPLAY [--turn T] [--candidate ACTION]... [--all] [--world W] [--card CARD [--viewer SEAT]] [--json]"
     );
     eprintln!(
         "  search: --search off|fast|full [--simulations N] [--worlds W] [--margin M] [--search-seed S] [--spread P] [--threads N] [--time-limit-ms MS]"
@@ -476,11 +477,21 @@ fn diff(options: &Options, old: &str, new: &str) -> io::Result<()> {
     Ok(())
 }
 
-/// A replay from a JSON file, a URL (or a file holding one), or `seed:N` (self-play).
-fn load_replay(options: &Options, spec: &str) -> Replay {
+/// A replay from a JSON file, a URL (or a file holding one), a hanab.live game id or replay
+/// URL (downloaded; with the turn of its `#T` fragment), or `seed:N` (self-play).
+fn load_replay(options: &Options, spec: &str) -> (Replay, Option<usize>) {
     if let Some(seed) = spec.strip_prefix("seed:") {
         let seed = seed.parse().unwrap_or_else(|_| usage("invalid seed"));
-        return play(options, &variant(options), seed).replay;
+        return (play(options, &variant(options), seed).replay, None);
+    }
+    if !std::path::Path::new(spec).exists()
+        && let Some(game) = GameReference::parse(spec)
+    {
+        let json = download(&game.export_url())
+            .unwrap_or_else(|e| usage(&format!("cannot download game {}: {e}", game.id)));
+        let replay = Replay::from_json(&json)
+            .unwrap_or_else(|e| usage(&format!("cannot parse game {}: {e}", game.id)));
+        return (replay, game.turn);
     }
     let text = if spec.starts_with("http") {
         spec.to_string()
@@ -493,17 +504,37 @@ fn load_replay(options: &Options, spec: &str) -> Replay {
     } else {
         Replay::from_url(text)
     };
-    parsed.unwrap_or_else(|e| usage(&format!("cannot parse replay {spec}: {e}")))
+    let replay = parsed.unwrap_or_else(|e| usage(&format!("cannot parse replay {spec}: {e}")));
+    (replay, None)
+}
+
+#[cfg(feature = "fetch")]
+fn download(url: &str) -> Result<String, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .and_then(|client| client.get(url).send())
+        .and_then(|response| response.error_for_status())
+        .map_err(|e| e.to_string())?;
+    response.text().map_err(|e| e.to_string())
+}
+
+#[cfg(not(feature = "fetch"))]
+fn download(url: &str) -> Result<String, String> {
+    Err(format!(
+        "built without the `fetch` feature; save {url} to a file and pass that instead"
+    ))
 }
 
 fn explain(options: &Options) {
     let [spec] = &options.positional[..] else {
         usage("explain needs one replay");
     };
+    let (replay, url_turn) = load_replay(options, spec);
     let turn = options
         .turn
-        .unwrap_or_else(|| usage("explain needs --turn T"));
-    let replay = load_replay(options, spec);
+        .or(url_turn)
+        .unwrap_or_else(|| usage("explain needs --turn T (or a replay URL ending in #T)"));
     let mut request = raikan::adapters::explain::Request::new(turn);
     request.candidates = options.candidates.clone();
     request.all = options.all;

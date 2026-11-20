@@ -6,7 +6,7 @@
 mod replay;
 mod state;
 
-pub use replay::{Replay, ReplayAction, ReplayError};
+pub use replay::{GameReference, Replay, ReplayAction, ReplayError};
 pub use state::{Action, EndReason, GameState, Status, World, hand_size};
 
 use crate::domain::{CardId, CardSet, ClueId, Identity, Seat};

@@ -43,5 +43,8 @@ lto = "thin"
 codegen-units = 1
 
 [features]
-webclient = ["dep:tungstenite", "dep:reqwest"]
+default = ["fetch"]
+# download games from hanab.live (`raikan explain GAME-ID`)
+fetch = ["dep:reqwest"]
+webclient = ["fetch", "dep:tungstenite"]
 

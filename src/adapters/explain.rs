@@ -346,7 +346,11 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
         }
     }
     if state.is_over() {
-        return Err(format!("the game is over before turn {}", request.turn));
+        return Err(format!(
+            "the game is over before turn {} (its last decision is turn {})",
+            request.turn,
+            actions.len()
+        ));
     }
 
     let seat = state.current;

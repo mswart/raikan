@@ -1,4 +1,5 @@
-//! Replay import and export in hanab.live formats (JSON and `replay-json` URL).
+//! Replay import and export in hanab.live formats (JSON, `/export/ID` JSON and
+//! `replay-json` URL), and references to games stored on hanab.live.
 
 use super::{Action, EndReason, World};
 use crate::domain::{CardId, Seat};
@@ -59,17 +60,130 @@ struct JsonAction {
     value: Option<u8>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 struct JsonOptions {
     variant: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 struct JsonGame {
     players: Vec<String>,
     deck: Vec<JsonCard>,
     actions: Vec<JsonAction>,
     options: JsonOptions,
+}
+
+/// A game as read: the format written by [`Replay::to_json`] or hanab.live's `/export/ID`
+/// (`playerNames`, `options.variantId`, actions as `{"type": "clue", ...}`).
+#[derive(Deserialize)]
+struct JsonGameIn {
+    #[serde(alias = "playerNames")]
+    players: Vec<String>,
+    deck: Vec<JsonCard>,
+    actions: Vec<JsonActionIn>,
+    #[serde(default)]
+    options: JsonOptionsIn,
+}
+
+#[derive(Deserialize, Default)]
+struct JsonOptionsIn {
+    variant: Option<String>,
+    #[serde(rename = "variantId")]
+    variant_id: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum JsonActionIn {
+    Compact(JsonAction),
+    Named(NamedAction),
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum NamedAction {
+    Play {
+        order: u8,
+    },
+    Discard {
+        order: u8,
+    },
+    Clue {
+        #[serde(rename = "receiverIndex")]
+        receiver: u8,
+        clue: NamedClue,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum NamedClue {
+    Color { color: u8 },
+    Rank { rank: u8 },
+}
+
+impl JsonActionIn {
+    /// `(type, target, value)` as in the compact format.
+    fn parts(&self) -> (u8, u8, Option<u8>) {
+        match *self {
+            Self::Compact(JsonAction {
+                kind,
+                target,
+                value,
+            }) => (kind, target, value),
+            Self::Named(NamedAction::Play { order }) => (0, order, None),
+            Self::Named(NamedAction::Discard { order }) => (1, order, None),
+            Self::Named(NamedAction::Clue { receiver, ref clue }) => match *clue {
+                NamedClue::Color { color } => (2, receiver, Some(color)),
+                NamedClue::Rank { rank } => (3, receiver, Some(rank)),
+            },
+        }
+    }
+}
+
+/// A game stored on hanab.live, from its id or one of its replay URLs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GameReference {
+    pub id: u64,
+    /// The turn of the URL fragment (`…/replay/ID#T`), if any.
+    pub turn: Option<usize>,
+}
+
+impl GameReference {
+    /// Parse `2073109`, `https://hanab.live/replay/2073109`,
+    /// `https://hanab.live/shared-replay/2073109#71` or `https://hanab.live/export/2073109`;
+    /// `None` for anything else (a file name, a `replay-json` URL).
+    pub fn parse(spec: &str) -> Option<Self> {
+        let spec = spec.trim();
+        let (path, fragment) = match spec.split_once('#') {
+            Some((path, fragment)) => (path, Some(fragment)),
+            None => (spec, None),
+        };
+        let id = if path.bytes().all(|b| b.is_ascii_digit()) {
+            path
+        } else {
+            let rest = path
+                .strip_prefix("https://")
+                .or_else(|| path.strip_prefix("http://"))?;
+            let rest = rest.strip_prefix("www.").unwrap_or(rest);
+            let (kind, id) = rest.strip_prefix("hanab.live/")?.split_once('/')?;
+            if !matches!(kind, "replay" | "shared-replay" | "export") {
+                return None;
+            }
+            id.trim_end_matches('/')
+        };
+        let id = id.parse().ok()?;
+        let turn = match fragment {
+            None | Some("") => None,
+            Some(turn) => Some(turn.parse().ok()?),
+        };
+        Some(Self { id, turn })
+    }
+
+    /// The URL of the game's JSON export (readable by [`Replay::from_json`]).
+    pub fn export_url(&self) -> String {
+        format!("https://hanab.live/export/{}", self.id)
+    }
 }
 
 const PLAYER_NAMES: [&str; 6] = ["Alice", "Bob", "Cathy", "Donald", "Emily", "Frank"];
@@ -196,8 +310,13 @@ impl Replay {
     }
 
     pub fn from_json(json: &str) -> Result<Self, ReplayError> {
-        let game: JsonGame = serde_json::from_str(json).map_err(ReplayError::Json)?;
-        let variant = Variant::by_name(&game.options.variant).map_err(ReplayError::Variant)?;
+        let game: JsonGameIn = serde_json::from_str(json).map_err(ReplayError::Json)?;
+        let variant = match (&game.options.variant, game.options.variant_id) {
+            (Some(name), _) => Variant::by_name(name),
+            (None, Some(id)) => Variant::by_id(id),
+            (None, None) => Ok(Variant::no_variant()),
+        }
+        .map_err(ReplayError::Variant)?;
         let mut deck = Vec::with_capacity(game.deck.len());
         for card in &game.deck {
             if card.suit_index as usize >= variant.num_suits()
@@ -213,7 +332,10 @@ impl Replay {
         let actions = game
             .actions
             .iter()
-            .map(|a| Self::decode_action(&variant, a.kind, a.target, a.value))
+            .map(|a| {
+                let (kind, target, value) = a.parts();
+                Self::decode_action(&variant, kind, target, value)
+            })
             .collect::<Result<_, _>>()?;
         Ok(Self {
             variant: variant.name.clone(),
@@ -383,6 +505,64 @@ mod tests {
         let json = replay.to_json();
         assert!(json.contains("\"variant\":\"No Variant\""));
         assert_eq!(Replay::from_json(&json).unwrap(), replay);
+    }
+
+    #[test]
+    fn export_format() {
+        let json = r#"{"playerNames":["a","b"],
+            "deck":[{"suitIndex":0,"rank":1},{"suitIndex":1,"rank":5}],
+            "actions":[{"type":"clue","receiverIndex":1,"clue":{"type":"color","color":1}},
+                       {"type":"clue","receiverIndex":0,"clue":{"type":"rank","rank":1}},
+                       {"type":"play","order":0},{"type":"discard","order":1}],
+            "options":{"variantId":0,"speedrun":false},"notes":[[],[]],"seed":"p2v0s1"}"#;
+        let replay = Replay::from_json(json).unwrap();
+        assert_eq!(replay.variant, "No Variant");
+        assert_eq!(replay.players, ["a", "b"]);
+        let variant = Variant::no_variant();
+        assert_eq!(
+            replay.actions,
+            [
+                ReplayAction::Action(Action::Clue {
+                    target: Seat(1),
+                    clue: variant.clue_id(ClueValue::Color(1)).unwrap()
+                }),
+                ReplayAction::Action(Action::Clue {
+                    target: Seat(0),
+                    clue: variant.clue_id(ClueValue::Rank(1)).unwrap()
+                }),
+                ReplayAction::Action(Action::Play(CardId(0))),
+                ReplayAction::Action(Action::Discard(CardId(1))),
+            ]
+        );
+        assert_eq!(Replay::from_json(&replay.to_json()).unwrap(), replay);
+    }
+
+    #[test]
+    fn game_references() {
+        let r = |id, turn| Some(GameReference { id, turn });
+        assert_eq!(GameReference::parse("2073109"), r(2073109, None));
+        assert_eq!(
+            GameReference::parse("https://hanab.live/shared-replay/2073109#71"),
+            r(2073109, Some(71))
+        );
+        assert_eq!(
+            GameReference::parse("https://hanab.live/replay/2073109/"),
+            r(2073109, None)
+        );
+        assert_eq!(
+            GameReference::parse("http://hanab.live/export/5#"),
+            r(5, None)
+        );
+        assert_eq!(GameReference::parse("game.json"), None);
+        assert_eq!(GameReference::parse(""), None);
+        assert_eq!(GameReference::parse("https://hanab.live/replay/x"), None);
+        assert_eq!(GameReference::parse("https://hanab.live/replay/5#x"), None);
+        assert_eq!(GameReference::parse("https://example.org/replay/5"), None);
+        assert_eq!(GameReference::parse(&sample().to_url()), None);
+        assert_eq!(
+            r(7, None).unwrap().export_url(),
+            "https://hanab.live/export/7"
+        );
     }
 
     #[test]

@@ -260,7 +260,7 @@ raikan selfplay [SEED] [--players N] [--variant NAME] [--level L] [--trace FILE.
 raikan stats [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L]
 raikan diff OLD.list NEW.list      # first game whose score dropped, with the bot's view
 raikan support                     # every H-Group level 1-20 convention and its coverage
-raikan explain REPLAY --turn T [--candidate ACTION]... [--all] [--world W]
+raikan explain REPLAY [--turn T] [--candidate ACTION]... [--all] [--world W]
                [--card CARD [--viewer SEAT]] [--json]
 ```
 
@@ -283,9 +283,12 @@ to stdout and a summary to stderr. `--trace` writes one JSON object per line: ho
 seat read every clue (rule and readings) and why every decision was taken.
 
 `explain` recomputes one decision of a game (architecture §8.2). `REPLAY` is a
-hanab.live replay JSON file, a `replay-json` URL (or a file holding one), or `seed:N`
-for a self-play game with the given options; `T` is the hanab.live turn number (the
-decision before that action). It prints:
+hanab.live replay JSON file (also the `https://hanab.live/export/ID` format), a
+`replay-json` URL (or a file holding one), a hanab.live game id or replay URL such as
+`2073109` or `https://hanab.live/shared-replay/2073109#12` (downloaded from hanab.live,
+needs the default `fetch` feature), or `seed:N` for a self-play game with the given
+options; `T` is the hanab.live turn number (the decision before that action) and
+defaults to the `#T` of a replay URL. It prints:
 
 - the position with the true cards and the notes of the seat to move;
 - the blueprint's choice and reason, the bot's choice under the given options (with the
