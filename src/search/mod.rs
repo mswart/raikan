@@ -9,7 +9,8 @@ pub mod rollout;
 pub mod root;
 pub mod value;
 
-pub use root::{CandidateStats, PlanReason, PlanResult, plan};
+pub use rollout::{RolloutStep, simulate_traced};
+pub use root::{CandidateStats, Comparison, PlanReason, PlanResult, compare, plan, sample_worlds};
 pub use value::Breakdown;
 
 /// How much search the bot does (the `[search]` section of docs/architecture.md §9).

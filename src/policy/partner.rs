@@ -10,5 +10,10 @@ use crate::engine::Action;
 /// The action the seat owning `view` is predicted to take. `view` must be that seat's own
 /// view (its `me` is the actor); it never sees cards that seat cannot see.
 pub fn partner_action(view: &View) -> Action {
-    super::choose_action(&view.decision_view(view.me)).action
+    partner_decision(view).action
+}
+
+/// [`partner_action`] with the blueprint's reason, for traces and `explain`.
+pub fn partner_decision(view: &View) -> super::Decision {
+    super::choose_action(&view.decision_view(view.me))
 }

@@ -5,6 +5,12 @@
 //! raikan stats [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L]
 //! raikan support                    # H-Group levels 1-20: required conventions and coverage
 //! raikan diff OLD.list NEW.list [--level L]
+//! raikan explain REPLAY --turn T [--candidate ACTION]... [--all] [--world W]
+//!                [--card CARD [--viewer SEAT]] [--json] [--level L]
+//!     REPLAY: a hanab.live replay JSON file, a replay URL (or a file holding one), or
+//!     `seed:N` for a self-play game with the given options. ACTION: `play 2`,
+//!     `discard 4`, `clue Bob red` (slots count from the newest card). CARD: `#17` or
+//!     `Bob:2`.
 //!
 //! search options (every command that plays):
 //!   --search off|fast|full  --simulations N  --worlds W  --margin M  --search-seed S
@@ -28,6 +34,14 @@ struct Options {
     search: SearchConfig,
     trace: Option<String>,
     positional: Vec<String>,
+    // explain
+    turn: Option<usize>,
+    candidates: Vec<String>,
+    all: bool,
+    world: Option<usize>,
+    card: Option<String>,
+    viewer: Option<String>,
+    json: bool,
 }
 
 fn parse_options(args: &[String]) -> Options {
@@ -40,6 +54,13 @@ fn parse_options(args: &[String]) -> Options {
         search: SearchConfig::default(),
         trace: None,
         positional: Vec::new(),
+        turn: None,
+        candidates: Vec::new(),
+        all: false,
+        world: None,
+        card: None,
+        viewer: None,
+        json: false,
     };
     let (mut simulations, mut worlds, mut margin) = (None, None, None);
     let mut iter = args.iter();
@@ -90,6 +111,17 @@ fn parse_options(args: &[String]) -> Options {
                 options.search.seed =
                     Some(value().parse().unwrap_or_else(|_| usage("invalid seed")))
             }
+            "--turn" => {
+                options.turn = Some(value().parse().unwrap_or_else(|_| usage("invalid turn")))
+            }
+            "--candidate" => options.candidates.push(value()),
+            "--all" => options.all = true,
+            "--world" => {
+                options.world = Some(value().parse().unwrap_or_else(|_| usage("invalid world")))
+            }
+            "--card" => options.card = Some(value()),
+            "--viewer" => options.viewer = Some(value()),
+            "--json" => options.json = true,
             other if other.starts_with("--") => usage(&format!("unknown option {other}")),
             other => options.positional.push(other.to_string()),
         }
@@ -121,6 +153,9 @@ fn usage(message: &str) -> ! {
         "  raikan stats [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L]"
     );
     eprintln!("  raikan diff OLD.list NEW.list [--level L]");
+    eprintln!(
+        "  raikan explain REPLAY --turn T [--candidate ACTION]... [--all] [--world W] [--card CARD [--viewer SEAT]] [--json]"
+    );
     eprintln!(
         "  search: --search off|fast|full [--simulations N] [--worlds W] [--margin M] [--search-seed S]"
     );
@@ -185,6 +220,7 @@ fn main() -> io::Result<()> {
             }
             diff(&options, &options.positional[0], &options.positional[1])?;
         }
+        "explain" => explain(&parse_options(rest)),
         "support" => print!("{}", raikan::conventions::catalogue::support_matrix()),
         "-h" | "--help" | "help" => usage("help requested"),
         // `raikan SEED` keeps working as a single self-play game
@@ -412,4 +448,53 @@ fn diff(options: &Options, old: &str, new: &str) -> io::Result<()> {
         break;
     }
     Ok(())
+}
+
+/// A replay from a JSON file, a URL (or a file holding one), or `seed:N` (self-play).
+fn load_replay(options: &Options, spec: &str) -> Replay {
+    if let Some(seed) = spec.strip_prefix("seed:") {
+        let seed = seed.parse().unwrap_or_else(|_| usage("invalid seed"));
+        return play(options, &variant(options), seed).replay;
+    }
+    let text = if spec.starts_with("http") {
+        spec.to_string()
+    } else {
+        std::fs::read_to_string(spec).unwrap_or_else(|e| usage(&format!("cannot read {spec}: {e}")))
+    };
+    let text = text.trim();
+    let parsed = if text.starts_with('{') {
+        Replay::from_json(text)
+    } else {
+        Replay::from_url(text)
+    };
+    parsed.unwrap_or_else(|e| usage(&format!("cannot parse replay {spec}: {e}")))
+}
+
+fn explain(options: &Options) {
+    let [spec] = &options.positional[..] else {
+        usage("explain needs one replay");
+    };
+    let turn = options
+        .turn
+        .unwrap_or_else(|| usage("explain needs --turn T"));
+    let replay = load_replay(options, spec);
+    let mut request = raikan::adapters::explain::Request::new(turn);
+    request.candidates = options.candidates.clone();
+    request.all = options.all;
+    request.world = options.world;
+    request.card = options.card.clone();
+    request.viewer = options.viewer.clone();
+    let explanation = raikan::adapters::explain::explain(&replay, &config(options), &request)
+        .unwrap_or_else(|e| {
+            eprintln!("error: {e}");
+            std::process::exit(1)
+        });
+    if options.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&explanation).expect("explanation serialises")
+        );
+    } else {
+        print!("{}", explanation.render());
+    }
 }

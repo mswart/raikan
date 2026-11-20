@@ -255,6 +255,8 @@ raikan selfplay [SEED] [--players N] [--variant NAME] [--level L] [--trace FILE.
 raikan stats [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L]
 raikan diff OLD.list NEW.list      # first game whose score dropped, with the bot's view
 raikan support                     # every H-Group level 1-20 convention and its coverage
+raikan explain REPLAY --turn T [--candidate ACTION]... [--all] [--world W]
+               [--card CARD [--viewer SEAT]] [--json]
 ```
 
 Every command that plays accepts `--search off|fast|full` (default `off`: the blueprint
@@ -271,6 +273,28 @@ and scores higher with fewer strikes; see [docs/parity.md](docs/parity.md).
 `stats` prints one line per game (`seed outcome score max turns blind-plays replay-url`)
 to stdout and a summary to stderr. `--trace` writes one JSON object per line: how every
 seat read every clue (rule and readings) and why every decision was taken.
+
+`explain` recomputes one decision of a game (architecture §8.2). `REPLAY` is a
+hanab.live replay JSON file, a `replay-json` URL (or a file holding one), or `seed:N`
+for a self-play game with the given options; `T` is the hanab.live turn number (the
+decision before that action). It prints:
+
+- the position with the true cards and the notes of the seat to move;
+- the blueprint's choice and reason, the bot's choice under the given options (with the
+  planner's own candidate table when `--search` is on) and the action actually played;
+- a comparison of the blueprint's candidates, the bot's choice, the played action and
+  every `--candidate` (`play 2`, `discard 4`, `clue Bob red`; slot 1 is the newest card;
+  `--all` adds every legal action), all simulated on the same sampled worlds (the
+  planner's, or the `fast` budget). Each row has its mean value, the paired difference
+  to the blueprint's choice, the value terms, the legibility guard's verdict and, for
+  clues, how the giver and every teammate read it (rule, focus and readings);
+- `--world W`: the rollouts of the requested actions (or the blueprint's and the bot's
+  choice) in sampled world `W`, step by step with each teammate's reason;
+- `--card CARD` (`#17` or `Bob:2`): every event that touched or changed that card's note
+  as the seat to move (or `--viewer`) saw it, with the rule that read each clue.
+
+`--level L` shows what the bot would have done at another level; `--json` prints the same
+data as JSON.
 
 ## Performance and benchmarking
 

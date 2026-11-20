@@ -104,6 +104,87 @@ fn sample(view: &View, config: &SearchConfig, seed: u64) -> SampleSet {
     ExactSampler::new(&store, config.epsilon).sample(config.worlds as usize, seed)
 }
 
+/// The worlds a decision of `view` is planned on, and the decision seed. The same call
+/// inside [`plan`] samples the same worlds, so `explain` can show any of them.
+pub fn sample_worlds(view: &View, config: &SearchConfig) -> (u64, SampleSet) {
+    let seed = decision_seed(view, config);
+    (seed, sample(view, config, seed))
+}
+
+/// Every candidate evaluated on every world (no halving), for comparisons in `explain`.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Comparison {
+    /// In the order given; the first is the reference of the paired differences.
+    pub candidates: Vec<CandidateStats>,
+    /// Paired difference to the first candidate and its standard error.
+    pub paired: Vec<Option<(f64, f64)>>,
+    pub worlds: usize,
+    pub effective_size: f64,
+    pub seed: u64,
+}
+
+/// Evaluate `actions` on the same `worlds` sampled worlds each (at most the sample size).
+/// Actions need not be candidates of the blueprint or pass the guard.
+pub fn compare(view: &View, actions: &[Action], config: &SearchConfig) -> Comparison {
+    let (seed, samples) = sample_worlds(view, config);
+    let worlds = samples.worlds.len();
+    let mut candidates: Vec<CandidateStats> = Vec::with_capacity(actions.len());
+    let base: Vec<Vec<View>> = samples
+        .worlds
+        .iter()
+        .map(|world| seat_views(view, world))
+        .collect();
+    for (rank, &action) in actions.iter().enumerate() {
+        let mut breakdown = Breakdown::default();
+        let mut values = Vec::with_capacity(worlds);
+        for (w, world) in samples.worlds.iter().enumerate() {
+            let leaf = simulate(view, world, base[w].clone(), action);
+            breakdown.add_scaled(&leaf, samples.weights[w]);
+            values.push(leaf.total());
+        }
+        let total: f64 = samples.weights.iter().sum();
+        if total > 0.0 {
+            breakdown = {
+                let mut scaled = Breakdown::default();
+                scaled.add_scaled(&breakdown, 1.0 / total);
+                scaled
+            };
+        }
+        let (mean, stderr) = weighted_stats(&values, &samples.weights);
+        candidates.push(CandidateStats {
+            action,
+            blueprint_rank: rank,
+            visits: values.len(),
+            values,
+            mean,
+            stderr,
+            breakdown,
+        });
+    }
+    let paired = candidates
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            (i > 0 && worlds > 0).then(|| {
+                let differences: Vec<f64> = c
+                    .values
+                    .iter()
+                    .zip(&candidates[0].values)
+                    .map(|(a, b)| a - b)
+                    .collect();
+                weighted_stats(&differences, &samples.weights)
+            })
+        })
+        .collect();
+    Comparison {
+        candidates,
+        paired,
+        worlds,
+        effective_size: samples.effective_size(),
+        seed,
+    }
+}
+
 /// Choose an action for `view.me` by simulation. `blueprint` is the blueprint's decision
 /// in the same view; it is the reference the search must beat.
 pub fn plan(view: &View, blueprint: &Decision, config: &SearchConfig) -> PlanResult {
