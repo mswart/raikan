@@ -9,6 +9,9 @@ use super::catalogue::{CATALOGUED_LEVELS, REQUIRED};
 use crate::variants::{CATALOGUE_REVISION, Variant};
 use std::hash::{Hash, Hasher};
 
+/// Highest H-Group level whose conventions are all implemented (strict profiles compile).
+pub const COMPLETE_LEVEL: u8 = 1;
+
 /// Revision of the convention implementation; part of the profile digest.
 pub const CONVENTION_REVISION: u32 = 1;
 
@@ -124,7 +127,7 @@ pub const RULES: &[RuleMeta] = &[
         &[],
         "https://hanabi.github.io/learning-path#the-play-clue",
         Clue,
-        Partial("direct and delayed play clues; prompts and finesses are separate rules"),
+        Complete,
     ),
     meta(
         Save2,
@@ -530,6 +533,17 @@ mod tests {
             Profile::new(9, &variant, true),
             Err(ProfileError::Incomplete { .. })
         ));
+    }
+
+    /// Every convention of the levels the bot implements completely compiles strictly.
+    #[test]
+    fn implemented_levels_compile_strictly() {
+        let variant = Variant::no_variant();
+        for level in 1..=COMPLETE_LEVEL {
+            if let Err(err) = Profile::new(level, &variant, true) {
+                panic!("level {level} has gaps: {err:?}");
+            }
+        }
     }
 
     #[test]
