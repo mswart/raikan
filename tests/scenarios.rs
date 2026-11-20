@@ -6,6 +6,7 @@
 //! ```text
 //! # rule: L1.save-5                      rule id(s) the scenario covers
 //! level 9                                optional profile cap (default 9)
+//! search full                            optional root search mode (default off)
 //! variant No Variant                     optional (default No Variant)
 //! hand 0: r1 y2 g3 b4                    starting hands, slot 1 (newest) first
 //! hand 1: ...
@@ -159,6 +160,7 @@ fn run(path: &Path) {
     let text = std::fs::read_to_string(path).unwrap();
     let name = path.file_name().unwrap().to_string_lossy().to_string();
     let mut level = 9;
+    let mut search = raikan::search::SearchConfig::default();
     let mut variant = Variant::no_variant();
     let mut hands: Vec<Vec<Identity>> = Vec::new();
     let mut draws: Vec<Identity> = Vec::new();
@@ -174,6 +176,8 @@ fn run(path: &Path) {
         }
         if let Some(rest) = line.strip_prefix("level ") {
             level = rest.trim().parse().unwrap();
+        } else if let Some(rest) = line.strip_prefix("search ") {
+            search = raikan::search::SearchConfig::new(rest.trim().parse().unwrap());
         } else if let Some(rest) = line.strip_prefix("variant ") {
             variant = Variant::by_name(rest.trim()).unwrap();
         } else if let Some(rest) = line.strip_prefix("hand ") {
@@ -226,6 +230,7 @@ fn run(path: &Path) {
         .map(|_| {
             BotAgent::new(Config {
                 max_level: level,
+                search: search.clone(),
                 ..Config::default()
             })
         })
@@ -297,6 +302,11 @@ fn run(path: &Path) {
                 let state = table.state;
                 let chosen = table.bots[seat.index()].choose_action(&state);
                 let reason = table.bots[seat.index()].last_decision().map(|d| d.reason);
+                if std::env::var_os("SCENARIO_PLAN").is_some()
+                    && let Some(plan) = table.bots[seat.index()].last_plan()
+                {
+                    eprintln!("{context}: {}", serde_json::to_string_pretty(plan).unwrap());
+                }
                 if words[0] == "action" {
                     assert_eq!(
                         chosen,

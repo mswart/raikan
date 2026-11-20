@@ -13,7 +13,7 @@ use super::profile::{Profile, Rule};
 use super::records::{ClueRecord, HandEntry, Hypothesis, Interpretations, Step, StepKind};
 use crate::domain::{CardId, CardSet, Identity, IdentitySet, MAX_CARDS, MAX_IDENTITIES, Seat};
 use crate::engine::{self, Event, GameState};
-use crate::knowledge::{KnownCards, PublicCards};
+use crate::knowledge::{ConstraintStore, ConventionConstraint, KnownCards, PublicCards, Sight};
 use crate::variants::Variant;
 
 /// What a viewpoint concludes about one card.
@@ -1305,6 +1305,35 @@ impl View {
             notes: self.notes.clone(),
             previous: self.history.clone(),
         }));
+    }
+
+    /// The kept view of `seat`, fed only what that seat observed (root views only).
+    pub fn seat_view(&self, seat: Seat) -> Option<&View> {
+        self.seats.as_ref().map(|seats| &seats[seat.index()])
+    }
+
+    /// What this viewpoint believes about the unseen cards, for the world sampler: physical
+    /// constraints from its sight, plus the convention inferences about its own cards as
+    /// `Restrict` constraints (weights, so a wrong inference keeps its worlds possible).
+    pub fn constraint_store(&self) -> ConstraintStore {
+        let sight = Sight::of_seat(&self.state, self.me);
+        let mut store =
+            ConstraintStore::new(&self.variant, &self.state, &self.public, sight, &self.known);
+        for &card in self.state.hand(self.me) {
+            let belief = self.notes[card.index()].belief;
+            // A contradiction (soft outside hard) is a convention mistake: trust only the
+            // physical constraints for that card.
+            if !belief.soft.is_empty()
+                && belief.soft.is_subset(belief.hard)
+                && belief.soft != belief.hard
+            {
+                store.convention.push(ConventionConstraint::Restrict {
+                    card,
+                    identities: belief.soft,
+                });
+            }
+        }
+        store
     }
 
     /// Cards of `seat` that are clued or promised (protected from discarding).

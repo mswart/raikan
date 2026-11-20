@@ -40,4 +40,8 @@ pub struct DecisionTrace {
     pub action: String,
     pub reason: String,
     pub profile_digest: String,
+    /// The root planner's candidate table, world count and selection reason, when search
+    /// is on (see `search::PlanResult`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search: Option<serde_json::Value>,
 }

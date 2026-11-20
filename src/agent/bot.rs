@@ -1,4 +1,5 @@
-//! The H-Group bot: one convention view per seat, decisions by the blueprint policy.
+//! The H-Group bot: one convention view per seat, decisions by the blueprint policy and,
+//! when enabled, the root planner.
 
 use std::sync::Arc;
 
@@ -7,6 +8,7 @@ use crate::conventions::{Profile, View};
 use crate::domain::Seat;
 use crate::engine::{Action, Event, GameState};
 use crate::policy::{self, Decision};
+use crate::search::{self, PlanResult, SearchConfig};
 use crate::variants::Variant;
 
 /// Bot configuration (the `[h_group]` section of docs/architecture.md §9).
@@ -14,6 +16,8 @@ use crate::variants::Variant;
 pub struct Config {
     pub max_level: u8,
     pub require_complete: bool,
+    /// The `[search]` section; off by default (blueprint only).
+    pub search: SearchConfig,
 }
 
 impl Default for Config {
@@ -21,6 +25,7 @@ impl Default for Config {
         Self {
             max_level: 9,
             require_complete: false,
+            search: SearchConfig::default(),
         }
     }
 }
@@ -29,6 +34,7 @@ pub struct BotAgent {
     config: Config,
     view: Option<View>,
     last: Option<Decision>,
+    last_plan: Option<PlanResult>,
     trace: Option<Vec<String>>,
 }
 
@@ -38,6 +44,7 @@ impl BotAgent {
             config,
             view: None,
             last: None,
+            last_plan: None,
             trace: None,
         }
     }
@@ -75,6 +82,11 @@ impl BotAgent {
     pub fn last_decision(&self) -> Option<&Decision> {
         self.last.as_ref()
     }
+
+    /// The root planner's result for the last decision, when search is on.
+    pub fn last_plan(&self) -> Option<&PlanResult> {
+        self.last_plan.as_ref()
+    }
 }
 
 impl Default for BotAgent {
@@ -98,6 +110,7 @@ impl Agent for BotAgent {
         }
         self.view = Some(view);
         self.last = None;
+        self.last_plan = None;
     }
 
     fn observe(&mut self, event: &Event) {
@@ -114,7 +127,12 @@ impl Agent for BotAgent {
             "view must be in sync with the game"
         );
         let decision = policy::choose_action(view);
-        let action = decision.action;
+        let plan = self
+            .config
+            .search
+            .enabled()
+            .then(|| search::plan(view, &decision, &self.config.search));
+        let action = plan.as_ref().map_or(decision.action, |plan| plan.action);
         if let Some(trace) = &mut self.trace {
             let entry = crate::trace::DecisionTrace {
                 kind: "decision",
@@ -123,10 +141,14 @@ impl Agent for BotAgent {
                 action: format!("{action:?}"),
                 reason: format!("{:?}", decision.reason),
                 profile_digest: format!("{:016x}", view.profile.digest),
+                search: plan
+                    .as_ref()
+                    .map(|plan| serde_json::to_value(plan).expect("plan serialises")),
             };
             trace.push(serde_json::to_string(&entry).expect("trace serialises"));
         }
         self.last = Some(decision);
+        self.last_plan = plan;
         action
     }
 

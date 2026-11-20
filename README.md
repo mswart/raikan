@@ -30,7 +30,8 @@ conventions cover: plain suits (`No Variant`, 3–6 suits) and rainbow (e.g.
 `Rainbow (6 Suits)`, `Rainbow (5 Suits)`). Other special suits (white, black,
 pink, …) and variant modifiers are refused unless
 `RAIKAN_EXPERIMENTAL_VARIANTS=1` is set. `RAIKAN_LEVEL=<n>` caps the
-H-Group level (default 9). It uses Hanabi Live's current lobby and game-event protocol; spectators
+H-Group level (default 9); `RAIKAN_SEARCH=fast|full` turns on the search (default off,
+see below). It uses Hanabi Live's current lobby and game-event protocol; spectators
 and replay viewers do not send moves.
 
 The client follows the [November 14, 2026 protocol contracts](https://github.com/Hanabi-Live/hanabi-live/tree/1701eb99677f/server/protocol/src).
@@ -241,8 +242,8 @@ Scenarios: [tests/scenarios](tests/scenarios) (`L5-free-choice-*.txt`).
 ## Architecture
 
 The code follows the design in [docs/architecture.md](docs/architecture.md): layered
-modules (`domain`, `variants`, `engine`, `knowledge`, `conventions`, `policy`, `agent`,
-`adapters`), absolute seats and card ids, a variant catalogue taken from hanab.live, and
+modules (`domain`, `variants`, `engine`, `knowledge`, `conventions`, `policy`, `search`,
+`agent`, `adapters`), absolute seats and card ids, a variant catalogue taken from hanab.live, and
 a convention profile compiled from the H-Group level. The port reproduced the previous
 implementation exactly for 2–4 players before it was removed; see
 [docs/parity.md](docs/parity.md) for results and the remaining gaps.
@@ -255,6 +256,17 @@ raikan stats [--players N] [--games G] [--seed-start S] [--variant NAME] [--leve
 raikan diff OLD.list NEW.list      # first game whose score dropped, with the bot's view
 raikan support                     # every H-Group level 1-20 convention and its coverage
 ```
+
+Every command that plays accepts `--search off|fast|full` (default `off`: the blueprint
+policy alone) and the budget options `--simulations N`, `--worlds W`, `--margin M` and
+`--search-seed S`. With search on, each decision samples worlds from the bot's beliefs,
+simulates every permitted candidate (clues only if every teammate reads them as
+intended) for one rotation of teammate moves (to the real end
+once the deck is small) and replaces the blueprint's choice only when another candidate
+is better by more than `M` paired standard errors (architecture §7.4). `fast` uses 300
+simulations over 48 worlds, `full` 2000 over 256. Search is much slower than the
+blueprint (about 1–19 s CPU per game with `fast`, for 2–5 players, against about 10 ms),
+and scores higher with fewer strikes; see [docs/parity.md](docs/parity.md).
 
 `stats` prints one line per game (`seed outcome score max turns blind-plays replay-url`)
 to stdout and a summary to stderr. `--trace` writes one JSON object per line: how every
@@ -298,7 +310,8 @@ Raikan (as a library) offers a few different functions:
 1. A variant-aware Hanabi engine (`variants`, `engine`) with hanab.live replay import and
    export, and a self-play runner over the `agent::Agent` trait.
 2. Convention-free knowledge tracking and world sampling (`knowledge`).
-3. An H-Group player (`agent::BotAgent`) with a configurable level cap.
+3. An H-Group player (`agent::BotAgent`) with a configurable level cap and optional
+   root-planner search (`search`).
 
 
 ## Project status

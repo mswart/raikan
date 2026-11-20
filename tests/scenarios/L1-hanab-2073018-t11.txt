@@ -1,0 +1,27 @@
+# rule: L1.play-clue-focus
+# hanab.live game 2073018, turn 11: Cathy (seat 2) holds a 1-clued card (m1) left after
+# playing y1 from the same clue; it can only be b1/p1/m1 (y1, g1 played, r1 clued in
+# Alice's hand), all playable. With search the bot discarded g4 instead. Guards two fixes:
+# - the search may not discard while holding a convention play (a Scream Discard from L7);
+# - in Cathy's model of Donald, playing that already-known 1 must not confirm a "prompt"
+#   reading of Alice's 3 clue (m3 via m1 + finesse m2), or the rollouts after the play are
+#   full of phantom misplays and a clue beats the play.
+variant Rainbow (6 Suits)
+search full
+hand 0: p2 r3 r2 r1
+hand 1: g2 p3 m1 b1
+hand 2: p2 m1 g4 y1
+hand 3: g4 y2 y3 g1
+draws: m3 m5 y3 r1
+clue 0 3 1
+clue 1 2 1
+play 2 4
+play 3 4
+clue 0 3 2
+clue 1 0 red
+clue 2 1 2
+discard 3 4
+clue 0 3 3
+play 1 1
+note 2 2 3: ? clued play
+action 2: play 3

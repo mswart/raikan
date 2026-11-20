@@ -7,7 +7,7 @@ mod constraints;
 mod sampler;
 
 pub use constraints::{ConstraintStore, ConventionConstraint};
-pub use sampler::{ExactSampler, SampleSet, WorldSampler};
+pub use sampler::{ExactSampler, MAX_EXACT_CONSTRAINED, SampleSet, WorldSampler};
 
 use crate::domain::{CardId, CardSet, Identity, IdentitySet, MAX_CARDS, MAX_IDENTITIES, Seat};
 use crate::engine::{Event, GameState};

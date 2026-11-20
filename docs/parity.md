@@ -75,6 +75,39 @@ No Variant, 5,000 for Rainbow (6 Suits); mean score before → after, strikeouts
 - **Coverage:** every level 1–20 convention is catalogued; profiles report missing ones.
 - **Variants:** Color Blind and Number Blind (empty clues) are reported as unsupported.
 
+## Root planner and legibility guard (2026-11-20)
+
+`src/search/` implements the first planner of architecture §7.4 behind `--search`
+(`RAIKAN_SEARCH` in the web client); the default stays the blueprint, so the golden corpus
+is unchanged. `src/policy/guard.rs` is the legibility guard of §7.5: a clue candidate is
+simulated only if `View::clue_views` grades it with no more convention errors than the
+position already has (every teammate reads it in its own kept view, the seats in between
+act on their obligations, nobody's next play misplays). The blueprint's own choice is
+always kept as the reference. Value weights were picked by paired self-play on seeds
+0..160 (3 players) among a handful of settings.
+
+Fresh seeds `1000..1320`, No Variant, `fast` (300 simulations, 48 worlds, margin 1.0):
+
+| Players | Blueprint | Search, no guard | Search + guard | Strikeouts (bp / no guard / guard) | Strikes (bp / no guard / guard) |
+| --- | --- | --- | --- | --- | --- |
+| 2 | 21.372 | 22.250 | 22.834 | 0 / 4 / 0 | 39 / 149 / 28 |
+| 3 | 23.159 | 23.359 | 23.837 | 0 / 3 / 0 | 34 / 127 / 12 |
+| 4 | 22.978 | 23.191 | 23.934 | 1 / 0 / 0 | 53 / 116 / 7 |
+| 5 | 21.719 | 21.384 | 22.869 | 1 / 4 / 0 | 61 / 149 / 16 |
+
+Rainbow (6 Suits), 3 players, seeds `1000..1160`: blueprint 27.144 (2 strikeouts, 45
+strikes) → search + guard 28.512 (0 strikeouts, 25 strikes).
+
+Standard errors of the means are 0.07–0.13 (0.29 and 0.13 for Rainbow). Without the guard, search simulated clues
+that teammates misread and paid for them in strikes; with it, search beats the blueprint
+at every player count and strikes less.
+
+Cost: about 1 s CPU per 2-player game, 4 s for 3 players, 10 s for 4 and 19 s for 5
+(blueprint: about 10 ms per game). Not done: the guard does not enumerate an in-between
+seat's free choices (§7.5, "top expected actions"), the partner model has no spread,
+worlds are evaluated on one thread, there are no time budgets, and the value weights
+are not fitted.
+
 ## What is in place
 
 | Architecture section | State |
@@ -83,7 +116,7 @@ No Variant, 5,000 for Rainbow (6 Suits); mean score before → after, strikeouts
 | §4 rules layer | Done: variant catalogue (hanab.live, pinned), touch tables, `GameState`/`World`/`Event` with redactable identities, simulator, replay JSON/URL. Orange, up-or-down, hidden-information, sudoku, alternating clues and reversed suits report `Unsupported`. |
 | §5 knowledge | Done: sight, literal information, card counting, constraint store, exact sampler. The fallback sampler for more than 16 constrained cards is missing (not needed by any supported variant). |
 | §6 conventions | Rule manifest with levels, prerequisites and coverage, plus a catalogue of every level 1–20 convention including missing ones ([support-matrix.md](support-matrix.md)); per-game `Profile` with digest; per-viewpoint `View` folding records into notes with provenance; Occam tiers, reactions, strike recovery; the agent keeps one view per teammate fed only that teammate's observations (see below). **Gaps:** teammate views know only the root seat's cards its notes identify, plus possibility hints for the others, and their own predictions of third seats still use the depth-2 approximation (notes with the seat's cards hidden); reads are not routed through a logged `InterpretCtx`, so there is no interpretation cache and no read-keyed memoisation; precedence is the fixed order of the clue reader, not a data table; rules are gated by the profile but live as methods on `View`, not as `Convention` trait objects. |
-| §7 action choice | Blueprint with named reasons and the level-7 look-ahead. The root planner, partner model and legibility guard as specified are the next goal. |
+| §7 action choice | Blueprint with named reasons and the level-7 look-ahead (default). Opt-in root planner (`--search fast\|full`, see below): exact world sampling from the view's constraint store, sequential halving over all blueprint candidates on common worlds, partner model = blueprint on each seat's own view, named-term leaf value, blueprint kept unless beaten by `blueprint_margin` paired standard errors. Legibility guard (§7.5) over the same clue reader (`policy::guard`). **Gaps:** free choices of in-between seats in the guard, partner spread, value weights fitted to games, parallel worlds, time budgets. |
 | §8 trace | Interpretation trace (rule and readings per observed clue) and decision trace (action, reason, profile digest) as JSON lines: `raikan selfplay SEED --trace FILE`. No `explain` yet. |
 | §9 configuration | `Config { max_level, require_complete }`; `--level` in the CLI, `RAIKAN_LEVEL` in the web client. No TOML yet. |
 | §10 testing | Text scenarios (`tests/scenarios/`), golden self-play corpus, hidden-card invariance, level-cap scenarios. Most legacy unit tests were covered by the (now removed) equivalence test, not by rule-keyed scenarios; porting their cases to scenarios is open. |

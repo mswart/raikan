@@ -5,6 +5,9 @@
 //! raikan stats [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L]
 //! raikan support                    # H-Group levels 1-20: required conventions and coverage
 //! raikan diff OLD.list NEW.list [--level L]
+//!
+//! search options (every command that plays):
+//!   --search off|fast|full  --simulations N  --worlds W  --margin M  --search-seed S
 //! ```
 
 use std::io::{self, BufRead};
@@ -12,6 +15,7 @@ use std::thread;
 
 use raikan::agent::{Agent, BotAgent, Config, GameResult, replay_prefix, run_game};
 use raikan::engine::{EndReason, Replay, ReplayAction, shuffled_world};
+use raikan::search::SearchConfig;
 use raikan::variants::Variant;
 
 #[derive(Clone, Debug)]
@@ -21,6 +25,7 @@ struct Options {
     seed_start: u64,
     variant: String,
     level: u8,
+    search: SearchConfig,
     trace: Option<String>,
     positional: Vec<String>,
 }
@@ -32,9 +37,11 @@ fn parse_options(args: &[String]) -> Options {
         seed_start: 0,
         variant: "No Variant".to_string(),
         level: Config::default().max_level,
+        search: SearchConfig::default(),
         trace: None,
         positional: Vec::new(),
     };
+    let (mut simulations, mut worlds, mut margin) = (None, None, None);
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         let mut value = || {
@@ -59,9 +66,46 @@ fn parse_options(args: &[String]) -> Options {
             "--variant" => options.variant = value(),
             "--trace" => options.trace = Some(value()),
             "--level" => options.level = value().parse().unwrap_or_else(|_| usage("invalid level")),
+            "--search" => {
+                options.search.mode = value().parse().unwrap_or_else(|e: String| usage(&e))
+            }
+            "--simulations" => {
+                simulations = Some(
+                    value()
+                        .parse()
+                        .unwrap_or_else(|_| usage("invalid simulation count")),
+                )
+            }
+            "--worlds" => {
+                worlds = Some(
+                    value()
+                        .parse()
+                        .unwrap_or_else(|_| usage("invalid world count")),
+                )
+            }
+            "--margin" => {
+                margin = Some(value().parse().unwrap_or_else(|_| usage("invalid margin")))
+            }
+            "--search-seed" => {
+                options.search.seed =
+                    Some(value().parse().unwrap_or_else(|_| usage("invalid seed")))
+            }
             other if other.starts_with("--") => usage(&format!("unknown option {other}")),
             other => options.positional.push(other.to_string()),
         }
+    }
+    // Budgets override the defaults of the chosen mode, whatever the option order.
+    let seed = options.search.seed;
+    options.search = SearchConfig::new(options.search.mode);
+    options.search.seed = seed;
+    if let Some(simulations) = simulations {
+        options.search.simulations = simulations;
+    }
+    if let Some(worlds) = worlds {
+        options.search.worlds = worlds;
+    }
+    if let Some(margin) = margin {
+        options.search.blueprint_margin = margin;
     }
     if !(2..=6).contains(&options.players) {
         usage("players must be 2..=6");
@@ -77,6 +121,9 @@ fn usage(message: &str) -> ! {
         "  raikan stats [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L]"
     );
     eprintln!("  raikan diff OLD.list NEW.list [--level L]");
+    eprintln!(
+        "  search: --search off|fast|full [--simulations N] [--worlds W] [--margin M] [--search-seed S]"
+    );
     std::process::exit(2)
 }
 
@@ -84,14 +131,17 @@ fn variant(options: &Options) -> Variant {
     Variant::by_name(&options.variant).unwrap_or_else(|err| usage(&err.to_string()))
 }
 
+fn config(options: &Options) -> Config {
+    Config {
+        max_level: options.level,
+        search: options.search.clone(),
+        ..Config::default()
+    }
+}
+
 fn make_agents(options: &Options, seats: u8) -> Vec<Box<dyn Agent>> {
     (0..seats)
-        .map(|_| {
-            Box::new(BotAgent::new(Config {
-                max_level: options.level,
-                ..Config::default()
-            })) as Box<dyn Agent>
-        })
+        .map(|_| Box::new(BotAgent::new(config(options))) as Box<dyn Agent>)
         .collect()
 }
 
@@ -154,10 +204,7 @@ fn selfplay(options: &Options) {
         let world = shuffled_world(&variant, seed);
         let mut bots: Vec<BotAgent> = (0..options.players)
             .map(|_| {
-                let mut bot = BotAgent::new(Config {
-                    max_level: options.level,
-                    ..Config::default()
-                });
+                let mut bot = BotAgent::new(config(options));
                 bot.enable_trace();
                 bot
             })
@@ -354,12 +401,7 @@ fn diff(options: &Options, old: &str, new: &str) -> io::Result<()> {
             new_actions.get(turn)
         );
         let mut agents: Vec<BotAgent> = (0..new_replay.num_seats())
-            .map(|_| {
-                BotAgent::new(Config {
-                    max_level: options.level,
-                    ..Config::default()
-                })
-            })
+            .map(|_| BotAgent::new(config(options)))
             .collect();
         let mut refs: Vec<&mut dyn Agent> =
             agents.iter_mut().map(|a| a as &mut dyn Agent).collect();

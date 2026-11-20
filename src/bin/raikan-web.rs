@@ -1090,7 +1090,8 @@ struct Slot {
     index: u8,
 }
 
-/// The bot: H-Group conventions capped at `RAIKAN_LEVEL=<n>` (default 9).
+/// The bot: H-Group conventions capped at `RAIKAN_LEVEL=<n>` (default 9), with the root
+/// planner when `RAIKAN_SEARCH=fast|full` (default off).
 fn new_agent() -> Box<dyn Agent> {
     let mut config = Config::default();
     if let Some(level) = std::env::var("RAIKAN_LEVEL")
@@ -1098,6 +1099,12 @@ fn new_agent() -> Box<dyn Agent> {
         .and_then(|l| l.parse().ok())
     {
         config.max_level = level;
+    }
+    if let Ok(mode) = std::env::var("RAIKAN_SEARCH") {
+        match mode.parse() {
+            Ok(mode) => config.search = raikan::search::SearchConfig::new(mode),
+            Err(err) => eprintln!("ignoring RAIKAN_SEARCH: {err}"),
+        }
     }
     Box::new(BotAgent::new(config))
 }
