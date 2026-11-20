@@ -87,7 +87,7 @@ pub const REQUIRED: &[Required] = required! {
     2 "L2.self-finesse" Move "The Self-Finesse" "the-self-finesse" [SelfFinesse] Complete;
     2 "L2.trash" Principle "Trash" "trash" [GoodTouch] Complete;
     2 "L2.one-away" Principle "One-Away-From-Playable Cards" "one-away-from-playable-cards" [PlayClue] Complete;
-    2 "L2.stomping" Mistake "Stomping on a Finesse" "stomping-on-a-finesse" [Finesse] Partial("avoided when giving clues; not recognised as a mistake");
+    2 "L2.stomping" Mistake "Stomping on a Finesse" "stomping-on-a-finesse" [Finesse] Complete;
     2 "L2.wrong-prompt" Mistake "The Wrong Prompt" "the-wrong-prompt" [WrongPrompt, StrikeRecovery] Complete;
 
     3 "L3.multiple-1s" Move "Playing Multiple 1's" "playing-multiple-1s" [OnesOrder] Complete;

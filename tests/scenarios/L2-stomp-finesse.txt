@@ -1,0 +1,20 @@
+# rule: L2.finesse
+# Stomping on a finesse: a direct clue on a card that was already going to be blind-played
+# wastes a clue but changes nothing. The card stays the promised r1 and the finessed
+# player's r2 stays queued behind it.
+hand 0: g4 p4 y5 b4
+hand 1: g2 g3 y4 b2
+hand 2: r1 b3 b4 p2
+hand 3: r2 p3 y3 g5
+draws: g1
+clue 0 3 red
+note 2 2 1: r1 promised play
+note 3 3 1: r1,r2 delayed
+clue 1 2 red
+note 2 2 1: r1 clued play
+note 0 2 1: r1 clued play
+note 3 3 1: r2 delayed
+action 2: play 1
+play 2 1
+note 0 3 1: r2 play
+note 2 3 1: r2 play

@@ -28,7 +28,7 @@ keeps it in sync. Every convention of levels 1–20 is listed, implemented or no
 | 2 | [The Self-Finesse](https://hanabi.github.io/level-2#the-self-finesse) | Move | complete | L2.self-finesse |
 | 2 | [Trash](https://hanabi.github.io/level-2#trash) | Principle | complete | L1.good-touch |
 | 2 | [One-Away-From-Playable Cards](https://hanabi.github.io/level-2#one-away-from-playable-cards) | Principle | complete | L1.play-clue |
-| 2 | [Stomping on a Finesse](https://hanabi.github.io/level-2#stomping-on-a-finesse) | Mistake | partial: avoided when giving clues; not recognised as a mistake | L2.finesse |
+| 2 | [Stomping on a Finesse](https://hanabi.github.io/level-2#stomping-on-a-finesse) | Mistake | complete | L2.finesse |
 | 2 | [The Wrong Prompt](https://hanabi.github.io/level-2#the-wrong-prompt) | Mistake | complete | L2.wrong-prompt, L2.strike-recovery |
 | 3 | [Playing Multiple 1's](https://hanabi.github.io/level-3#playing-multiple-1s) | Move | complete | L3.ones-order |
 | 3 | [The Fix Clue](https://hanabi.github.io/level-3#the-fix-clue) | Move | complete | L3.fix |

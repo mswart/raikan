@@ -10,7 +10,7 @@ use crate::variants::{CATALOGUE_REVISION, Variant};
 use std::hash::{Hash, Hasher};
 
 /// Highest H-Group level whose conventions are all implemented (strict profiles compile).
-pub const COMPLETE_LEVEL: u8 = 1;
+pub const COMPLETE_LEVEL: u8 = 2;
 
 /// Revision of the convention implementation; part of the profile digest.
 pub const CONVENTION_REVISION: u32 = 1;
@@ -217,9 +217,7 @@ pub const RULES: &[RuleMeta] = &[
         &[],
         "https://hanabi.github.io/docs/level-2",
         Play,
-        Partial(
-            "mistaken clues are withdrawn; later records are dropped rather than re-interpreted",
-        ),
+        Complete,
     ),
     meta(
         FiveStallEarly,
