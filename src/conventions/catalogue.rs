@@ -93,7 +93,7 @@ pub const REQUIRED: &[Required] = required! {
     3 "L3.multiple-1s" Move "Playing Multiple 1's" "playing-multiple-1s" [OnesOrder] Complete;
     3 "L3.fix" Move "The Fix Clue" "the-fix-clue" [Fix] Complete;
     3 "L3.fix-multiple" Move "The Fix Clue (That Touches Multiple Cards)" "the-fix-clue-that-touches-multiple-cards" [Fix] Complete;
-    3 "L3.fix-no-information" Move "The Fix Clue (That Gives No Additional Information)" "the-fix-clue-that-gives-no-additional-information" [Stop] Partial("only stops the next queued play");
+    3 "L3.fix-no-information" Move "The Fix Clue (That Gives No Additional Information)" "the-fix-clue-that-gives-no-additional-information" [Stop] Complete;
     3 "L3.sarcastic-discard" Move "The Sarcastic Discard" "the-sarcastic-discard-sd" [SarcasticDiscard, DuplicatedPlay] Complete;
 
     4 "L4.chop-moves" Principle "Chop Moves" "chop-moves" [] Missing;

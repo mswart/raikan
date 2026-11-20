@@ -10,7 +10,7 @@ use crate::variants::{CATALOGUE_REVISION, Variant};
 use std::hash::{Hash, Hasher};
 
 /// Highest H-Group level whose conventions are all implemented (strict profiles compile).
-pub const COMPLETE_LEVEL: u8 = 2;
+pub const COMPLETE_LEVEL: u8 = 3;
 
 /// Revision of the convention implementation; part of the profile digest.
 pub const CONVENTION_REVISION: u32 = 1;
@@ -253,7 +253,7 @@ pub const RULES: &[RuleMeta] = &[
         &[Fix],
         "https://hanabi.github.io/learning-path#fix-clues",
         Clue,
-        Partial("only stops the next queued play"),
+        Complete,
     ),
     meta(
         DuplicatedPlay,

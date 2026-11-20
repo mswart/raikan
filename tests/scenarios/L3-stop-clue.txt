@@ -1,0 +1,14 @@
+# rule: L3.stop
+# A clue with no new information on cards that were going to play anyway is a fix: the
+# card about to be played next is bad. The receiver skips it and plays the other 1.
+hand 0: g4 p4 y5 b4 b3
+hand 1: g3 b3 y1 r1 r1
+hand 2: p1 p2 g2 y2 y3
+draws: g5
+clue 0 1 1
+note 1 1 5: ? clued play
+play 1 5
+clue 2 1 1
+note * 1 5: ? trash noplay
+discard 0 5
+action 1: play 4

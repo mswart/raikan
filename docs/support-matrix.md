@@ -33,7 +33,7 @@ keeps it in sync. Every convention of levels 1–20 is listed, implemented or no
 | 3 | [Playing Multiple 1's](https://hanabi.github.io/level-3#playing-multiple-1s) | Move | complete | L3.ones-order |
 | 3 | [The Fix Clue](https://hanabi.github.io/level-3#the-fix-clue) | Move | complete | L3.fix |
 | 3 | [The Fix Clue (That Touches Multiple Cards)](https://hanabi.github.io/level-3#the-fix-clue-that-touches-multiple-cards) | Move | complete | L3.fix |
-| 3 | [The Fix Clue (That Gives No Additional Information)](https://hanabi.github.io/level-3#the-fix-clue-that-gives-no-additional-information) | Move | partial: only stops the next queued play | L3.stop |
+| 3 | [The Fix Clue (That Gives No Additional Information)](https://hanabi.github.io/level-3#the-fix-clue-that-gives-no-additional-information) | Move | complete | L3.stop |
 | 3 | [The Sarcastic Discard](https://hanabi.github.io/level-3#the-sarcastic-discard-sd) | Move | complete | L3.sarcastic-discard, L3.duplicated-play |
 | 4 | [Chop Moves](https://hanabi.github.io/level-4#chop-moves) | Principle | missing |  |
 | 4 | [The Trash Chop Move](https://hanabi.github.io/level-4#the-trash-chop-move-tcm) | Move | missing |  |
