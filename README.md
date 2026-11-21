@@ -25,6 +25,10 @@ username and password again. Do not include `Set-Cookie` attributes such as
 `Path` or `HttpOnly`.
 
 Send the bot a DM with `/join` as message to make it join your table.
+Alternatively, set `HANABI_FOLLOW=<username>` to let the bot join every pregame
+table that user creates (if a seat is free). It does not leave a running game
+for it, but does leave a finished game's shared replay. A table the bot was
+booted from, or could not join, is not retried.
 The web client supports one table at a time. It plays variants whose suits the
 conventions cover: plain suits (`No Variant`, 3–6 suits), rainbow, black, white and
 their dark forms gray and dark rainbow, alone or combined (e.g. `Rainbow (6 Suits)`,

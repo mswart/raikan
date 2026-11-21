@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use raikan::agent::{Agent, BotAgent, Config};
 use raikan::domain::{CardId, CardSet, Seat};
@@ -40,6 +40,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         Err(_) => return Err("HANABI_SID must be valid UTF-8".into()),
     };
+    let follow = std::env::var("HANABI_FOLLOW")
+        .ok()
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty());
+    if let Some(name) = &follow {
+        println!("Auto-joining pregame tables created by {name}");
+    }
 
     let mut client: HanabClient = HanabClient {
         client: connect(websocket_request(&cookie))
@@ -55,6 +62,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         replay_segment: None,
         next_request_id: 1,
         pending_requests: BTreeMap::new(),
+        follow,
+        auto_joined: BTreeSet::new(),
     };
     client.run();
     Ok(())
@@ -258,6 +267,39 @@ struct TableState {
     #[serde(deserialize_with = "deserialize_table_phase")]
     phase: TablePhase,
     player_names: Vec<String>,
+    #[serde(default)]
+    owner: Option<TableOwner>,
+    #[serde(default)]
+    settings: Option<TableSettings>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(untagged)]
+enum TableOwner {
+    Current { username: String },
+    Legacy(String),
+}
+
+impl TableOwner {
+    fn username(&self) -> &str {
+        match self {
+            TableOwner::Current { username } | TableOwner::Legacy(username) => username,
+        }
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct TableSettings {
+    #[serde(default)]
+    max_players: Option<usize>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TableOwnerMessage {
+    table_id: usize,
+    owner: TableOwner,
 }
 
 #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -292,6 +334,20 @@ impl TableState {
     fn has_active_player(&self, username: &str) -> bool {
         matches!(self.phase, TablePhase::Pregame | TablePhase::Playing)
             && self.player_names.iter().any(|name| name == username)
+    }
+
+    /// A pregame table created by `owner` that still has a free seat.
+    fn awaits_players_of(&self, owner: &str) -> bool {
+        self.phase == TablePhase::Pregame
+            && self
+                .owner
+                .as_ref()
+                .is_some_and(|o| o.username().eq_ignore_ascii_case(owner))
+            && self
+                .settings
+                .as_ref()
+                .and_then(|settings| settings.max_players)
+                .is_none_or(|max| self.player_names.len() < max)
     }
 }
 
@@ -546,6 +602,11 @@ struct HanabClient {
     replay_segment: Option<u8>,
     next_request_id: u64,
     pending_requests: BTreeMap<u64, PendingRequest>,
+    /// Auto-join pregame tables created by this user (`HANABI_FOLLOW`).
+    follow: Option<String>,
+    /// Tables already auto-joined: never retried, so a boot or a refused
+    /// join does not loop.
+    auto_joined: BTreeSet<usize>,
 }
 
 impl HanabClient {
@@ -630,6 +691,7 @@ impl HanabClient {
             "tableList" => self.on_table_list(json),
             "table" => self.on_table(json),
             "tableRemoved" | "tableGone" => self.on_table_gone(json),
+            "tableOwner" => self.on_table_owner(json),
 
             "tableJoined" => self.on_joined(json),
             "tableLeft" | "tableBooted" | "tableBoot" => self.on_left(json),
@@ -653,7 +715,6 @@ impl HanabClient {
             | "voteChanged"
             | "voteChange"
             | "votes"
-            | "tableOwner"
             | "tableRestartDecliners"
             | "tableRestartDeclined"
             | "tableSuggestion"
@@ -786,18 +847,71 @@ impl HanabClient {
         for table in tables {
             self.table_states.insert(table.table_id, table);
         }
-        Ok(())
+        self.follow_owner()
     }
 
     fn on_table(&mut self, json: &str) -> Result<(), serde_json::Error> {
         let table: TableState = serde_json::from_str(json)?;
         self.table_states.insert(table.table_id, table);
-        Ok(())
+        self.follow_owner()
     }
 
     fn on_table_gone(&mut self, json: &str) -> Result<(), serde_json::Error> {
         let table: TableIdMessage = serde_json::from_str(json)?;
         self.table_states.remove(&table.table_id);
+        self.auto_joined.remove(&table.table_id);
+        Ok(())
+    }
+
+    fn on_table_owner(&mut self, json: &str) -> Result<(), serde_json::Error> {
+        let message: TableOwnerMessage = serde_json::from_str(json)?;
+        if let Some(table) = self.table_states.get_mut(&message.table_id) {
+            table.owner = Some(message.owner);
+        }
+        self.follow_owner()
+    }
+
+    /// Join a pregame table created by the followed user, unless we are
+    /// seated at or watching a live table. A finished game's shared replay
+    /// is left for the followed user's next table.
+    fn follow_owner(&mut self) -> Result<(), serde_json::Error> {
+        let Some(owner) = &self.follow else {
+            return Ok(());
+        };
+        let busy = self.table_id != 0
+            && self
+                .table_states
+                .get(&self.table_id)
+                .is_none_or(|table| table.phase != TablePhase::SharedReplay);
+        if busy {
+            return Ok(());
+        }
+        let Some(table_id) = self
+            .table_states
+            .values()
+            .find(|table| {
+                table.table_id != self.table_id
+                    && !self.auto_joined.contains(&table.table_id)
+                    && !table.player_names.contains(&self.username)
+                    && table.awaits_players_of(owner)
+            })
+            .map(|table| table.table_id)
+        else {
+            return Ok(());
+        };
+        println!("Auto-joining table {table_id} created by {owner}");
+        self.auto_joined.insert(table_id);
+        self.clear_game();
+        self.join_table(table_id)
+    }
+
+    fn join_table(&mut self, table_id: usize) -> Result<(), serde_json::Error> {
+        self.table_id = table_id;
+        let table_ref = TableJoinMessage {
+            table_id,
+            password: "secret".to_string(),
+        };
+        self.send("tableJoin", &serde_json::to_string(&table_ref)?);
         Ok(())
     }
 
@@ -822,14 +936,7 @@ impl HanabClient {
                 };
                 println!("Join request by {}", user.username);
                 match user.activity {
-                    UserActivity::Pregame { table_id } => {
-                        self.table_id = table_id;
-                        let table_ref = TableJoinMessage {
-                            table_id,
-                            password: "secret".to_string(),
-                        };
-                        self.send("tableJoin", &serde_json::to_string(&table_ref)?);
-                    }
+                    UserActivity::Pregame { table_id } => self.join_table(table_id)?,
                     UserActivity::Playing { table_id }
                         if self
                             .table_states
@@ -906,7 +1013,7 @@ impl HanabClient {
             self.table_id = 0;
             self.clear_game();
         }
-        Ok(())
+        self.follow_owner()
     }
 
     fn on_table_start(&mut self, json: &str) -> Result<(), serde_json::Error> {
@@ -1024,7 +1131,7 @@ impl HanabClient {
         if let Some(table) = self.table_states.get_mut(&self.table_id) {
             table.phase = TablePhase::SharedReplay;
         }
-        Ok(())
+        self.follow_owner()
     }
 
     fn on_pause(&mut self, json: &str) -> Result<(), serde_json::Error> {
@@ -1561,6 +1668,8 @@ mod protocol_tests {
                 replay_segment: None,
                 next_request_id: 1,
                 pending_requests: BTreeMap::new(),
+                follow: None,
+                auto_joined: BTreeSet::new(),
             },
             WebSocket::from_raw_socket(server, Role::Server, None),
         )
@@ -2022,6 +2131,130 @@ mod protocol_tests {
             assert_eq!(bot.table_id, 0);
             assert_no_message(&mut server);
         }
+    }
+
+    fn table(table_id: usize, phase: &str, owner: &str, players: &[&str], max: usize) -> String {
+        json!({
+            "tableId":table_id,"phase":{"type":phase},"playerNames":players,
+            "settings":{"name":"Table","maxPlayers":max,"options":{"variantId":0}},
+            "owner":{"userId":7,"username":owner},"passwordProtected":false,"progress":0
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn follow_joins_only_free_pregame_tables_of_the_followed_user_once() {
+        let (mut bot, mut server) = connection();
+        bot.follow = Some("alice".into());
+        // Other owners, started games and full tables are left alone.
+        for payload in [
+            table(40, "pregame", "Bob", &["Bob"], 6),
+            table(41, "playing", "Alice", &["Alice", "Bob"], 6),
+            table(42, "pregame", "Alice", &["Alice", "Bob"], 2),
+        ] {
+            bot.process_message("table", &payload).unwrap();
+        }
+        assert_eq!(bot.table_id, 0);
+        assert_no_message(&mut server);
+
+        bot.process_message("table", &table(43, "pregame", "Alice", &["Alice"], 6))
+            .unwrap();
+        assert_eq!(
+            receive(&mut server, "tableJoin"),
+            json!({"tableId":43,"password":"secret"})
+        );
+        assert_eq!(bot.table_id, 43);
+        bot.process_message("tableJoined", r#"{"tableId":43,"stage":"pregame"}"#)
+            .unwrap();
+        // Seated in pregame: another table by the same owner does not pull us away.
+        bot.process_message("table", &table(44, "pregame", "Alice", &["Alice"], 6))
+            .unwrap();
+        assert_no_message(&mut server);
+
+        // A boot is respected: the table is not rejoined, but a later one is.
+        bot.process_message("tableBooted", r#"{"tableId":43}"#)
+            .unwrap();
+        assert_eq!(
+            receive(&mut server, "tableJoin"),
+            json!({"tableId":44,"password":"secret"})
+        );
+        bot.process_message("tableLeft", r#"{"tableId":44}"#)
+            .unwrap();
+        bot.process_message("table", &table(43, "pregame", "Alice", &["Alice"], 6))
+            .unwrap();
+        bot.process_message("table", &table(44, "pregame", "Alice", &["Alice"], 6))
+            .unwrap();
+        assert_eq!(bot.table_id, 0);
+        assert_no_message(&mut server);
+    }
+
+    #[test]
+    fn follow_joins_on_welcome_and_after_ownership_transfer() {
+        let (mut bot, mut server) = connection();
+        bot.follow = Some("Alice".into());
+        bot.process_message(
+            "welcome",
+            &json!({"userId":1,"username":"test bot","playingAtTables":[],"users":[],
+                "tables":[serde_json::from_str::<Value>(&table(42, "pregame", "Alice", &["Alice"], 6)).unwrap()]})
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            receive(&mut server, "tableJoin"),
+            json!({"tableId":42,"password":"secret"})
+        );
+
+        let (mut bot, mut server) = connection();
+        bot.follow = Some("Alice".into());
+        bot.process_message("table", &table(42, "pregame", "Bob", &["Bob", "Alice"], 6))
+            .unwrap();
+        assert_no_message(&mut server);
+        bot.process_message(
+            "tableOwner",
+            r#"{"tableId":42,"owner":{"userId":2,"username":"Alice"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            receive(&mut server, "tableJoin"),
+            json!({"tableId":42,"password":"secret"})
+        );
+    }
+
+    #[test]
+    fn follow_leaves_a_finished_replay_but_not_a_running_game() {
+        let (mut bot, mut server) = connection();
+        bot.follow = Some("Alice".into());
+        bot.process_message(
+            "table",
+            &table(42, "playing", "Bob", &["test bot", "Alice"], 6),
+        )
+        .unwrap();
+        bot.table_id = 42;
+        bot.game = Some(dealt_game());
+        bot.process_message("table", &table(43, "pregame", "Alice", &["Alice"], 6))
+            .unwrap();
+        assert_no_message(&mut server);
+
+        bot.process_message(
+            "gameFinished",
+            r#"{"tableId":42,"sharedReplay":{"turn":3}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            receive(&mut server, "tableJoin"),
+            json!({"tableId":43,"password":"secret"})
+        );
+        assert_eq!(bot.table_id, 43);
+        assert!(bot.game.is_none());
+
+        // A refused join returns the bot to the lobby without retrying.
+        let id = bot.next_request_id - 1;
+        bot.process_frame(&json!({"reply":id,"error":{"message":"Table is full."}}).to_string())
+            .unwrap();
+        assert_eq!(bot.table_id, 0);
+        bot.process_message("table", &table(43, "pregame", "Alice", &["Alice"], 6))
+            .unwrap();
+        assert_no_message(&mut server);
     }
 
     #[test]
