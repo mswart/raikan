@@ -23,6 +23,9 @@ pub enum Rule {
     Save5,
     SaveCritical,
     GoodTouch,
+    DarkSave,
+    DarkRainbowSave,
+    WhiteLoadedSave,
     // level 2
     Prompt,
     Finesse,
@@ -120,6 +123,19 @@ fn multi_color(variant: &Variant) -> bool {
     variant.has_multi_color_touch()
 }
 
+fn dark(variant: &Variant) -> bool {
+    variant.has_unique_suits()
+}
+
+fn dark_multi_color(variant: &Variant) -> bool {
+    (0..variant.num_suits())
+        .any(|suit| variant.suits[suit].one_of_each && variant.is_multi_color_suit(suit))
+}
+
+fn colorless(variant: &Variant) -> bool {
+    variant.has_colorless()
+}
+
 const fn meta(
     rule: Rule,
     id: &'static str,
@@ -192,6 +208,46 @@ pub const RULES: &[RuleMeta] = &[
         Situation,
         Complete,
     ),
+    // The variant pages assign no levels; these rules only change which clue saves a card,
+    // so they are reviewed as level 1 together with the save clues.
+    RuleMeta {
+        applies: dark,
+        ..meta(
+            DarkSave,
+            "L1.dark-save",
+            1,
+            &[Save2, Save5, SaveCritical],
+            "https://hanabi.github.io/variant-specific/black#black-2--black-5-saves",
+            Clue,
+            Partial(
+                "the receiver sees the good-touch exception for a colour save of a dark 2 or 5 only for its cards of known identity",
+            ),
+        )
+    },
+    RuleMeta {
+        applies: dark_multi_color,
+        ..meta(
+            DarkRainbowSave,
+            "L1.dark-rainbow-save",
+            1,
+            &[DarkSave],
+            "https://hanabi.github.io/variant-specific/dark-rainbow#dark-rainbow-saves",
+            Clue,
+            Complete,
+        )
+    },
+    RuleMeta {
+        applies: colorless,
+        ..meta(
+            WhiteLoadedSave,
+            "L1.white-loaded-save",
+            1,
+            &[SaveCritical],
+            "https://hanabi.github.io/variant-specific/white#the-loaded-play-clue-assumption",
+            Clue,
+            Complete,
+        )
+    },
     meta(
         Prompt,
         "L2.prompt",
@@ -818,6 +874,28 @@ mod tests {
         let rainbow = Variant::by_name("Rainbow (6 Suits)").unwrap();
         let r9 = Profile::new(9, &rainbow, false).unwrap();
         assert!(r9.partial.contains(&"L5.free-choice-finesse"));
+    }
+
+    #[test]
+    fn dark_and_white_rules_apply_to_their_variants() {
+        let active = |name: &str, rule: Rule| {
+            Profile::new(1, &Variant::by_name(name).unwrap(), false)
+                .unwrap()
+                .is_active(rule)
+        };
+        for (name, dark, dark_rainbow, white) in [
+            ("No Variant", false, false, false),
+            ("Rainbow (6 Suits)", false, false, false),
+            ("Black (6 Suits)", true, false, false),
+            ("White (6 Suits)", false, false, true),
+            ("Gray (6 Suits)", true, false, true),
+            ("Dark Rainbow (6 Suits)", true, true, false),
+            ("Black & Dark Rainbow (6 Suits)", true, true, false),
+        ] {
+            assert_eq!(active(name, Rule::DarkSave), dark, "{name}");
+            assert_eq!(active(name, Rule::DarkRainbowSave), dark_rainbow, "{name}");
+            assert_eq!(active(name, Rule::WhiteLoadedSave), white, "{name}");
+        }
     }
 
     #[test]

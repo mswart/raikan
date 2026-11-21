@@ -1,0 +1,10 @@
+# rule: L1.dark-save
+# H-Group black page, Black 3 & Black 4 Saves: a black 3 on chop is saved with a black
+# clue; a 3 clue on it is a play clue for everyone who sees it.
+variant Black (6 Suits)
+hand 0: r1 r3 r4 b4 y1
+hand 1: g1 g3 b1 b4 k3
+hand 2: r2 p1 p3 p4 g4
+clue 0 1 black
+note 1 1 5: k1,k3,k4 clued noplay
+note 2 1 5: ? clued noplay

@@ -1,0 +1,16 @@
+# rule: L1.white-loaded-save
+# Counterpart of L1-white-loaded-save: Bob has no known play, so the 3 clue on his chop
+# may still save the critical y3.
+variant White (6 Suits)
+hand 0: r4 y4 b4 p4 y3
+hand 1: g1 b4 g4 p4 w3
+hand 2: w1 w2 r1 r2 g5
+draws: y1 b1 p1
+clue 0 2 2
+clue 1 2 5
+play 2 1
+discard 0 5
+clue 1 2 red
+play 2 2
+clue 0 1 3
+note 1 1 5: y3,w3 clued noplay

@@ -1146,7 +1146,8 @@ struct HanabGame {
 impl HanabGame {
     fn from_message(init: &InitMessage) -> Result<Self, String> {
         let variant = Variant::by_id(init.options.variant_id as u32).map_err(|e| e.to_string())?;
-        // Only variants whose suits the conventions cover (plain and rainbow) unless opted in.
+        // Only variants whose suits the conventions cover (plain, rainbow, black, white, gray,
+        // dark rainbow) unless opted in.
         if let Err(missing) = variant.convention_support()
             && std::env::var_os("RAIKAN_EXPERIMENTAL_VARIANTS").is_none()
         {

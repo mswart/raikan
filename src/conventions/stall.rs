@@ -329,9 +329,8 @@ impl View {
         let Some(identity) = self.identity(card) else {
             return false;
         };
-        let top = self.variant.num_ranks;
         self.variant.touch(clue).contains(identity)
-            && (self.variant.rank_of(identity) != top || self.is_rank_clue(clue, top))
+            && self.save_clue_allowed(receiver, clue, self.known_touches(receiver, clue), identity)
             && matches!(
                 self.play_state(identity),
                 PlayState::Critical | PlayState::CriticalPlayable

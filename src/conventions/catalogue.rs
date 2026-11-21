@@ -73,6 +73,11 @@ pub const REQUIRED: &[Required] = required! {
     1 "L1.save-2" Move "The 2 Save" "the-2-save" [Save2] Complete;
     1 "L1.visible-rule" Move "The Visible Rule" "the-visible-rule" [Save2] Complete;
     1 "L1.double-chop-2s" Move "Double Chop 2's" "double-chop-2s" [Save2] Complete;
+    1 "L1.black-2-5-saves" Move "Black 2 & Black 5 Saves (black)" "https://hanabi.github.io/variant-specific/black#black-2--black-5-saves" [DarkSave] Partial("the receiver sees the good-touch exception only for its cards of known identity");
+    1 "L1.black-3-4-saves" Move "Black 3 & Black 4 Saves (black)" "https://hanabi.github.io/variant-specific/black#black-3--black-4-saves" [DarkSave] Complete;
+    1 "L1.white-loaded-play-clue" Principle "The Loaded Play Clue Assumption (white)" "https://hanabi.github.io/variant-specific/white#the-loaded-play-clue-assumption" [WhiteLoadedSave] Complete;
+    1 "L1.gray-saves" Move "Gray 2, 3, 4 & 5 Saves (gray)" "https://hanabi.github.io/variant-specific/gray#gray-3-and-gray-4-saves" [DarkSave] Complete;
+    1 "L1.dark-rainbow-saves" Move "Dark Rainbow Saves (dark rainbow)" "https://hanabi.github.io/variant-specific/dark-rainbow#dark-rainbow-saves" [DarkRainbowSave] Complete;
     1 "L1.prompt" Move "The Prompt" "the-prompt" [Prompt] Complete;
     1 "L1.finesse" Move "The Finesse" "the-finesse" [Finesse] Complete;
     1 "L1.finesse-position" Principle "Finesse Position" "finesse-position" [Finesse] Complete;

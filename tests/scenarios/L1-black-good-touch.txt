@@ -1,0 +1,14 @@
+# rule: L1.dark-save
+# H-Group black page, second exception to Black 2 & Black 5 Saves: a 2 clue would also
+# touch Bob's g2, a duplicate of Cathy's clued g2, so the black clue saves the black 2.
+# Bob cannot see the duplicate; everybody else reads a save.
+variant Black (6 Suits)
+hand 0: r1 y1 r3 r4 b4
+hand 1: y3 g2 b3 b4 k2
+hand 2: g1 g2 p1 p3 r2
+clue 0 2 green
+clue 1 2 purple
+clue 2 0 1
+clue 0 1 black
+note 0 1 5: ? clued noplay
+note 2 1 5: ? clued noplay

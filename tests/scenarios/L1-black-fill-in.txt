@@ -1,0 +1,13 @@
+# rule: L1.dark-save
+# H-Group black page, third exception to Black 2 & Black 5 Saves: Bob's 5 (a 5 stall) is
+# filled in as black by the black clue, so the black clue also saves the black 2 on chop.
+variant Black (6 Suits)
+hand 0: r1 r3 r4 b4 y1
+hand 1: g1 k5 b1 b3 k2
+hand 2: r2 p1 p3 p4 g4
+clue 0 1 5
+clue 1 2 purple
+clue 2 0 1
+clue 0 1 black
+note 2 1 5: k1,k2,k3,k4 clued noplay
+note 1 1 5: k1,k2,k3,k4 clued noplay

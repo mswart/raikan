@@ -1,0 +1,9 @@
+# rule: L1.dark-rainbow-save
+# H-Group dark rainbow page: without a black suit, a dark rainbow 3 is saved with its
+# rank, so a colour clue on it is a (delayed) play clue for everyone who sees it.
+variant Dark Rainbow (6 Suits)
+hand 0: r1 r3 r4 b4 y1
+hand 1: g1 g3 b1 b4 m3
+hand 2: r2 p1 p3 p4 g4
+clue 0 1 red
+note 2 1 5: ? clued delayed

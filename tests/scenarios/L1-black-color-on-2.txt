@@ -1,0 +1,12 @@
+# rule: L1.dark-save
+# H-Group black page: black 2s are saved with a 2 clue, so a black clue on a black 2 on
+# chop is a (delayed) play clue for everyone who sees it. The receiver, who cannot see it, reads the
+# black clue as a save of a black 3 or 4 (or a play of the black 1); a black 2 is not one
+# of the possibilities.
+variant Black (6 Suits)
+hand 0: r1 r3 r4 b4 y1
+hand 1: g1 g3 b1 b3 k2
+hand 2: r2 p1 p3 p4 g4
+clue 0 1 black
+note 1 1 5: k1,k3,k4 clued
+note 2 1 5: ? clued delayed

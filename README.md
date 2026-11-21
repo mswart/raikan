@@ -26,10 +26,12 @@ username and password again. Do not include `Set-Cookie` attributes such as
 
 Send the bot a DM with `/join` as message to make it join your table.
 The web client supports one table at a time. It plays variants whose suits the
-conventions cover: plain suits (`No Variant`, 3–6 suits) and rainbow (e.g.
-`Rainbow (6 Suits)`, `Rainbow (5 Suits)`). Other special suits (white, black,
-pink, …) and variant modifiers are refused unless
-`RAIKAN_EXPERIMENTAL_VARIANTS=1` is set. `RAIKAN_LEVEL=<n>` caps the
+conventions cover: plain suits (`No Variant`, 3–6 suits), rainbow, black, white and
+their dark forms gray and dark rainbow, alone or combined (e.g. `Rainbow (6 Suits)`,
+`Black (5 Suits)`, `White (6 Suits)`, `Gray (6 Suits)`, `Dark Rainbow (6 Suits)`,
+`Black & Rainbow (6 Suits)`, `Rainbow & White (5 Suits)`). Other special suits (pink,
+brown, null, prism, light pink, the other dark suits, …) and variant modifiers are
+refused unless `RAIKAN_EXPERIMENTAL_VARIANTS=1` is set. `RAIKAN_LEVEL=<n>` caps the
 H-Group level (default 10); `RAIKAN_SEARCH=fast|full` turns on the search (default off,
 see below). It uses Hanabi Live's current lobby and game-event protocol; spectators
 and replay viewers do not send moves.
@@ -312,9 +314,25 @@ cards), Sudoku, orange (a play command on an orange card discards it and a disca
 command plays it; replays record the effect), alternating clues and empty clues (Color
 Blind, Number Blind) included. Stacks are a direction and a start, and the variant
 answers what each stack still needs. The bot plays these variants legally, but the
-conventions do not cover them (`raikan-web` refuses such tables). The
-conventions cover plain suits and the
-[rainbow suit](https://hanabi.github.io/variant-specific/rainbow):
+conventions do not cover them (`raikan-web` refuses such tables).
+
+The conventions cover these suits, alone or combined, without variant-wide modifiers:
+
+| Suit | Touched by | Copies | Example variants |
+| --- | --- | --- | --- |
+| Plain (red, yellow, green, blue, purple, teal) | its colour, its rank | 3/2/2/2/1 | `No Variant`, `6 Suits`, `4 Suits`, `3 Suits` |
+| [Rainbow](https://hanabi.github.io/variant-specific/rainbow) | every colour, its rank | 3/2/2/2/1 | `Rainbow (6 Suits)`, `Rainbow (5 Suits)` |
+| [Black](https://hanabi.github.io/variant-specific/black) (dark) | black, its rank | one of each | `Black (6 Suits)`, `Black (5 Suits)` |
+| [White](https://hanabi.github.io/variant-specific/white) (light) | no colour, its rank | 3/2/2/2/1 | `White (6 Suits)`, `White (5 Suits)` |
+| [Gray](https://hanabi.github.io/variant-specific/gray) (dark white) | no colour, its rank | one of each | `Gray (6 Suits)`, `Gray (5 Suits)` |
+| [Dark Rainbow](https://hanabi.github.io/variant-specific/dark-rainbow) | every colour, its rank | one of each | `Dark Rainbow (6 Suits)`, `Dark Rainbow (5 Suits)` |
+
+Combinations such as `Black & Rainbow`, `Black & White`, `Black & Gray`,
+`Black & Dark Rainbow`, `Rainbow & White`, `Rainbow & Gray`, `White & Dark Rainbow` and
+`Dark Rainbow & Gray` are covered too. The variant pages assign no levels; their save
+rules are reviewed as level 1 together with the save clues.
+
+Rainbow:
 
 * **Saving rainbow cards:** rainbow 2s are 2-saved like other 2s; a critical rainbow
   2, 3 or 4 can be saved with any colour or its rank (the general critical save).
@@ -329,7 +347,46 @@ conventions cover plain suits and the
   variants, and the bot does not deliberately give Free Choice Finesses (its own
   legibility check rejects them because the receiver cannot see the free choice).
 
-Scenarios: [tests/scenarios](tests/scenarios) (`L5-free-choice-*.txt`).
+Black, gray and dark rainbow (dark suits, one copy of each card):
+
+* **Black 2 & 5 saves:** dark 2s and 5s on chop are saved with their rank. A colour clue
+  saves them only under the black page's exceptions; otherwise a black clue on a black 2
+  or 5 is a play clue for everyone who sees it. The page does not define the exceptions;
+  the readings implemented are:
+  1. the clue newly touches two or more critical cards (black, or critical rainbow or
+     dark rainbow);
+  2. good touch: the rank clue would newly touch a card known to be trash or a duplicate
+     of a clued card, and the colour clue touches no such card;
+  3. fill-in: the clue re-touches an already clued card and narrows what it can be;
+  4. negative information: an untouched clued card's identity, playability or trash
+     status becomes known.
+* **Black 3 & 4 saves:** dark 3s and 4s on chop are saved with a colour clue. A rank clue
+  saves them only as a Florrat Save (it newly touches another critical card); otherwise
+  it is a play clue for everyone who sees it.
+* **Gray saves:** gray cards can only be touched by rank: gray 2s and 5s use the 2 and 5
+  saves, gray 3s and 4s the 3 or 4 clue.
+* **Dark rainbow saves:** dark rainbow 2s and 5s are saved with their rank; only a black
+  clue (in variants with a black suit) can save them under the black exceptions, any
+  other colour on them is a play clue. Dark rainbow 3s and 4s are saved with a black clue when the variant
+  has a black suit; otherwise with their rank, or with a colour when the clue also newly
+  touches another card that is critical because of discards (not a 5, not dark), or when
+  the colour's own suit is completely played or accounted for (every card played, dead or
+  clued).
+* **Who can tell:** seats that see the touched cards judge the exceptions by their
+  identities. The receiver judges by what its cards may be, so it keeps a save reading
+  whenever an exception is possible. The good-touch exception depends on cards that only
+  the giver and third parties see: the receiver counts only its cards of known identity,
+  so it may read a good-touch save of a black 2 or 5 as a save of a black 3 or 4 (the card
+  is protected either way).
+
+White and gray (no colour touches them):
+
+* **Loaded play clue assumption:** in a variant with a colourless suit, a 3 or 4 clue to
+  a player with a known play or known trash is a play clue, never a save: a loaded
+  player does not discard, and white 3s and 4s on chop are otherwise hard to get played.
+
+Scenarios: [tests/scenarios](tests/scenarios) (`L5-free-choice-*.txt`,
+`L1-black-*.txt`, `L1-white-*.txt`).
 
 ## Architecture
 

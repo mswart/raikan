@@ -1,0 +1,18 @@
+# rule: L1.white-loaded-save
+# H-Group white page, The Loaded Play Clue Assumption: Bob holds a known playable g1 and
+# white 1 and 2 are played. A 3 clue on his chop would normally save the critical y3 (the
+# other copy is discarded), but a loaded player needs no save: it is a play clue (w3, or
+# a 3 behind a prompt or finesse), and y3 is not among the possibilities.
+variant White (6 Suits)
+hand 0: r4 y4 b4 p4 y3
+hand 1: g1 b4 g4 p4 w3
+hand 2: w1 w2 r1 r2 g5
+draws: y1 b1 p1
+clue 0 1 1
+clue 1 2 5
+play 2 1
+discard 0 5
+clue 1 2 red
+play 2 2
+clue 0 1 3
+note 1 1 5: r3,p3,w3 clued

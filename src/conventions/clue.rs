@@ -151,13 +151,23 @@ impl View {
             }
         }
         let mut save_options = IdentitySet::EMPTY;
-        if old_chop == Some(focus) && newly_clued.contains(focus) {
+        if old_chop == Some(focus)
+            && newly_clued.contains(focus)
+            && !self.loaded_play_clue(receiver, clue)
+        {
             for identity in self.note(focus).belief.soft.iter() {
-                if touch.contains(identity) && self.can_save(giver, receiver, clue, identity) {
+                if touch.contains(identity)
+                    && self.can_save(giver, receiver, clue, touched, identity)
+                {
                     save_options.insert(identity);
                 }
             }
         }
+        // Whether the clue may save the focus as this view sees it (third parties), judged
+        // before the clue changes the notes.
+        let focus_save_clue = self
+            .identity(focus)
+            .is_none_or(|i| self.save_clue_allowed(receiver, clue, touched, i));
         let stall = if fix.is_some() {
             None
         } else {
@@ -374,7 +384,13 @@ impl View {
                             || (chop_move.cards.len() == 1
                                 && self.variant.clue_ids().any(|save| {
                                     self.variant.touch(save).contains(identity)
-                                        && self.can_save(giver, receiver, save, identity)
+                                        && self.can_save(
+                                            giver,
+                                            receiver,
+                                            save,
+                                            self.known_touches(receiver, save),
+                                            identity,
+                                        )
                                 })));
                     if duplicate || direct_save || !self.worth_protecting(card) {
                         error += 2;
@@ -435,7 +451,6 @@ impl View {
             return error;
         }
 
-        let top = self.variant.num_ranks;
         let rank_clue = matches!(self.variant.clue_value(clue), ClueValue::Rank(_));
         // The focus comes first, even when it is a re-touched card (as with 1s order).
         let order: SmallVec<[CardId; 6]> = std::iter::once(focus)
@@ -485,9 +500,7 @@ impl View {
                     error += 1;
                     self.last_rule = "L3.duplicated-play";
                 } else if self.note(card).belief.intersects(save_options)
-                    && (receiver == self.me
-                        || !(identity.is_some_and(|i| self.variant.rank_of(i) == top)
-                            && !self.is_rank_clue(clue, top)))
+                    && (receiver == self.me || focus_save_clue)
                 {
                     let note = self.note_mut(card);
                     for potential in note.belief.soft.iter() {

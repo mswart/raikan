@@ -1,0 +1,17 @@
+# rule: L1.dark-rainbow-save
+# H-Group dark rainbow page, first exception to Dark Rainbow Saves: the other r3 is
+# discarded, so a red clue that touches the critical r3 and a dark rainbow 3 on chop saves
+# both.
+variant Dark Rainbow (6 Suits)
+hand 0: r1 y1 r4 b4 r3
+hand 1: g1 r3 b3 b4 m3
+hand 2: r2 p1 p3 p4 g4
+draws: y2
+clue 0 2 purple
+clue 1 0 1
+clue 2 1 1
+discard 0 5
+clue 1 2 red
+clue 2 0 4
+clue 0 1 red
+note 2 1 5: r3,m3,m4 clued noplay

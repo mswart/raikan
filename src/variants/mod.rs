@@ -602,30 +602,25 @@ impl Variant {
         })
     }
 
-    /// Whether the H-Group conventions implemented so far cover this variant: plain suits
-    /// and rainbow suits, without variant-wide modifiers. Returns what is missing.
+    /// Whether the H-Group conventions implemented so far cover this variant: plain,
+    /// rainbow and white suits and their dark (one of each) forms (black, dark rainbow,
+    /// gray), without variant-wide modifiers. Returns what is missing.
     pub fn convention_support(&self) -> Result<(), String> {
         if let Some(modifier) = self.modifiers.first() {
             return Err(format!("variant modifier {modifier}"));
         }
         for suit in &self.suits {
-            let plain = suit.clue_colors.len() == 1
-                && !(suit.all_clue_colors
-                    || suit.no_clue_colors
-                    || suit.all_clue_ranks
-                    || suit.no_clue_ranks
-                    || suit.prism
-                    || suit.one_of_each);
             if suit.reversed || suit.inverted {
                 return Err(format!("{} suit", suit.name));
             }
-            let rainbow = suit.all_clue_colors
-                && !(suit.no_clue_colors
-                    || suit.all_clue_ranks
-                    || suit.no_clue_ranks
-                    || suit.prism
-                    || suit.one_of_each);
-            if !plain && !rainbow {
+            if suit.all_clue_ranks || suit.no_clue_ranks || suit.prism {
+                return Err(format!("{} suit", suit.name));
+            }
+            let plain =
+                suit.clue_colors.len() == 1 && !suit.all_clue_colors && !suit.no_clue_colors;
+            let rainbow = suit.all_clue_colors && !suit.no_clue_colors;
+            let white = suit.no_clue_colors && !suit.all_clue_colors;
+            if !(plain || rainbow || white) {
                 return Err(format!("{} suit", suit.name));
             }
         }
@@ -1113,6 +1108,14 @@ mod tests {
             "6 Suits",
             "Rainbow (6 Suits)",
             "Rainbow (5 Suits)",
+            "Black (6 Suits)",
+            "White (6 Suits)",
+            "Gray (6 Suits)",
+            "Dark Rainbow (6 Suits)",
+            "Black & Rainbow (6 Suits)",
+            "Black & White (5 Suits)",
+            "Black & Dark Rainbow (6 Suits)",
+            "Rainbow & Gray (6 Suits)",
         ] {
             assert_eq!(
                 Variant::by_name(name).unwrap().convention_support(),
@@ -1121,9 +1124,15 @@ mod tests {
             );
         }
         for name in [
-            "Black (6 Suits)",
-            "White (6 Suits)",
             "Pink (6 Suits)",
+            "Brown (6 Suits)",
+            "Null (6 Suits)",
+            "Light Pink (6 Suits)",
+            "Dark Pink (6 Suits)",
+            "Dark Brown (6 Suits)",
+            "Dark Null (6 Suits)",
+            "Dark Prism (6 Suits)",
+            "Dark Orange (6 Suits)",
             "Muddy Rainbow (6 Suits)",
             "Rainbow-Ones (6 Suits)",
         ] {

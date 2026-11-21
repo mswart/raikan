@@ -15,6 +15,11 @@ keeps it in sync. Every convention of levels 1–20 is listed, implemented or no
 | 1 | [The 2 Save](https://hanabi.github.io/level-1#the-2-save) | Move | complete | L1.save-2 |
 | 1 | [The Visible Rule](https://hanabi.github.io/level-1#the-visible-rule) | Move | complete | L1.save-2 |
 | 1 | [Double Chop 2's](https://hanabi.github.io/level-1#double-chop-2s) | Move | complete | L1.save-2 |
+| 1 | [Black 2 & Black 5 Saves (black)](https://hanabi.github.io/variant-specific/black#black-2--black-5-saves) | Move | partial: the receiver sees the good-touch exception only for its cards of known identity | L1.dark-save |
+| 1 | [Black 3 & Black 4 Saves (black)](https://hanabi.github.io/variant-specific/black#black-3--black-4-saves) | Move | complete | L1.dark-save |
+| 1 | [The Loaded Play Clue Assumption (white)](https://hanabi.github.io/variant-specific/white#the-loaded-play-clue-assumption) | Principle | complete | L1.white-loaded-save |
+| 1 | [Gray 2, 3, 4 & 5 Saves (gray)](https://hanabi.github.io/variant-specific/gray#gray-3-and-gray-4-saves) | Move | complete | L1.dark-save |
+| 1 | [Dark Rainbow Saves (dark rainbow)](https://hanabi.github.io/variant-specific/dark-rainbow#dark-rainbow-saves) | Move | complete | L1.dark-rainbow-save |
 | 1 | [The Prompt](https://hanabi.github.io/level-1#the-prompt) | Move | complete | L2.prompt |
 | 1 | [The Finesse](https://hanabi.github.io/level-1#the-finesse) | Move | complete | L2.finesse |
 | 1 | [Finesse Position](https://hanabi.github.io/level-1#finesse-position) | Principle | complete | L2.finesse |
