@@ -1,0 +1,13 @@
+# rule: L1.play-clue
+# rule: L1.save-5
+# rule: L2.finesse
+# The giver names what its clue means: a 5 save, a play clue on r1, and a finesse whose
+# r1 connection sits on the next player's finesse position.
+hand 0: y1 y2 y3 y4 y5
+hand 1: r1 g2 g3 g4 p5
+hand 2: r2 b3 b4 p2 p3
+intent 0: clue 1 5 => save p5
+intent 0: clue 1 red => play r1
+intent 0: clue 2 red => play r2 via finesse:r1@1
+clue 0 2 red
+note 1 1 1: r1 promised play

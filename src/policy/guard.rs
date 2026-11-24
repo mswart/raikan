@@ -16,6 +16,11 @@
 //! generation discard (level 7) is permitted only when we mean to give that signal, and no
 //! discard is permitted while a scream asks us to clue.
 //!
+//! A clue must also have a purpose ([`ClueIntent`]): it gets a new card clued, promised or
+//! chop moved, or it is a stall (only when a stall is called for), a valuable tempo clue
+//! or a fix that removes errors. This is the blueprint's minimum clue value, so the search
+//! never compares clues the blueprint would not give.
+//!
 //! A clue is not permitted while we hold a convention play when its focus is a potential
 //! finesse: a playable, non-critical card on the receiver's finesse position. Nothing is
 //! lost by playing first, because the card can still be played through a finesse of its
@@ -30,7 +35,7 @@
 
 use smallvec::SmallVec;
 
-use crate::conventions::{PlayState, View, Worth};
+use crate::conventions::{ClueIntent, IntentKind, PlayState, View, Worth};
 use crate::domain::{CardId, ClueId, Seat};
 use crate::engine::Action;
 
@@ -39,27 +44,51 @@ pub fn expected_action(view: &View) -> Option<Action> {
     Some(super::choose_action(&view.decision_view(view.me)).action)
 }
 
-/// Whether our clue would be read as intended, given the errors the position already has.
+/// Whether our clue would be read as intended and has a purpose, given the errors the
+/// position already has.
 pub fn legible_clue(view: &View, baseline: &Worth, target: Seat, clue: ClueId) -> bool {
-    clue_errors(view, baseline, target, clue).is_some_and(|errors| errors <= baseline.errors)
+    grade_clue(view, baseline, target, clue).0
 }
 
 /// The convention errors of the position after our clue, with the in-between seats'
 /// free choices; `None` when the clue touches nothing or already the optimistic grade
 /// has more errors than `baseline`.
 pub fn clue_errors(view: &View, baseline: &Worth, target: Seat, clue: ClueId) -> Option<u8> {
-    clue_worth(view, baseline, target, clue).map(|worth| worth.errors)
+    clue_worth(view, baseline, target, clue).map(|(worth, _)| worth.errors)
 }
 
-/// The worth of the position after our clue, as [`clue_errors`] grades it.
-fn clue_worth(view: &View, baseline: &Worth, target: Seat, clue: ClueId) -> Option<Worth> {
-    view.clue_views_expecting(
+/// The worth of the position after our clue, as [`clue_errors`] grades it, and the
+/// clue's intent.
+pub fn clue_worth(
+    view: &View,
+    baseline: &Worth,
+    target: Seat,
+    clue: ClueId,
+) -> Option<(Worth, ClueIntent)> {
+    let mut intent = None;
+    let (worth, _) = view.clue_views_expecting(
         target,
         clue,
-        |_, upper| upper.no_more_errors_than(baseline),
+        |after, upper| {
+            intent =
+                Some(view.clue_intent_after(after, target, clue, upper.errors < baseline.errors));
+            upper.no_more_errors_than(baseline)
+        },
         Some(&expected_action),
-    )
-    .map(|(worth, _)| worth)
+    )?;
+    let mut intent = intent?;
+    // The optimistic grade may have removed errors the full round check keeps.
+    if intent.kind == IntentKind::Fix && !intent.has_value() && worth.errors >= baseline.errors {
+        intent.kind = IntentKind::None;
+    }
+    Some((worth, intent))
+}
+
+/// Whether the clue has a purpose: minimum clue value or a fix that removes errors, and a
+/// stall only when a stall is called for.
+pub fn purposeful(view: &View, baseline: &Worth, worth: &Worth, intent: &ClueIntent) -> bool {
+    (intent.has_value() || worth.errors < baseline.errors)
+        && !(intent.is_stall() && !view.may_stall())
 }
 
 /// The clue is permitted, and the play clue flag: it gets more cards played.
@@ -68,7 +97,11 @@ fn grade_clue(view: &View, baseline: &Worth, target: Seat, clue: ClueId) -> (boo
         return (false, false);
     }
     match clue_worth(view, baseline, target, clue) {
-        Some(worth) if worth.errors <= baseline.errors => (true, worth.plays > baseline.plays),
+        Some((worth, intent))
+            if worth.errors <= baseline.errors && purposeful(view, baseline, &worth, &intent) =>
+        {
+            (true, worth.plays > baseline.plays)
+        }
         _ => (false, false),
     }
 }
@@ -101,10 +134,7 @@ pub fn discard_passes_play_clue(view: &View, card: CardId) -> bool {
 /// play (or as the sarcastic discard, or of known trash), clues when legible.
 pub fn permitted(view: &View, baseline: &Worth, action: Action) -> bool {
     match action {
-        Action::Clue { target, clue } => {
-            !delays_play_for_finesse(view, target, clue)
-                && legible_clue(view, baseline, target, clue)
-        }
+        Action::Clue { target, clue } => legible_clue(view, baseline, target, clue),
         Action::Play(_) => true,
         Action::Discard(card) => legible_discard(view, card),
     }

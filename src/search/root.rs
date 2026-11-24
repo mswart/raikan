@@ -18,8 +18,12 @@ use crate::knowledge::{ExactSampler, MAX_EXACT_CONSTRAINED, SampleSet, WorldSamp
 use crate::policy::{Decision, permitted_candidates};
 
 use super::SearchConfig;
-use super::rollout::{Partners, seat_views, simulate};
+use super::rollout::{Partners, plays_to_end, seat_views, simulate};
 use super::value::Breakdown;
+
+/// Visits the best candidate and the blueprint's choice both need before the best may
+/// replace the blueprint's choice (fewer when fewer worlds were sampled).
+const MIN_OVERRIDE_VISITS: usize = 32;
 
 /// Why the planner chose its action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
@@ -60,6 +64,9 @@ pub struct PlanResult {
     /// Paired difference best − blueprint and its standard error, when they differ.
     pub paired_difference: Option<(f64, f64)>,
     pub seed: u64,
+    /// The rollouts played to the real end of the game (end-game), so the values are
+    /// final scores.
+    pub to_end: bool,
 }
 
 /// Weighted mean and standard error of `values` (with the first `values.len()` weights).
@@ -194,6 +201,7 @@ struct Evaluator<'a> {
     spread: f64,
     seed: u64,
     threads: usize,
+    to_end: bool,
     /// The seat views of each world, built on first use.
     base: Vec<std::sync::OnceLock<Vec<View>>>,
 }
@@ -206,6 +214,7 @@ impl<'a> Evaluator<'a> {
             spread: config.partner_spread,
             seed,
             threads: config.threads.max(1),
+            to_end: plays_to_end(view, config),
             base: (0..samples.worlds.len())
                 .map(|_| std::sync::OnceLock::new())
                 .collect(),
@@ -218,7 +227,7 @@ impl<'a> Evaluator<'a> {
             .get_or_init(|| seat_views(self.view, world))
             .clone();
         let partners = Partners::for_world(self.spread, self.seed, w);
-        simulate(self.view, world, views, action, partners)
+        simulate(self.view, world, views, action, partners, self.to_end)
     }
 
     /// Leaf values of `jobs` (candidate index into `actions`, world), in job order.
@@ -258,6 +267,7 @@ pub fn plan(view: &View, blueprint: &Decision, config: &SearchConfig) -> PlanRes
             .filter(|&a| a != blueprint.action),
     );
     let seed = decision_seed(view, config);
+    let to_end = plays_to_end(view, config);
     let mut stats: Vec<CandidateStats> = actions
         .iter()
         .enumerate()
@@ -279,6 +289,7 @@ pub fn plan(view: &View, blueprint: &Decision, config: &SearchConfig) -> PlanRes
         effective_size,
         paired_difference,
         seed,
+        to_end,
     };
     if actions.len() == 1 {
         return result(PlanReason::Single, stats, 0, 0.0, None);
@@ -363,7 +374,14 @@ pub fn plan(view: &View, blueprint: &Decision, config: &SearchConfig) -> PlanRes
         .collect();
     let (difference, stderr) = weighted_stats(&differences, weights);
     let paired = Some((difference, stderr));
-    if difference > 0.0 && difference > config.blueprint_margin * stderr {
+    // A gain measured on few worlds (the time limit stopped the halving early) is no
+    // reason to leave the blueprint's choice.
+    let enough = n >= worlds.min(MIN_OVERRIDE_VISITS);
+    if enough
+        && difference > 0.0
+        && difference > config.min_gain
+        && difference > config.blueprint_margin * stderr
+    {
         let action = actions[best];
         let mut planned = result(PlanReason::Searched, stats, worlds, effective_size, paired);
         planned.action = action;

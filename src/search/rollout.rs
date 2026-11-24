@@ -10,6 +10,7 @@ use crate::engine::{self, Action, GameState, World};
 use crate::policy::Reason;
 use crate::policy::partner::{Prediction, partner_distribution, pick};
 
+use super::SearchConfig;
 use super::value::{self, Breakdown};
 
 /// The seat views at the root, for one world: each teammate's kept view with our own cards
@@ -34,9 +35,16 @@ pub fn seat_views(root: &View, world: &World) -> Vec<View> {
         .collect()
 }
 
-/// Whether the rollout plays to the real end instead of one rotation.
-pub fn plays_to_end(state: &GameState) -> bool {
-    state.final_turns.is_some() || state.cards_left() <= state.num_seats
+/// Whether the rollouts of a decision play to the real end of the game instead of one
+/// rotation: the final round has started, the deck is nearly empty, or the position is in
+/// the end-game (pace below the number of players plus `config.to_end_pace`; the H-Group
+/// end-game definition, independent of the level-8 rule). The leaf is then the real final
+/// score, not an estimate.
+pub fn plays_to_end(root: &View, config: &SearchConfig) -> bool {
+    let state = &root.state;
+    state.final_turns.is_some()
+        || state.cards_left() <= state.num_seats
+        || root.pace() < state.num_seats as i16 + config.to_end_pace
 }
 
 /// One step of a traced rollout.
@@ -91,16 +99,17 @@ fn splitmix(mut x: u64) -> u64 {
 }
 
 /// Apply `action` for the root seat, then let the other seats act by the partner model
-/// until the root seat is to move again (or, near the end of the deck, until the game
-/// ends, the root seat included). Returns the leaf value.
+/// until the root seat is to move again (or, with `to_end`, until the game ends, the root
+/// seat included, acting by the blueprint from its own view). Returns the leaf value.
 pub fn simulate(
     root: &View,
     world: &World,
     views: Vec<View>,
     action: Action,
     partners: Partners,
+    to_end: bool,
 ) -> Breakdown {
-    run(root, world, views, action, partners, None)
+    run(root, world, views, action, partners, to_end, None)
 }
 
 /// [`simulate`], recording every step.
@@ -110,9 +119,18 @@ pub fn simulate_traced(
     views: Vec<View>,
     action: Action,
     partners: Partners,
+    to_end: bool,
 ) -> (Breakdown, Vec<RolloutStep>) {
     let mut steps = Vec::new();
-    let leaf = run(root, world, views, action, partners, Some(&mut steps));
+    let leaf = run(
+        root,
+        world,
+        views,
+        action,
+        partners,
+        to_end,
+        Some(&mut steps),
+    );
     (leaf, steps)
 }
 
@@ -122,12 +140,12 @@ fn run(
     mut views: Vec<View>,
     action: Action,
     partners: Partners,
+    to_end: bool,
     mut trace: Option<&mut Vec<RolloutStep>>,
 ) -> Breakdown {
     let variant = root.variant.clone();
     let me = root.me;
     let mut state = root.state;
-    let to_end = plays_to_end(&state);
     let mut next = Some(action);
     // A guard against a cycle of clues that never ends the game.
     let mut steps = 0;

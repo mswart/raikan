@@ -341,9 +341,7 @@ fn decide_ordinary(view: &View, scored: &mut Alternatives) -> Decision {
     };
     if let Some((kind, _, action, _)) = best_stall
         && (!normal_clue_available || (kind == StallKind::Five && only_finesse_position_clues))
-        && (severity >= StallSeverity::DoubleDiscard
-            || (severity == StallSeverity::Early && !view.context.early_five_stalled)
-            || (severity == StallSeverity::EndGame && view.burn_allowed()))
+        && view.may_stall()
         && !permission(&action)
     {
         return Decision {
@@ -415,22 +413,12 @@ fn evaluate(
         Action::Clue { target, clue } => {
             let mut needs_fix = false;
             let (mut forecast, priority) = Forecast::clue(view, target, clue, |after, upper| {
-                let gets_new_card = view.state.seats().any(|seat| {
-                    view.state.hand(seat).iter().any(|&card| {
-                        let before = view.note(card);
-                        let after = after.note(card);
-                        !before.clued
-                            && before.promised.is_none()
-                            && (after.clued
-                                || after.promised.is_some()
-                                || (after.chop_moved && !before.chop_moved))
-                    })
-                });
                 // Minimum clue value: ordinary tempo clues must not replace a discard. Fixes,
                 // stalls and valuable tempo clues have their own reason to spend a clue.
-                needs_fix = !gets_new_card
-                    && view.clue_stall(target, clue).is_none()
-                    && after.last_rule() != "L6.valuable-tempo-clue";
+                needs_fix = !view
+                    .clue_intent_after(after, target, clue, false)
+                    .has_value()
+                    && view.clue_stall(target, clue).is_none();
                 if needs_fix && baseline.no_more_errors_than(upper) {
                     return false;
                 }

@@ -17,6 +17,15 @@ pub trait Agent {
     fn observe(&mut self, event: &Event);
     /// Called when it is this seat's turn.
     fn choose_action(&mut self, state: &GameState) -> Action;
+    /// Whether the last action replaced the blueprint's choice after search.
+    fn overrode_blueprint(&self) -> bool {
+        false
+    }
+    /// One line about the last decision (action, clue intent, reasons), for logs. `names`
+    /// are the players by seat.
+    fn summary(&self, _names: &[String]) -> String {
+        String::new()
+    }
     /// Human-readable description of the agent's current knowledge, for debugging.
     fn describe(&self) -> String {
         String::new()
@@ -31,6 +40,10 @@ pub struct GameResult {
     pub score: u8,
     /// Successful plays of cards that were never clued.
     pub blind_plays: u8,
+    /// Decisions in which the search replaced the blueprint's choice.
+    pub search_overrides: u16,
+    /// Decisions taken.
+    pub decisions: u16,
 }
 
 /// Play one game with the given agents (one per seat) on a fixed deck.
@@ -51,9 +64,15 @@ pub fn run_game(variant: &Variant, world: &World, agents: &mut [&mut dyn Agent])
 
     let mut replay = Replay::new(variant, num_seats, *world);
     let mut blind_plays = 0;
+    let mut search_overrides = 0;
+    let mut decisions = 0;
     while !state.is_over() {
         let seat = state.current;
         let action = agents[seat.index()].choose_action(&state);
+        decisions += 1;
+        if agents[seat.index()].overrode_blueprint() {
+            search_overrides += 1;
+        }
         let blind = matches!(action, Action::Play(card) if !state.clued.contains(card));
         let events = engine::step(variant, &mut state, world, action);
         if blind
@@ -73,6 +92,8 @@ pub fn run_game(variant: &Variant, world: &World, agents: &mut [&mut dyn Agent])
         state,
         replay,
         blind_plays,
+        search_overrides,
+        decisions,
     }
 }
 

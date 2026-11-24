@@ -1311,6 +1311,10 @@ impl HanabGame {
         self.state.current = Seat(self.own_player);
         let action = self.agent.choose_action(&self.state);
         println!("Decision: {:?}", action);
+        let summary = self.agent.summary(&self.player_names);
+        if !summary.is_empty() {
+            eprintln!("turn {}: {summary}", self.state.turn);
+        }
         Some(self.action_message(table_id, action))
     }
 

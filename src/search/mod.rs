@@ -9,7 +9,7 @@ pub mod rollout;
 pub mod root;
 pub mod value;
 
-pub use rollout::{RolloutStep, simulate_traced};
+pub use rollout::{RolloutStep, plays_to_end, simulate_traced};
 pub use root::{CandidateStats, Comparison, PlanReason, PlanResult, compare, plan, sample_worlds};
 pub use value::Breakdown;
 
@@ -47,6 +47,13 @@ pub struct SearchConfig {
     /// In paired standard errors: the best candidate replaces the blueprint's choice only
     /// when it is better by more than this. 0 always takes the best estimate.
     pub blueprint_margin: f64,
+    /// In expected points: the best candidate replaces the blueprint's choice only when it
+    /// is better by more than this as well. The paired standard error only measures
+    /// sampling noise, not the error of the leaf estimate, so a tiny but "significant"
+    /// gain is no reason to leave the conventional choice.
+    pub min_gain: f64,
+    /// Roll out to the real end once pace is below the number of players plus this.
+    pub to_end_pace: i16,
     /// Fixed seed; otherwise the seed is derived from the public state and the turn.
     pub seed: Option<u64>,
     /// Weight of a world that violates a convention inference (`[teammates] trust_epsilon`).
@@ -74,6 +81,8 @@ impl SearchConfig {
             simulations,
             worlds,
             blueprint_margin: 1.0,
+            min_gain: 0.25,
+            to_end_pace: 0,
             seed: None,
             epsilon: 0.02,
             partner_spread: 0.0,

@@ -39,6 +39,9 @@ pub struct DecisionTrace {
     pub seat: u8,
     pub action: String,
     pub reason: String,
+    /// What a clue means to the giver (rule, focus, identity, connections).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intent: Option<String>,
     pub profile_digest: String,
     /// The root planner's candidate table, world count and selection reason, when search
     /// is on (see `search::PlanResult`).

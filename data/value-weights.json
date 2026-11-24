@@ -1,0 +1,4 @@
+{
+  "about": "Leaf value weights per player count (expected further points per feature unit), written by `raikan fit-value --out`. Player counts without an entry use the hand-set weights in src/search/value.rs. Empty on purpose: fitted weights predict the final score better (held-out R² 0.84-0.89 vs 0.17 for 2-4 players) but made worse search decisions in paired self-play (4 players, fast, min_gain 0: -0.21 ± 0.09), see docs/parity.md.",
+  "players": {}
+}

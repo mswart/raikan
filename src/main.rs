@@ -5,6 +5,9 @@
 //! raikan stats [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L]
 //! raikan support                    # H-Group levels 1-20: required conventions and coverage
 //! raikan diff OLD.list NEW.list [--level L]
+//! raikan fit-value [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L]
+//!                  [--out data/value-weights.json]
+//!     Fit the search's leaf value weights against blueprint self-play played to the end.
 //! raikan explain REPLAY [--turn T] [--candidate ACTION]... [--all] [--world W]
 //!                [--card CARD [--viewer SEAT]] [--json] [--level L]
 //!     REPLAY: a hanab.live replay JSON file, a replay URL (or a file holding one), a
@@ -14,16 +17,18 @@
 //!     `Bob:2`.
 //!
 //! search options (every command that plays):
-//!   --search off|fast|full  --simulations N  --worlds W  --margin M  --search-seed S
-//!   --spread P  --threads N  --time-limit-ms MS
+//!   --search off|fast|full  --simulations N  --worlds W  --margin M  --min-gain G
+//!   --to-end-pace P  --search-seed S  --spread P  --threads N  --time-limit-ms MS
 //! ```
 
 use std::io::{self, BufRead};
 use std::thread;
 
 use raikan::agent::{Agent, BotAgent, Config, GameResult, replay_prefix, run_game};
+use raikan::domain::Seat;
+use raikan::engine;
 use raikan::engine::{EndReason, GameReference, Replay, ReplayAction, shuffled_world};
-use raikan::search::SearchConfig;
+use raikan::search::{SearchConfig, value};
 use raikan::variants::Variant;
 
 #[derive(Clone, Debug)]
@@ -35,6 +40,7 @@ struct Options {
     level: u8,
     search: SearchConfig,
     trace: Option<String>,
+    out: Option<String>,
     positional: Vec<String>,
     // explain
     turn: Option<usize>,
@@ -55,6 +61,7 @@ fn parse_options(args: &[String]) -> Options {
         level: Config::default().max_level,
         search: SearchConfig::default(),
         trace: None,
+        out: None,
         positional: Vec::new(),
         turn: None,
         candidates: Vec::new(),
@@ -66,6 +73,7 @@ fn parse_options(args: &[String]) -> Options {
     };
     let (mut simulations, mut worlds, mut margin) = (None, None, None);
     let (mut spread, mut threads, mut time_limit) = (None, None, None);
+    let (mut min_gain, mut to_end_pace) = (None, None);
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         let mut value = || {
@@ -89,6 +97,7 @@ fn parse_options(args: &[String]) -> Options {
             }
             "--variant" => options.variant = value(),
             "--trace" => options.trace = Some(value()),
+            "--out" => options.out = Some(value()),
             "--level" => options.level = value().parse().unwrap_or_else(|_| usage("invalid level")),
             "--search" => {
                 options.search.mode = value().parse().unwrap_or_else(|e: String| usage(&e))
@@ -109,6 +118,16 @@ fn parse_options(args: &[String]) -> Options {
             }
             "--margin" => {
                 margin = Some(value().parse().unwrap_or_else(|_| usage("invalid margin")))
+            }
+            "--min-gain" => {
+                min_gain = Some(
+                    value()
+                        .parse()
+                        .unwrap_or_else(|_| usage("invalid min gain")),
+                )
+            }
+            "--to-end-pace" => {
+                to_end_pace = Some(value().parse().unwrap_or_else(|_| usage("invalid pace")))
             }
             "--spread" => {
                 spread = Some(value().parse().unwrap_or_else(|_| usage("invalid spread")))
@@ -162,6 +181,12 @@ fn parse_options(args: &[String]) -> Options {
     if let Some(spread) = spread {
         options.search.partner_spread = spread;
     }
+    if let Some(min_gain) = min_gain {
+        options.search.min_gain = min_gain;
+    }
+    if let Some(to_end_pace) = to_end_pace {
+        options.search.to_end_pace = to_end_pace;
+    }
     if let Some(threads) = threads {
         options.search.threads = threads;
     }
@@ -181,10 +206,13 @@ fn usage(message: &str) -> ! {
     );
     eprintln!("  raikan diff OLD.list NEW.list [--level L]");
     eprintln!(
+        "  raikan fit-value [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L] [--out FILE]"
+    );
+    eprintln!(
         "  raikan explain REPLAY [--turn T] [--candidate ACTION]... [--all] [--world W] [--card CARD [--viewer SEAT]] [--json]"
     );
     eprintln!(
-        "  search: --search off|fast|full [--simulations N] [--worlds W] [--margin M] [--search-seed S] [--spread P] [--threads N] [--time-limit-ms MS]"
+        "  search: --search off|fast|full [--simulations N] [--worlds W] [--margin M] [--min-gain G] [--to-end-pace P] [--search-seed S] [--spread P] [--threads N] [--time-limit-ms MS]"
     );
     std::process::exit(2)
 }
@@ -248,6 +276,7 @@ fn main() -> io::Result<()> {
             diff(&options, &options.positional[0], &options.positional[1])?;
         }
         "explain" => explain(&parse_options(rest)),
+        "fit-value" => fit_value(&parse_options(rest)),
         "support" => print!("{}", raikan::conventions::catalogue::support_matrix()),
         "-h" | "--help" | "help" => usage("help requested"),
         // `raikan SEED` keeps working as a single self-play game
@@ -306,6 +335,8 @@ struct Stats {
     dist: Vec<usize>,
     blind_plays: usize,
     strikes: usize,
+    search_overrides: usize,
+    decisions: usize,
 }
 
 impl Stats {
@@ -325,6 +356,8 @@ impl Stats {
         }
         self.blind_plays += other.blind_plays;
         self.strikes += other.strikes;
+        self.search_overrides += other.search_overrides;
+        self.decisions += other.decisions;
     }
 }
 
@@ -351,6 +384,8 @@ fn run_stats(options: &Options) {
                     stats.games += 1;
                     stats.blind_plays += result.blind_plays as usize;
                     stats.strikes += state.strikes as usize;
+                    stats.search_overrides += result.search_overrides as usize;
+                    stats.decisions += result.decisions as usize;
                     let reachable = variant.max_reachable_score(&state.discarded);
                     let (label, score, shown_max) = match end_reason(&result) {
                         EndReason::Illegal => {
@@ -424,6 +459,14 @@ fn run_stats(options: &Options) {
         totals.blind_plays,
         totals.strikes
     );
+    if options.search.enabled() {
+        eprintln!(
+            "Search overrode the blueprint in {} of {} decisions ({:.1}%)",
+            totals.search_overrides,
+            totals.decisions,
+            totals.search_overrides as f64 * 100.0 / totals.decisions.max(1) as f64
+        );
+    }
 }
 
 fn diff(options: &Options, old: &str, new: &str) -> io::Result<()> {
@@ -554,4 +597,158 @@ fn explain(options: &Options) {
     } else {
         print!("{}", explanation.render());
     }
+}
+
+/// Rows of one blueprint self-play game for the leaf value fit: the features of every
+/// position the search would cut off (not in the end-game, where rollouts play to the
+/// end), with the points the team still scored from there (a strikeout scores 0).
+fn value_rows(
+    options: &Options,
+    variant: &Variant,
+    seed: u64,
+) -> Vec<([f64; value::NUM_FEATURES], f64)> {
+    let world = shuffled_world(variant, seed);
+    let blueprint = Config {
+        search: SearchConfig::default(),
+        ..config(options)
+    };
+    let mut bots: Vec<BotAgent> = (0..options.players)
+        .map(|_| BotAgent::new(blueprint.clone()))
+        .collect();
+    for (s, bot) in bots.iter_mut().enumerate() {
+        bot.start(variant, options.players, Seat(s as u8));
+    }
+    let (mut state, deal_events) = engine::deal(variant, options.players, &world);
+    let feed = |bots: &mut [BotAgent], event: &engine::Event| {
+        for (s, bot) in bots.iter_mut().enumerate() {
+            bot.observe(&event.observed_by(Seat(s as u8)));
+        }
+    };
+    for event in &deal_events {
+        feed(&mut bots, event);
+    }
+    let cut_off = SearchConfig::new(raikan::search::SearchMode::Full);
+    let mut positions = Vec::new();
+    while !state.is_over() {
+        if !raikan::search::plays_to_end(bots[0].view(), &cut_off) {
+            let views: Vec<_> = bots.iter().map(|b| b.view().clone()).collect();
+            let features = value::features(variant, &state, &world, &views);
+            positions.push((features.vector(), state.score(variant) as f64));
+        }
+        let seat = state.current;
+        let action = bots[seat.index()].choose_action(&state);
+        for event in engine::step(variant, &mut state, &world, action) {
+            feed(&mut bots, &event);
+        }
+    }
+    let final_score = match state.status {
+        engine::Status::Over(EndReason::Normal) => state.score(variant) as f64,
+        _ => 0.0,
+    };
+    positions
+        .into_iter()
+        .map(|(features, score)| (features, final_score - score))
+        .collect()
+}
+
+fn fit_value(options: &Options) {
+    let variant = variant(options);
+    let games = if options.games == 100_000 {
+        5000
+    } else {
+        options.games
+    };
+    let threads = thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1) as u64;
+    type Row = ([f64; value::NUM_FEATURES], f64);
+    let handles: Vec<_> = (0..threads)
+        .map(|t| {
+            let options = options.clone();
+            let variant = variant.clone();
+            thread::spawn(move || {
+                let (mut train, mut test): (Vec<Row>, Vec<Row>) = (Vec::new(), Vec::new());
+                for i in (0..games).filter(|i| i % threads == t) {
+                    let rows = value_rows(&options, &variant, options.seed_start + i);
+                    // Every fifth game is held out to judge the fit.
+                    if i % 5 == 4 {
+                        test.extend(rows);
+                    } else {
+                        train.extend(rows);
+                    }
+                }
+                (train, test)
+            })
+        })
+        .collect();
+    let (mut train, mut test): (Vec<Row>, Vec<Row>) = (Vec::new(), Vec::new());
+    for handle in handles {
+        let (a, b) = handle.join().expect("worker thread panicked");
+        train.extend(a);
+        test.extend(b);
+    }
+    let fitted = value::Weights::from_vector(&value::fit(&train));
+    // The hand-set weights estimate no constant; give them the best one for a fair test.
+    let hand = {
+        let mut w = value::Weights::HAND_SET;
+        let mean_residual =
+            train.iter().map(|(x, y)| y - predict(&w, x)).sum::<f64>() / train.len().max(1) as f64;
+        w.constant = mean_residual;
+        w
+    };
+    let mean = test.iter().map(|(_, y)| y).sum::<f64>() / test.len().max(1) as f64;
+    let variance =
+        test.iter().map(|(_, y)| (y - mean).powi(2)).sum::<f64>() / test.len().max(1) as f64;
+    let mse = |w: &value::Weights| {
+        test.iter()
+            .map(|(x, y)| (y - predict(w, x)).powi(2))
+            .sum::<f64>()
+            / test.len().max(1) as f64
+    };
+    eprintln!(
+        "{games} games, {} players, {}, level {}: {} training and {} held-out positions",
+        options.players,
+        variant.name,
+        options.level,
+        train.len(),
+        test.len()
+    );
+    eprintln!(
+        "held-out points still to score: mean {mean:.2}, sd {:.2}",
+        variance.sqrt()
+    );
+    eprintln!(
+        "held-out RMSE: fitted {:.3} (R² {:.3}), hand-set {:.3} (R² {:.3})",
+        mse(&fitted).sqrt(),
+        1.0 - mse(&fitted) / variance,
+        mse(&hand).sqrt(),
+        1.0 - mse(&hand) / variance
+    );
+    eprintln!("{:<16} {:>8} {:>8}", "feature", "fitted", "hand-set");
+    for ((name, f), h) in value::FEATURE_NAMES
+        .iter()
+        .zip(fitted.vector())
+        .zip(value::Weights::HAND_SET.vector())
+    {
+        eprintln!("{name:<16} {f:>8.3} {h:>8.3}");
+    }
+    let json = serde_json::to_string_pretty(&fitted).expect("weights serialise");
+    match &options.out {
+        Some(path) => {
+            let mut file: value::WeightsFile = std::fs::read_to_string(path)
+                .ok()
+                .and_then(|text| serde_json::from_str(&text).ok())
+                .unwrap_or_default();
+            file.players.insert(options.players.to_string(), fitted);
+            let text = serde_json::to_string_pretty(&file).expect("weights file serialises");
+            std::fs::write(path, text + "\n")
+                .unwrap_or_else(|e| usage(&format!("cannot write {path}: {e}")));
+            eprintln!("wrote the {}-player weights to {path}", options.players);
+        }
+        None => println!("{json}"),
+    }
+}
+
+fn predict(w: &value::Weights, x: &[f64; value::NUM_FEATURES]) -> f64 {
+    w.vector().iter().zip(x).map(|(a, b)| a * b).sum()
 }

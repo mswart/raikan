@@ -4,11 +4,11 @@
 use std::sync::Arc;
 
 use super::Agent;
-use crate::conventions::{Profile, View};
+use crate::conventions::{ClueIntent, Profile, View};
 use crate::domain::Seat;
 use crate::engine::{Action, Event, GameState};
 use crate::policy::{self, Decision};
-use crate::search::{self, PlanResult, SearchConfig};
+use crate::search::{self, PlanReason, PlanResult, SearchConfig};
 use crate::variants::Variant;
 
 /// Bot configuration (the `[h_group]` section of docs/architecture.md §9).
@@ -35,6 +35,9 @@ pub struct BotAgent {
     view: Option<View>,
     last: Option<Decision>,
     last_plan: Option<PlanResult>,
+    /// What the last action meant, when it was a clue.
+    last_intent: Option<ClueIntent>,
+    last_action: Option<Action>,
     trace: Option<Vec<String>>,
 }
 
@@ -45,6 +48,8 @@ impl BotAgent {
             view: None,
             last: None,
             last_plan: None,
+            last_intent: None,
+            last_action: None,
             trace: None,
         }
     }
@@ -87,6 +92,35 @@ impl BotAgent {
     pub fn last_plan(&self) -> Option<&PlanResult> {
         self.last_plan.as_ref()
     }
+
+    /// What the last action meant, when it was a clue.
+    pub fn last_intent(&self) -> Option<&ClueIntent> {
+        self.last_intent.as_ref()
+    }
+
+    fn action_text(&self, action: Action, seat_name: &dyn Fn(Seat) -> String) -> String {
+        let view = self.view();
+        let card_text = |card| {
+            let slot = view
+                .slot_of(view.me, card)
+                .map_or_else(String::new, |s| format!("slot {s} "));
+            format!("{slot}(#{})", card.0)
+        };
+        match action {
+            Action::Play(card) => format!("play {}", card_text(card)),
+            Action::Discard(card) => format!("discard {}", card_text(card)),
+            Action::Clue { target, clue } => match &self.last_intent {
+                Some(intent) if intent.receiver == target && intent.clue == clue => {
+                    intent.describe(view, seat_name)
+                }
+                _ => format!(
+                    "clue {} {}",
+                    seat_name(target),
+                    view.variant.clue_name(clue)
+                ),
+            },
+        }
+    }
 }
 
 impl Default for BotAgent {
@@ -111,6 +145,8 @@ impl Agent for BotAgent {
         self.view = Some(view);
         self.last = None;
         self.last_plan = None;
+        self.last_intent = None;
+        self.last_action = None;
     }
 
     fn observe(&mut self, event: &Event) {
@@ -133,6 +169,10 @@ impl Agent for BotAgent {
             .enabled()
             .then(|| search::plan(view, &decision, &self.config.search));
         let action = plan.as_ref().map_or(decision.action, |plan| plan.action);
+        let intent = match action {
+            Action::Clue { target, clue } => view.clue_intent(target, clue),
+            _ => None,
+        };
         if let Some(trace) = &mut self.trace {
             let entry = crate::trace::DecisionTrace {
                 kind: "decision",
@@ -140,6 +180,9 @@ impl Agent for BotAgent {
                 seat: view.me.0,
                 action: format!("{action:?}"),
                 reason: format!("{:?}", decision.reason),
+                intent: intent
+                    .as_ref()
+                    .map(|i| i.describe(view, |s: Seat| format!("seat {}", s.0))),
                 profile_digest: format!("{:016x}", view.profile.digest),
                 search: plan
                     .as_ref()
@@ -149,7 +192,69 @@ impl Agent for BotAgent {
         }
         self.last = Some(decision);
         self.last_plan = plan;
+        self.last_intent = intent;
+        self.last_action = Some(action);
         action
+    }
+
+    fn overrode_blueprint(&self) -> bool {
+        self.last_plan
+            .as_ref()
+            .is_some_and(|plan| plan.reason == PlanReason::Searched)
+    }
+
+    fn summary(&self, names: &[String]) -> String {
+        let (Some(action), Some(decision)) = (self.last_action, &self.last) else {
+            return String::new();
+        };
+        let seat_name = |seat: Seat| {
+            names
+                .get(seat.index())
+                .cloned()
+                .unwrap_or_else(|| format!("seat {}", seat.0))
+        };
+        let mut out = format!(
+            "{} [blueprint {:?}",
+            self.action_text(action, &seat_name),
+            decision.reason
+        );
+        if let Some(plan) = &self.last_plan {
+            out.push_str(&format!(", plan {:?}", plan.reason));
+            if plan.reason == PlanReason::Searched {
+                out.push_str(&format!(
+                    " over {}",
+                    self.action_text(decision.action, &seat_name)
+                ));
+                if let Some((gain, stderr)) = plan.paired_difference {
+                    out.push_str(&format!(" by {gain:+.2} ± {stderr:.2}"));
+                }
+            }
+            if plan.to_end {
+                out.push_str(", to the end");
+            }
+            let mut top: Vec<_> = plan.candidates.iter().filter(|c| c.visits > 0).collect();
+            top.sort_by(|a, b| b.mean.total_cmp(&a.mean));
+            let top: Vec<String> = top
+                .iter()
+                .take(3)
+                .map(|c| {
+                    let text = match c.action {
+                        Action::Clue { target, clue } => format!(
+                            "clue {} {}",
+                            seat_name(target),
+                            self.view().variant.clue_name(clue)
+                        ),
+                        other => self.action_text(other, &seat_name),
+                    };
+                    format!("{text} {:.2}", c.mean)
+                })
+                .collect();
+            if !top.is_empty() {
+                out.push_str(&format!("; top: {}", top.join(", ")));
+            }
+        }
+        out.push(']');
+        out
     }
 
     fn describe(&self) -> String {

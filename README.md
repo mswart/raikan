@@ -410,25 +410,37 @@ raikan diff OLD.list NEW.list      # first game whose score dropped, with the bo
 raikan support                     # every H-Group level 1-20 convention and its coverage
 raikan explain REPLAY [--turn T] [--candidate ACTION]... [--all] [--world W]
                [--card CARD [--viewer SEAT]] [--json]
+raikan fit-value [--players N] [--games G] [--out data/value-weights.json]
 ```
 
 Every command that plays accepts `--search off|fast|full` (default `off`: the blueprint
-policy alone) and the budget options `--simulations N`, `--worlds W`, `--margin M` and
+policy alone) and the budget options `--simulations N`, `--worlds W`, `--margin M`,
+`--min-gain G` (default 0.25 expected points), `--to-end-pace P` (default 0) and
 `--search-seed S`, plus `--spread P` (the partner model's spread, default 0),
 `--threads N` (rollouts of one decision on N threads; the result does not depend on it)
 and `--time-limit-ms MS` (stop sequential halving early; no longer reproducible). The web
 client uses all cores and `RAIKAN_TIME_LIMIT_MS` (default 3000). With search on, each decision samples worlds from the bot's beliefs,
 simulates every permitted candidate (clues only if every teammate reads them as
-intended) for one rotation of teammate moves (to the real end
-once the deck is small) and replaces the blueprint's choice only when another candidate
-is better by more than `M` paired standard errors (architecture §7.4). `fast` uses 300
+intended and they have a purpose: a new card clued, promised or chop moved, a called-for
+stall, a valuable tempo clue or a fix) for one rotation of teammate moves (to the real
+end in the end-game, once pace drops below the number of players plus `P`) and replaces
+the blueprint's choice only when another candidate is better by more than `M` paired
+standard errors and by more than `G` expected points (architecture §7.4). A cut-off
+rollout is scored by a linear estimate of the final score with hand-set weights;
+`fit-value` fits them per player count against blueprint games played to the end and
+`--out data/value-weights.json` makes the search use them (architecture §7.6; so far the
+fitted weights predict the score better but decide worse, see docs/parity.md). `fast` uses 300
 simulations over 48 worlds, `full` 2000 over 256. Search is much slower than the
 blueprint (about 1–19 s CPU per game with `fast`, for 2–5 players, against about 10 ms),
 and scores higher with fewer strikes; see [docs/parity.md](docs/parity.md).
 
 `stats` prints one line per game (`seed outcome score max turns blind-plays replay-url`)
-to stdout and a summary to stderr. `--trace` writes one JSON object per line: how every
-seat read every clue (rule and readings) and why every decision was taken.
+to stdout and a summary to stderr (with search on, also how often the search overrode
+the blueprint). `--trace` writes one JSON object per line: how every seat read every
+clue (rule and readings) and why every decision was taken, with the intent of every
+clue given (e.g. `clue Alice blue: L1.play-clue [play], focus Alice slot 1 (#20 b3)
+plays as b3 via finesse b2 Cathy slot 1`). The web client logs the same one-line
+summary of each of its decisions to stderr.
 
 `explain` recomputes one decision of a game (architecture §8.2). `REPLAY` is a
 hanab.live replay JSON file (also the `https://hanab.live/export/ID` format), a

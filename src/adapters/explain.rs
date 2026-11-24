@@ -115,6 +115,8 @@ pub struct CardView {
 pub struct Choice {
     pub action: String,
     pub reason: String,
+    /// What a clue means to the giver ([`crate::conventions::ClueIntent`]).
+    pub intent: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -124,6 +126,8 @@ pub struct PlanTable {
     pub effective_size: f64,
     pub seed: u64,
     pub paired_difference: Option<(f64, f64)>,
+    /// The rollouts played to the real end of the game (end-game).
+    pub to_end: bool,
     pub rows: Vec<PlanRow>,
 }
 
@@ -152,6 +156,8 @@ pub struct ComparisonRow {
     pub sources: Vec<&'static str>,
     /// The legibility guard's verdict (§7.5).
     pub guard: String,
+    /// What a clue means to the giver ([`crate::conventions::ClueIntent`]).
+    pub intent: Option<String>,
     /// How each seat reads a clue (rule, focus and readings).
     pub readings: Vec<String>,
     pub visits: usize,
@@ -261,6 +267,16 @@ fn readings(view: &View, names: &Names, target: Seat, clue: crate::domain::ClueI
     out
 }
 
+/// The giver's intent of a clue action, in one line.
+fn intent_text(view: &View, names: &Names, action: Action) -> Option<String> {
+    match action {
+        Action::Clue { target, clue } => view
+            .clue_intent(target, clue)
+            .map(|i| i.describe(view, |s| names.seat(s))),
+        _ => None,
+    }
+}
+
 fn guard_verdict(view: &View, baseline: &crate::conventions::Worth, action: Action) -> String {
     match action {
         Action::Play(card) if policy::guard::known_playable(view, card) => {
@@ -293,10 +309,22 @@ fn guard_verdict(view: &View, baseline: &crate::conventions::Worth, action: Acti
         ) {
             None => "rejected: touches nothing".to_string(),
             Some((worth, _)) if worth.no_more_errors_than(baseline) => {
-                format!(
-                    "ok ({} errors, position has {})",
-                    worth.errors, baseline.errors
-                )
+                match policy::guard::clue_worth(view, baseline, target, clue) {
+                    Some((worth, intent))
+                        if !policy::guard::purposeful(view, baseline, &worth, &intent) =>
+                    {
+                        if intent.is_stall() && intent.has_value() {
+                            "rejected: no stall is called for".to_string()
+                        } else {
+                            "rejected: no purpose (nothing new clued, promised or chop moved)"
+                                .to_string()
+                        }
+                    }
+                    _ => format!(
+                        "ok ({} errors, position has {})",
+                        worth.errors, baseline.errors
+                    ),
+                }
             }
             Some((worth, _)) => format!(
                 "rejected: {} errors, position has {}",
@@ -364,6 +392,7 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
     let chosen_action = bot.choose_action(&state);
     let plan = bot.last_plan().cloned();
     let fmt = |a: Action| text::action(&variant, &names, &state, Some(world), a);
+    let intent = |a: Action| intent_text(&view, &names, a);
 
     let card_history = match &request.card {
         Some(spec) => {
@@ -443,6 +472,7 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
             action: fmt(*action),
             sources: sources.clone(),
             guard: guard_verdict(&view, &baseline, *action),
+            intent: intent(*action),
             readings: match *action {
                 Action::Clue { target, clue } => readings(&view, &names, target, clue),
                 _ => Vec::new(),
@@ -544,6 +574,7 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
         blueprint: Choice {
             action: fmt(blueprint.action),
             reason: format!("{:?}", blueprint.reason),
+            intent: intent(blueprint.action),
         },
         chosen: Choice {
             action: fmt(chosen_action),
@@ -551,6 +582,7 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
                 || format!("{:?}", blueprint.reason),
                 |p| format!("{:?}", p.reason),
             ),
+            intent: intent(chosen_action),
         },
         played: played.map(fmt),
         plan: plan.map(|p| PlanTable {
@@ -559,6 +591,7 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
             effective_size: p.effective_size,
             seed: p.seed,
             paired_difference: p.paired_difference,
+            to_end: p.to_end,
             rows: p
                 .candidates
                 .iter()
@@ -655,7 +688,8 @@ fn rollout(
 ) -> RolloutTrace {
     let views = search::rollout::seat_views(view, world);
     let partners = search::rollout::Partners::for_world(config.partner_spread, seed, index);
-    let (leaf, steps) = search::simulate_traced(view, world, views, action, partners);
+    let to_end = search::plays_to_end(view, config);
+    let (leaf, steps) = search::simulate_traced(view, world, views, action, partners, to_end);
     let mut state = view.state;
     let hand = state
         .hand(view.me)
@@ -743,10 +777,16 @@ impl Explanation {
             "\nBlueprint: {} [{}]\n",
             self.blueprint.action, self.blueprint.reason
         ));
+        if let Some(intent) = &self.blueprint.intent {
+            out.push_str(&format!("           intent: {intent}\n"));
+        }
         out.push_str(&format!(
             "Bot:       {} [{}]\n",
             self.chosen.action, self.chosen.reason
         ));
+        if let Some(intent) = &self.chosen.intent {
+            out.push_str(&format!("           intent: {intent}\n"));
+        }
         match &self.played {
             Some(played) => out.push_str(&format!("Played:    {played}\n")),
             None => out.push_str("Played:    - (end of the replay)\n"),
@@ -758,6 +798,9 @@ impl Explanation {
             ));
             if let Some((d, se)) = plan.paired_difference {
                 out.push_str(&format!(", best − blueprint {} ± {se:.2}", signed(d)));
+            }
+            if plan.to_end {
+                out.push_str(", rollouts to the end");
             }
             out.push('\n');
             for row in &plan.rows {
@@ -788,6 +831,9 @@ impl Explanation {
             ));
             if row.guard != "ok" {
                 out.push_str(&format!("      guard: {}\n", row.guard));
+            }
+            if let Some(intent) = &row.intent {
+                out.push_str(&format!("      intent: {intent}\n"));
             }
             for reading in &row.readings {
                 out.push_str(&format!("      {reading}\n"));

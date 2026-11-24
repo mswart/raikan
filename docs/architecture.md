@@ -437,13 +437,18 @@ the root and estimates the rest:
    candidates are compared pairwise on identical hidden cards.
 2. For each (candidate, world): apply the command; update the records, so teammates read
    our action through the conventions; let the other seats act by the partner model
-   until our next turn, or to the real end once the deck is small; score the leaf.
+   until our next turn, or to the real end in the end-game (pace below the number of
+   players, the deck nearly empty or the final round; our own later turns then follow
+   the blueprint from our view); score the leaf.
 3. Allocate by sequential halving over **all** candidates: every candidate gets a few
    worlds, the weaker half is dropped, the rest gets more. Blueprint order only decides
    who is evaluated first.
 4. Choose the best paired estimate. When the best candidate is not distinguishable from
    the blueprint's first choice within the noise, take the blueprint's choice; the
-   margin is configurable down to zero.
+   margin is configurable down to zero. The paired standard error only measures sampling
+   noise, not the error of the leaf estimate, so the best candidate must also gain at
+   least `min_gain` expected points, and both it and the blueprint's choice need enough
+   worlds (a time limit can stop the halving early).
 5. Worlds are evaluated in parallel with per-world seeds; the result does not depend on
    thread count.
 
@@ -468,6 +473,13 @@ between have acted, the intended reading is the first surviving one. The check r
 through the same interpreter that reads real clues, so giving and reading cannot drift
 apart.
 
+A clue must also have a **purpose**, its intent (`conventions::ClueIntent`) as the giver
+reads it: it gets a new card clued, promised or chop moved, or it is a stall while a
+stall is called for, a valuable tempo clue, or a fix that removes errors. This is the
+blueprint's minimum clue value, so the search never compares clues the blueprint would
+not give. The intent also names the clue (rule, focus, the identity it plays as and the
+connecting finesses and prompts) in decision traces, `explain` and the web client's log.
+
 The seats in between are **not** predicted with the partner model, because that model
 applies this guard itself and the check would recurse at every seat. They are assumed
 to act on their convention obligations from the clue (the plays, prompts and finesse
@@ -485,7 +497,18 @@ The objective is the expected final team score under the table's strikeout scori
 Perfect-game rate, strikeout risk and critical losses are diagnostics. Terminal states
 use the real score. A cut-off uses a linear, named-term estimate **of that same
 objective**: score, secured future plays, lost maximum score, strikes, exposed critical
-chops, tokens, pace. The weights are fitted against blueprint games played to the end.
+chops, tokens, pace. The weights are fitted against blueprint games played to the end
+(`raikan fit-value`): every position before the end-game gives the raw features and the
+points the team still scored (a strikeout scores 0); least squares, per player count,
+with the sign each weight must have by the rules (a strike never helps, a secured play
+never hurts), because the fit is observational and a rare event correlated with the game
+phase would otherwise get the wrong sign. Fitted weights live in `data/value-weights.json`
+and replace the hand-set ones for their player count. Measured so far they predict the
+final score far better (held-out R² 0.84–0.89 against 0.17 for 2–4 players) yet decide
+worse in paired self-play, so the file ships empty: a good predictor of the score of
+blueprint positions is not the same as a good judge of the difference between two
+candidates, because the fit is observational. Fitting on search-chosen positions, or on
+paired rollout outcomes, is the open next step.
 This counters horizon bias: a clue whose payoff lies beyond one rotation is credited
 through "secured plays". The breakdown is kept per rollout, so a value is always a sum of
 named terms. Convention violations are not penalty constants; their cost shows up as
@@ -540,6 +563,8 @@ mode = "full"          # off | fast | full
 simulations = 2000
 time_limit_ms = 750    # omit for reproducible runs
 blueprint_margin = 1.0 # in standard errors; 0 = always take the best estimate
+min_gain = 0.25        # in expected points; the search must beat the blueprint by this
+to_end_pace = 0        # roll out to the end once pace < players + this
 seed = 42              # otherwise derived from public history and turn
 
 [teammates]

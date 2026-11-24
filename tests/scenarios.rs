@@ -18,6 +18,9 @@
 //! note * 1 4: r5                         every seat's view
 //! action 1: play 3 | discard 4 | clue 2 red    the bot of seat 1 chooses this (no step)
 //! not-action 1: clue 2 red
+//! intent 0: clue 2 red => play r2 via finesse:r1@1   the intent seat 0 gives the clue
+//!                                        (kind: play, save, chop-move, fix, stall, tempo,
+//!                                        none; then the focus identity and connections)
 //! ```
 //!
 //! Flags after the identities: `play`, `noplay`, `trash`, `notrash`, `clued`, `promised`,
@@ -26,7 +29,7 @@
 use std::path::Path;
 
 use raikan::agent::{Agent, BotAgent, Config};
-use raikan::conventions::View;
+use raikan::conventions::{IntentKind, View};
 use raikan::domain::{CardId, Identity, IdentitySet, Seat};
 use raikan::engine::{self, Action, GameState, World};
 use raikan::variants::{ClueValue, Variant};
@@ -318,6 +321,55 @@ fn run(path: &Path) {
                     );
                 } else {
                     assert_ne!(chosen, expected, "{context}: chose it ({reason:?})");
+                }
+            }
+            "intent" => {
+                let (head, spec) = command.split_once(':').expect("intent S: ...");
+                let seat = Seat(head.split_whitespace().nth(1).unwrap().parse().unwrap());
+                let (action, expected) = spec.split_once("=>").expect("intent S: ACTION => ...");
+                let action_words: Vec<&str> = action.split_whitespace().collect();
+                let Action::Clue { target, clue } = table.parse_action(seat, &action_words) else {
+                    panic!("{context}: intent needs a clue");
+                };
+                let view = table.bots[seat.index()].view();
+                let intent = view
+                    .clue_intent(target, clue)
+                    .unwrap_or_else(|| panic!("{context}: the clue touches nothing"));
+                let described = intent.describe(view, |s| format!("seat {}", s.0));
+                let mut expected = expected.split_whitespace();
+                let kind = match intent.kind {
+                    IntentKind::Play => "play",
+                    IntentKind::Save => "save",
+                    IntentKind::ChopMove => "chop-move",
+                    IntentKind::Fix => "fix",
+                    IntentKind::Stall(_) => "stall",
+                    IntentKind::Tempo => "tempo",
+                    IntentKind::None => "none",
+                };
+                assert_eq!(Some(kind), expected.next(), "{context}: {described}");
+                if let Some(focus) = expected.next() {
+                    let identity = table.variant.parse_identity(focus).expect("identity");
+                    assert_eq!(
+                        intent.focus_identity,
+                        Some(identity),
+                        "{context}: {described}"
+                    );
+                }
+                if expected.next() == Some("via") {
+                    let steps: Vec<String> = intent
+                        .connections
+                        .iter()
+                        .map(|step| {
+                            format!(
+                                "{}:{}@{}",
+                                format!("{:?}", step.kind).to_lowercase(),
+                                table.variant.identity_name(step.identity),
+                                step.holder.0
+                            )
+                        })
+                        .collect();
+                    let wanted: Vec<String> = expected.map(str::to_string).collect();
+                    assert_eq!(steps, wanted, "{context}: {described}");
                 }
             }
             other => panic!("{context}: unknown command {other}"),

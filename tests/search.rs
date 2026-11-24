@@ -243,3 +243,75 @@ fn permitted_candidates_are_legal() {
         }
     }
 }
+
+/// Every clue the search may compare has a purpose (minimum clue value, a fix, or a stall
+/// when one is called for), the same minimum the blueprint applies.
+#[test]
+fn permitted_clues_have_a_purpose() {
+    let variant = Variant::no_variant();
+    for (seed, turns) in [(51u64, 5usize), (52, 15), (53, 25), (54, 35)] {
+        let bots = bots_at(&variant, 3, seed, turns);
+        let view = bots[turns % 3].view();
+        if view.state.is_over() {
+            continue;
+        }
+        let baseline = view.worth(0);
+        for action in raikan::policy::permitted_candidates(view) {
+            if let raikan::engine::Action::Clue { target, clue } = action {
+                let (worth, intent) =
+                    raikan::policy::guard::clue_worth(view, &baseline, target, clue)
+                        .expect("a permitted clue is graded");
+                assert!(
+                    raikan::policy::guard::purposeful(view, &baseline, &worth, &intent),
+                    "{}",
+                    intent.describe(view, |s| format!("seat {}", s.0))
+                );
+                assert_ne!(intent.kind, raikan::conventions::IntentKind::None);
+            }
+        }
+    }
+}
+
+/// In the end-game (pace below the number of players) the rollouts play to the real end:
+/// the leaf is the final score, with no estimated terms.
+#[test]
+fn end_game_rollouts_reach_the_end() {
+    let variant = Variant::no_variant();
+    let config = small_search().search;
+    let mut checked = false;
+    'seeds: for seed in 61..90u64 {
+        let world = shuffled_world(&variant, seed);
+        let mut players: Vec<BotAgent> = (0..3).map(|_| BotAgent::default()).collect();
+        let mut refs: Vec<&mut dyn Agent> =
+            players.iter_mut().map(|b| b as &mut dyn Agent).collect();
+        let replay = run_game(&variant, &world, &mut refs).replay;
+        let turns = replay.game_actions().count();
+        for prefix in (0..turns).rev() {
+            let mut bots: Vec<BotAgent> = (0..3).map(|_| BotAgent::new(small_search())).collect();
+            let mut refs: Vec<&mut dyn Agent> =
+                bots.iter_mut().map(|b| b as &mut dyn Agent).collect();
+            let state = replay_prefix(&replay, prefix, &mut refs).expect("legal prefix");
+            drop(refs);
+            let view = bots[state.current.index()].view();
+            // in the end-game, but more cards left than the old deck-only rule needed
+            if view.pace() >= 3 || state.cards_left() <= 3 {
+                continue;
+            }
+            assert!(raikan::search::plays_to_end(view, &config));
+            let action = raikan::policy::choose_action(view).action;
+            let views = raikan::search::rollout::seat_views(view, &world);
+            let leaf = raikan::search::rollout::simulate(
+                view,
+                &world,
+                views,
+                action,
+                raikan::search::rollout::Partners::BLUEPRINT,
+                true,
+            );
+            assert_eq!(leaf.total(), leaf.score, "{leaf:?}");
+            checked = true;
+            break 'seeds;
+        }
+    }
+    assert!(checked, "no end-game position with cards left");
+}
