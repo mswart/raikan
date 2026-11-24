@@ -114,6 +114,17 @@ The fitted weights (4000 blueprint games per player count) predict the points st
 come far better (held-out RMSE 1.96 against 5.35 for 3 players) but decide worse, so
 `data/value-weights.json` ships empty.
 
+Fitting to differences between candidates instead (`fit-value --paired`, 300 blueprint
+games, every 3rd position, the blueprint's choice and 3 other permitted candidates on 8
+sampled worlds, cut off at the next own turn and played to the end; group means removed)
+orders held-out candidate pairs better (3 players 66.0% against 59.9% for the hand-set
+weights, 4 players 64.6% against 60.0%), but does not decide better. Paired against the
+hand-set weights at the same `min_gain` (seeds `0..300`, `fast`): 3 players −0.01 ± 0.09
+(min_gain 0) and −0.06 ± 0.08 (0.25), 4 players −0.10 ± 0.09 and −0.10 ± 0.08. A single
+world's final-score difference is very noisy (RMSE of the differences about 4–5 points
+under either weights), and its largest fitted effect, about +1.3 per card left in the
+deck, mostly encodes "a clue rather than a card action" on blueprint continuations.
+
 Standard errors of the means are 0.07–0.13 (0.29 and 0.13 for Rainbow). Without the guard, search simulated clues
 that teammates misread and paid for them in strikes; with it, search beats the blueprint
 at every player count and strikes less.

@@ -507,8 +507,10 @@ and replace the hand-set ones for their player count. Measured so far they predi
 final score far better (held-out R² 0.84–0.89 against 0.17 for 2–4 players) yet decide
 worse in paired self-play, so the file ships empty: a good predictor of the score of
 blueprint positions is not the same as a good judge of the difference between two
-candidates, because the fit is observational. Fitting on search-chosen positions, or on
-paired rollout outcomes, is the open next step.
+candidates, because the fit is observational. `fit-value --paired` fits the weights to
+the final-score differences between candidates rolled out from the same position and
+world instead; it ranks held-out pairs better (66% against 60%) but did not decide better
+either (docs/parity.md).
 This counters horizon bias: a clue whose payoff lies beyond one rotation is credited
 through "secured plays". The breakdown is kept per rollout, so a value is always a sum of
 named terms. Convention violations are not penalty constants; their cost shows up as

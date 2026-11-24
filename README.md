@@ -410,7 +410,7 @@ raikan diff OLD.list NEW.list      # first game whose score dropped, with the bo
 raikan support                     # every H-Group level 1-20 convention and its coverage
 raikan explain REPLAY [--turn T] [--candidate ACTION]... [--all] [--world W]
                [--card CARD [--viewer SEAT]] [--json]
-raikan fit-value [--players N] [--games G] [--out data/value-weights.json]
+raikan fit-value [--players N] [--games G] [--paired] [--out data/value-weights.json]
 ```
 
 Every command that plays accepts `--search off|fast|full` (default `off`: the blueprint

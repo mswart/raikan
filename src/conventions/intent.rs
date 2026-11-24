@@ -141,7 +141,15 @@ fn kind_name(kind: IntentKind) -> String {
         IntentKind::Save => "save".into(),
         IntentKind::ChopMove => "chop move".into(),
         IntentKind::Fix => "fix".into(),
-        IntentKind::Stall(kind) => format!("stall {kind:?}").to_lowercase(),
+        IntentKind::Stall(kind) => match kind {
+            StallKind::Five => "5 stall",
+            StallKind::Tempo => "tempo stall",
+            StallKind::FillIn => "fill-in stall",
+            StallKind::LockedSave => "locked-hand save stall",
+            StallKind::EightClueSave => "8-clue save stall",
+            StallKind::Burn => "burn stall",
+        }
+        .into(),
         IntentKind::Tempo => "tempo".into(),
         IntentKind::None => "no purpose".into(),
     }
@@ -187,9 +195,11 @@ impl View {
     ) -> ClueIntent {
         let rule = after.last_rule();
         let new_cards = self.newly_secured(after);
-        let stall = self
-            .clue_stall(receiver, clue)
-            .filter(|kind| !(kind.is_general_save() && self.saves_critical_chop(receiver, clue)));
+        let raw_stall = self.clue_stall(receiver, clue);
+        // A locked-hand or 8-clue save that saves a critical chop is a real save.
+        let critical_save = raw_stall.is_some_and(|kind| kind.is_general_save())
+            && self.saves_critical_chop(receiver, clue);
+        let stall = raw_stall.filter(|_| !critical_save);
         let record = after
             .interpretations
             .records
@@ -223,7 +233,7 @@ impl View {
             }
         } else if rule.starts_with("L4.") || rule == "L6.tempo-clue-chop-move" {
             IntentKind::ChopMove
-        } else if rule == "L1.save" {
+        } else if rule == "L1.save" || critical_save {
             IntentKind::Save
         } else {
             IntentKind::Play

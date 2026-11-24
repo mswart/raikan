@@ -143,13 +143,90 @@ fn run(
     to_end: bool,
     mut trace: Option<&mut Vec<RolloutStep>>,
 ) -> Breakdown {
+    let mut state = root.state;
+    let mut steps = 0;
+    advance(
+        root,
+        world,
+        &mut state,
+        &mut views,
+        Some(action),
+        partners,
+        to_end,
+        &mut trace,
+        &mut steps,
+    );
+    value::evaluate(&root.variant, &state, world, &views)
+}
+
+/// One candidate rolled out in one world twice over: the position where the search cuts
+/// the rollout off (our next turn), and the real end of the game from there, every seat
+/// (ours included) acting by the partner model from its own view.
+#[derive(Clone, Copy, Debug)]
+pub struct PairedOutcome {
+    /// Score and leaf features at the cut-off; `None` if the game already ended.
+    pub cutoff: Option<(f64, value::Features)>,
+    /// The final score (0 after a strikeout).
+    pub final_score: f64,
+}
+
+/// [`simulate`] cut off at our next turn, then continued to the end: the data a leaf value
+/// is fitted on (`raikan fit-value --paired`).
+pub fn simulate_paired(
+    root: &View,
+    world: &World,
+    mut views: Vec<View>,
+    action: Action,
+    partners: Partners,
+) -> PairedOutcome {
+    let variant = &root.variant;
+    let mut state = root.state;
+    let mut steps = 0;
+    let mut trace = None;
+    advance(
+        root,
+        world,
+        &mut state,
+        &mut views,
+        Some(action),
+        partners,
+        false,
+        &mut trace,
+        &mut steps,
+    );
+    let cutoff = (!state.is_over()).then(|| {
+        (
+            state.score(variant) as f64,
+            value::features(variant, &state, world, &views),
+        )
+    });
+    advance(
+        root, world, &mut state, &mut views, None, partners, true, &mut trace, &mut steps,
+    );
+    PairedOutcome {
+        cutoff,
+        final_score: value::evaluate(variant, &state, world, &views).total(),
+    }
+}
+
+/// Step the game from `state`: `next` for the seat to move, then the partner model, until
+/// our next turn (or, with `to_end`, the end of the game).
+#[allow(clippy::too_many_arguments)]
+fn advance(
+    root: &View,
+    world: &World,
+    state: &mut GameState,
+    views: &mut [View],
+    mut next: Option<Action>,
+    partners: Partners,
+    to_end: bool,
+    trace: &mut Option<&mut Vec<RolloutStep>>,
+    steps: &mut usize,
+) {
     let variant = root.variant.clone();
     let me = root.me;
-    let mut state = root.state;
-    let mut next = Some(action);
     // A guard against a cycle of clues that never ends the game.
-    let mut steps = 0;
-    while !state.is_over() && steps < 200 {
+    while !state.is_over() && *steps < 400 {
         let seat = state.current;
         let prediction = match next.take() {
             Some(action) => Prediction {
@@ -160,13 +237,13 @@ fn run(
             None if seat == me && !to_end => break,
             None => {
                 let distribution = partner_distribution(&views[seat.index()], partners.spread);
-                pick(&distribution, partners.uniform(steps))
+                pick(&distribution, partners.uniform(*steps))
             }
         };
         let predicted = prediction.action;
-        let alternative = steps > 0 && prediction.reason.is_none();
+        let alternative = *steps > 0 && prediction.reason.is_none();
         let reason = prediction.reason;
-        let command = legal_or_fallback(&variant, &state, world, seat, predicted);
+        let command = legal_or_fallback(&variant, state, world, seat, predicted);
         if let Some(trace) = trace.as_deref_mut() {
             trace.push(RolloutStep {
                 seat,
@@ -176,14 +253,13 @@ fn run(
                 fallback: command != predicted,
             });
         }
-        for event in engine::step(&variant, &mut state, world, command) {
+        for event in engine::step(&variant, state, world, command) {
             for view in views.iter_mut() {
                 view.observe(&event.observed_by(view.me));
             }
         }
-        steps += 1;
+        *steps += 1;
     }
-    value::evaluate(&variant, &state, world, &views)
 }
 
 /// A partner prediction can be illegal in a sampled world (an inconsistent belief); the

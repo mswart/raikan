@@ -315,3 +315,36 @@ fn end_game_rollouts_reach_the_end() {
     }
     assert!(checked, "no end-game position with cards left");
 }
+
+/// A paired rollout (cut off at our next turn, then continued) ends where a rollout to
+/// the end does: the cut-off only records the leaf features on the way.
+#[test]
+fn paired_rollouts_continue_to_the_same_end() {
+    use raikan::search::rollout::{Partners, seat_views, simulate, simulate_paired};
+    let variant = Variant::no_variant();
+    let bots = bots_at(&variant, 3, 71, 12);
+    let view = bots[0].view();
+    let world = shuffled_world(&variant, 71);
+    for action in raikan::policy::permitted_candidates(view)
+        .into_iter()
+        .take(3)
+    {
+        let paired = simulate_paired(
+            view,
+            &world,
+            seat_views(view, &world),
+            action,
+            Partners::BLUEPRINT,
+        );
+        let to_end = simulate(
+            view,
+            &world,
+            seat_views(view, &world),
+            action,
+            Partners::BLUEPRINT,
+            true,
+        );
+        assert_eq!(paired.final_score, to_end.total(), "{action:?}");
+        assert!(paired.cutoff.is_some());
+    }
+}

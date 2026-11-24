@@ -6,8 +6,13 @@
 //! raikan support                    # H-Group levels 1-20: required conventions and coverage
 //! raikan diff OLD.list NEW.list [--level L]
 //! raikan fit-value [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L]
+//!                  [--paired [--candidates K] [--worlds W] [--stride T]]
 //!                  [--out data/value-weights.json]
 //!     Fit the search's leaf value weights against blueprint self-play played to the end.
+//!     --paired fits them to differences between candidates instead: every T-th position
+//!     of a blueprint game, the blueprint's choice and K-1 other permitted candidates are
+//!     rolled out on W sampled worlds, cut off at the next own turn and then played to the
+//!     end; the weights explain the final-score differences from the cut-off features.
 //! raikan explain REPLAY [--turn T] [--candidate ACTION]... [--all] [--world W]
 //!                [--card CARD [--viewer SEAT]] [--json] [--level L]
 //!     REPLAY: a hanab.live replay JSON file, a replay URL (or a file holding one), a
@@ -50,6 +55,10 @@ struct Options {
     card: Option<String>,
     viewer: Option<String>,
     json: bool,
+    // fit-value --paired
+    paired: bool,
+    paired_candidates: usize,
+    stride: usize,
 }
 
 fn parse_options(args: &[String]) -> Options {
@@ -70,6 +79,9 @@ fn parse_options(args: &[String]) -> Options {
         card: None,
         viewer: None,
         json: false,
+        paired: false,
+        paired_candidates: 4,
+        stride: 3,
     };
     let (mut simulations, mut worlds, mut margin) = (None, None, None);
     let (mut spread, mut threads, mut time_limit) = (None, None, None);
@@ -161,6 +173,18 @@ fn parse_options(args: &[String]) -> Options {
             "--card" => options.card = Some(value()),
             "--viewer" => options.viewer = Some(value()),
             "--json" => options.json = true,
+            "--paired" => options.paired = true,
+            "--candidates" => {
+                options.paired_candidates = value()
+                    .parse()
+                    .unwrap_or_else(|_| usage("invalid candidate count"))
+            }
+            "--stride" => {
+                options.stride = value()
+                    .parse::<usize>()
+                    .unwrap_or_else(|_| usage("invalid stride"))
+                    .max(1)
+            }
             other if other.starts_with("--") => usage(&format!("unknown option {other}")),
             other => options.positional.push(other.to_string()),
         }
@@ -206,7 +230,7 @@ fn usage(message: &str) -> ! {
     );
     eprintln!("  raikan diff OLD.list NEW.list [--level L]");
     eprintln!(
-        "  raikan fit-value [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L] [--out FILE]"
+        "  raikan fit-value [--players N] [--games G] [--seed-start S] [--variant NAME] [--level L] [--paired [--candidates K] [--worlds W] [--stride T]] [--out FILE]"
     );
     eprintln!(
         "  raikan explain REPLAY [--turn T] [--candidate ACTION]... [--all] [--world W] [--card CARD [--viewer SEAT]] [--json]"
@@ -652,6 +676,9 @@ fn value_rows(
 }
 
 fn fit_value(options: &Options) {
+    if options.paired {
+        return fit_value_paired(options);
+    }
     let variant = variant(options);
     let games = if options.games == 100_000 {
         5000
@@ -732,6 +759,12 @@ fn fit_value(options: &Options) {
     {
         eprintln!("{name:<16} {f:>8.3} {h:>8.3}");
     }
+    write_weights(options, &fitted);
+}
+
+/// Print the weights, or store them for this player count in `--out`.
+fn write_weights(options: &Options, fitted: &value::Weights) {
+    let fitted = *fitted;
     let json = serde_json::to_string_pretty(&fitted).expect("weights serialise");
     match &options.out {
         Some(path) => {
@@ -751,4 +784,222 @@ fn fit_value(options: &Options) {
 
 fn predict(w: &value::Weights, x: &[f64; value::NUM_FEATURES]) -> f64 {
     w.vector().iter().zip(x).map(|(a, b)| a * b).sum()
+}
+
+/// One paired group: the cut-off features and the points scored after the cut-off of
+/// every candidate rolled out on one world of one position, and the world's weight.
+struct PairedGroup {
+    rows: Vec<([f64; value::NUM_FEATURES], f64)>,
+    weight: f64,
+}
+
+/// Paired groups of one blueprint self-play game (see `fit-value --paired`).
+fn paired_groups(options: &Options, variant: &Variant, seed: u64) -> Vec<PairedGroup> {
+    use raikan::search::rollout::{Partners, seat_views, simulate_paired};
+    let world = shuffled_world(variant, seed);
+    let blueprint = Config {
+        search: SearchConfig::default(),
+        ..config(options)
+    };
+    let mut bots: Vec<BotAgent> = (0..options.players)
+        .map(|_| BotAgent::new(blueprint.clone()))
+        .collect();
+    for (s, bot) in bots.iter_mut().enumerate() {
+        bot.start(variant, options.players, Seat(s as u8));
+    }
+    let (mut state, deal_events) = engine::deal(variant, options.players, &world);
+    let feed = |bots: &mut [BotAgent], event: &engine::Event| {
+        for (s, bot) in bots.iter_mut().enumerate() {
+            bot.observe(&event.observed_by(Seat(s as u8)));
+        }
+    };
+    for event in &deal_events {
+        feed(&mut bots, event);
+    }
+    let mut sampling = SearchConfig::new(raikan::search::SearchMode::Full);
+    sampling.worlds = if options.search.worlds > 0 {
+        options.search.worlds
+    } else {
+        8
+    };
+    let mut groups = Vec::new();
+    while !state.is_over() {
+        let seat = state.current;
+        let view = bots[seat.index()].view();
+        if (state.turn as usize) % options.stride == 0
+            && !raikan::search::plays_to_end(view, &sampling)
+        {
+            let chosen = raikan::policy::choose_action(view).action;
+            // The blueprint's choice and a reproducible pseudo-random pick of the others.
+            let mut others: Vec<_> = raikan::policy::permitted_candidates(view)
+                .into_iter()
+                .filter(|&a| a != chosen)
+                .collect();
+            let key = |a: &engine::Action| {
+                let mut h = std::hash::DefaultHasher::new();
+                std::hash::Hash::hash(&(seed, state.turn, format!("{a:?}")), &mut h);
+                std::hash::Hasher::finish(&h)
+            };
+            others.sort_by_key(key);
+            others.truncate(options.paired_candidates.saturating_sub(1));
+            if !others.is_empty() {
+                let actions: Vec<_> = std::iter::once(chosen).chain(others).collect();
+                let (_, samples) = raikan::search::sample_worlds(view, &sampling);
+                for (w, sampled) in samples.worlds.iter().enumerate() {
+                    let base = seat_views(view, sampled);
+                    let rows: Vec<_> = actions
+                        .iter()
+                        .filter_map(|&action| {
+                            let outcome = simulate_paired(
+                                view,
+                                sampled,
+                                base.clone(),
+                                action,
+                                Partners::BLUEPRINT,
+                            );
+                            outcome.cutoff.map(|(score, features)| {
+                                (features.vector(), outcome.final_score - score)
+                            })
+                        })
+                        .collect();
+                    if rows.len() >= 2 {
+                        groups.push(PairedGroup {
+                            rows,
+                            weight: samples.weights[w],
+                        });
+                    }
+                }
+            }
+        }
+        let action = bots[seat.index()].choose_action(&state);
+        for event in engine::step(variant, &mut state, &world, action) {
+            feed(&mut bots, &event);
+        }
+    }
+    groups
+}
+
+/// Rows of `groups` with the group means removed (weighted by the world weight): what is
+/// left is the difference between candidates, which the constant cannot explain.
+fn demeaned(groups: &[PairedGroup]) -> Vec<([f64; value::NUM_FEATURES], f64)> {
+    let mut out = Vec::new();
+    for group in groups {
+        let n = group.rows.len() as f64;
+        let mut mean_x = [0.0; value::NUM_FEATURES];
+        let mut mean_y = 0.0;
+        for (x, y) in &group.rows {
+            for (m, v) in mean_x.iter_mut().zip(x) {
+                *m += v / n;
+            }
+            mean_y += y / n;
+        }
+        let scale = group.weight.sqrt();
+        for (x, y) in &group.rows {
+            let mut d = [0.0; value::NUM_FEATURES];
+            for i in 0..value::NUM_FEATURES {
+                d[i] = (x[i] - mean_x[i]) * scale;
+            }
+            out.push((d, (y - mean_y) * scale));
+        }
+    }
+    out
+}
+
+/// How well `w` ranks the candidates of `groups`: the share of pairs with different
+/// outcomes it orders like the outcomes (ties count half), and the RMSE of the predicted
+/// differences.
+fn paired_quality(groups: &[PairedGroup], w: &value::Weights) -> (f64, f64) {
+    let (mut agree, mut pairs, mut sq, mut count) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+    for group in groups {
+        for (i, (xa, ya)) in group.rows.iter().enumerate() {
+            for (xb, yb) in &group.rows[i + 1..] {
+                let actual = ya - yb;
+                let predicted = predict(w, xa) - predict(w, xb);
+                sq += (actual - predicted).powi(2);
+                count += 1.0;
+                if actual != 0.0 {
+                    pairs += 1.0;
+                    if predicted == 0.0 {
+                        agree += 0.5;
+                    } else if (predicted > 0.0) == (actual > 0.0) {
+                        agree += 1.0;
+                    }
+                }
+            }
+        }
+    }
+    (agree / pairs.max(1.0), (sq / count.max(1.0)).sqrt())
+}
+
+fn fit_value_paired(options: &Options) {
+    let variant = variant(options);
+    let games = if options.games == 100_000 {
+        300
+    } else {
+        options.games
+    };
+    let threads = thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1) as u64;
+    let handles: Vec<_> = (0..threads)
+        .map(|t| {
+            let options = options.clone();
+            let variant = variant.clone();
+            thread::spawn(move || {
+                let (mut train, mut test) = (Vec::new(), Vec::new());
+                for i in (0..games).filter(|i| i % threads == t) {
+                    let groups = paired_groups(&options, &variant, options.seed_start + i);
+                    // Every fifth game is held out to judge the fit.
+                    if i % 5 == 4 {
+                        test.extend(groups);
+                    } else {
+                        train.extend(groups);
+                    }
+                }
+                (train, test)
+            })
+        })
+        .collect();
+    let (mut train, mut test): (Vec<PairedGroup>, Vec<PairedGroup>) = (Vec::new(), Vec::new());
+    for handle in handles {
+        let (a, b) = handle.join().expect("worker thread panicked");
+        train.extend(a);
+        test.extend(b);
+    }
+    let mut fitted = value::Weights::from_vector(&value::fit(&demeaned(&train)));
+    // The constant cancels between candidates; it only matters against terminal leaves,
+    // so it is the mean of what the features leave unexplained.
+    let (mut residual, mut total) = (0.0, 0.0);
+    for group in &train {
+        for (x, y) in &group.rows {
+            residual += group.weight * (y - predict(&fitted, x));
+            total += group.weight;
+        }
+    }
+    fitted.constant = residual / total.max(f64::MIN_POSITIVE);
+    let rows: usize = train.iter().map(|g| g.rows.len()).sum();
+    eprintln!(
+        "{games} games, {} players, {}, level {}: {} training groups ({rows} rollouts), {} held out",
+        options.players,
+        variant.name,
+        options.level,
+        train.len(),
+        test.len()
+    );
+    let (agree_fit, rmse_fit) = paired_quality(&test, &fitted);
+    let (agree_hand, rmse_hand) = paired_quality(&test, &value::Weights::HAND_SET);
+    eprintln!(
+        "held-out candidate pairs: fitted orders {:.1}% right (RMSE {rmse_fit:.3}), hand-set {:.1}% (RMSE {rmse_hand:.3})",
+        agree_fit * 100.0,
+        agree_hand * 100.0
+    );
+    eprintln!("{:<16} {:>8} {:>8}", "feature", "fitted", "hand-set");
+    for ((name, f), h) in value::FEATURE_NAMES
+        .iter()
+        .zip(fitted.vector())
+        .zip(value::Weights::HAND_SET.vector())
+    {
+        eprintln!("{name:<16} {f:>8.3} {h:>8.3}");
+    }
+    write_weights(options, &fitted);
 }
