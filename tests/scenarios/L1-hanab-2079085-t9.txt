@@ -1,0 +1,30 @@
+# rule: L1.prompt
+# hanab.live game 2079085 (Black & Rainbow (5 Suits)), turn 9: Alice (seat 0) holds a finessed
+# r1 (Bob's 2 clue on Donald's r2). Bob holds two blue-clued cards: slot 2 (b2) and slot 4 (m3,
+# the chop focus of Cathy's blue clue: b2 directly or m3 via Alice's m2). Donald's blue clue
+# on Cathy's b3 prompts Bob's leftmost blue card, slot 2. The bot instead clued Bob 2
+# ("saving" an r2 already clued in Donald's hand). Guards two fixes:
+# - a delayed card that is only possibly b2 (slot 4) is not queued as b2 ahead of the prompt;
+# - Alice's model of Bob learns her identified m2, which Bob saw all along, so in it Bob's
+#   slot 4 is not a direct b2/m2 play that Bob would misplay after Alice plays r1.
+# raikan explain 'https://hanab.live/replay-json/415vuakwblduymqibsxtmulhafdrpofcnwjcvhgkgnefaixk,05icvdaiDcadvaubucvbidblanbbagpbbmobavpdawaaafbs0abc0cbqapDbbh1bboubaeb1btaz1ciaa9a2bxak7abrica8aB,66' --turn 9 --search full
+variant Black & Rainbow (5 Suits)
+level 10
+search full
+hand 0: b1 r1 m1 m2
+hand 1: r4 b2 r2 m3
+hand 2: k2 b3 m5 m1
+hand 3: m4 k4 r2 g4
+draws: k5 b3
+clue 0 2 red
+clue 1 3 2
+play 2 4
+clue 3 2 5
+play 0 1
+clue 1 0 2
+clue 2 1 blue
+clue 3 2 blue
+note * 1 2: b2 play
+note 1 1 4: ? noplay
+action 0: play 2
+not-action 0: clue 1 3

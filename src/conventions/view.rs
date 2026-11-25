@@ -511,10 +511,17 @@ impl View {
                 })
                 .collect();
             for view in Arc::make_mut(seats).iter_mut().filter(|v| v.me != me) {
+                let mut learned = false;
                 for &(card, identity) in &identified {
                     if view.known.get(card).is_none() {
                         view.known.set(card, identity);
+                        learned = true;
                     }
+                }
+                // That seat saw these cards all along: its good touch already counts them.
+                if learned {
+                    view.refresh_derived();
+                    view.refresh_clued_cards();
                 }
                 for &(card, hint) in &hints {
                     view.hints[card.index()] = hint;

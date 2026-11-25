@@ -378,7 +378,8 @@ impl PlayEvaluation {
                     }
                 }
             }
-            // Queued in our own hand.
+            // Queued in our own hand. A delayed card that is only possibly `previous` is not
+            // queued as it: a prompt goes to the newest clued card that could be it.
             let ones = view.variant.rank_identities(1);
             if let Some((_, card)) = view
                 .newest_first(me)
@@ -388,7 +389,7 @@ impl PlayEvaluation {
                         && (note.clued || note.promised.is_some())
                         && note.belief.contains(previous)
                         && (self.giver != me || note.belief.size() == 1)
-                        && (note.play || note.delayed > 0)
+                        && (note.play || (note.delayed > 0 && note.belief.size() == 1))
                 })
                 .min_by_key(|&(pos, c)| {
                     if ones.contains(previous) && view.note(c).belief.soft.is_subset(ones) {
