@@ -1,0 +1,24 @@
+# rule: L3.fix
+# hanab.live game 2079149 (Black & Rainbow (5 Suits)), turn 8: Donald (seat 3) gave Bob red
+# (slot 2, a new r3) as a fix: not touching Bob's clued b1 (believed m4) shows it is not
+# rainbow. A clue that touches a new card is read by its focus, so Alice, Bob and Cathy read
+# an r1 play clue on the r3 (and Bob misplayed it). Negative information alone does not
+# make such a clue a fix.
+# raikan explain 'https://hanab.live/replay-json/415ganukhqpiwvrgbvhckifaakxwnselxmudyfjlofumdtcb,050cahidubadagalibbcaqpbboodaeatam7bav7bbwDdasvb7cbaa2idapbba0aiDbbra7,66' --turn 8 --search full
+variant Black & Rainbow (5 Suits)
+level 10
+search full
+hand 0: m1 b4 r1 g2
+hand 1: k1 k2 g3 b1
+hand 2: k3 m2 m3 g4
+hand 3: g3 m2 r2 g2
+draws: r3 b1 g4 g1
+clue 0 2 black
+play 1 1
+clue 2 3 red
+clue 3 1 blue
+play 0 1
+play 1 2
+play 2 1
+intent 3: clue 1 red => play
+not-action 3: clue 1 red

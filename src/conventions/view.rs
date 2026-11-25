@@ -487,11 +487,14 @@ impl View {
         self.observe_own(event);
         if let Some(seats) = &mut self.seats {
             let me = self.me;
-            // Others see our cards; tell their views the ones our notes identify.
+            // Others see our cards; tell their views the clued ones our notes identify. A
+            // blind card's promised identity is unverified (a layered finesse may hide behind
+            // it): it stays a hint, or the seat's reading of the finesse would rest on it.
             let identified: SmallVec<[(CardId, Identity); 6]> = self
                 .state
                 .hand(me)
                 .iter()
+                .filter(|&&c| self.notes[c.index()].clued)
                 .filter_map(|&c| self.notes[c.index()].belief.identity().map(|i| (c, i)))
                 .collect();
             let hints: SmallVec<[(CardId, IdentitySet); 6]> = self

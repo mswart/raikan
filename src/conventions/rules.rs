@@ -459,9 +459,15 @@ impl View {
             return None;
         }
         let touch = self.variant.touch(clue);
+        // A clue that touches a new card is read by its focus: negative information alone
+        // does not make it a fix.
+        let new_touch = !self.newly_touched(receiver, touched).is_empty();
         let mut informative = false;
         let mut conflicts = CardSet::EMPTY;
         for &card in self.state.hand(receiver) {
+            if new_touch && !touched.contains(card) {
+                continue;
+            }
             let note = self.note(card);
             let mut narrowed = note.belief;
             narrowed.apply_clue(touch, touched.contains(card));
@@ -478,10 +484,7 @@ impl View {
         if !conflicts.is_empty() {
             return Some(Fix::Literal(conflicts));
         }
-        if informative
-            || !self.newly_touched(receiver, touched).is_empty()
-            || !self.rule(Rule::Stop)
-        {
+        if informative || new_touch || !self.rule(Rule::Stop) {
             return None;
         }
         let next = self.next_play_for(receiver)?;
@@ -628,21 +631,37 @@ impl View {
     }
 
     /// A disjunction cannot identify either card: keep literal choices until another public
-    /// observation singles out a target.
+    /// observation singles out a target. A later clue's reading that leaves only one
+    /// candidate able to be the identity (e.g. a prompt through both cards) does.
     pub(super) fn apply_sarcastic_ambiguity(&mut self) {
         let transfers = self.sarcastic.clone();
+        let trash = self.trash_set();
+        let good_touch = self.rule(Rule::GoodTouch);
         for transfer in &transfers {
             if transfer.candidates.len() < 2 {
                 continue;
             }
-            for &card in &transfer.candidates {
-                if self.state.holder(card).is_some() {
-                    let note = self.note_mut(card);
-                    if note.belief.hard_size() > 1 {
-                        note.belief.reset_soft();
-                        note.play = false;
-                        note.trash = false;
+            let open: SmallVec<[CardId; 5]> = transfer
+                .candidates
+                .iter()
+                .copied()
+                .filter(|&card| {
+                    self.state.holder(card).is_some()
+                        && self.note(card).belief.contains(transfer.identity)
+                })
+                .collect();
+            if open.len() < 2 {
+                continue;
+            }
+            for card in open {
+                let note = self.note_mut(card);
+                if note.belief.hard_size() > 1 {
+                    note.belief.reset_soft();
+                    if note.clued && good_touch {
+                        note.belief.soft_exclude(trash);
                     }
+                    note.play = false;
+                    note.trash = false;
                 }
             }
         }
