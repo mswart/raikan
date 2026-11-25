@@ -114,6 +114,8 @@ pub struct CardView {
 #[derive(Clone, Debug, Serialize)]
 pub struct Choice {
     pub action: String,
+    /// The action as `text::parse_action` reads it (`play 2`, `clue 1 red`).
+    pub spec: String,
     pub reason: String,
     /// What a clue means to the giver ([`crate::conventions::ClueIntent`]).
     pub intent: Option<String>,
@@ -129,6 +131,30 @@ pub struct PlanTable {
     /// The rollouts played to the real end of the game (end-game).
     pub to_end: bool,
     pub rows: Vec<PlanRow>,
+}
+
+impl PlanTable {
+    /// The table of a planner result; `fmt` names the actions.
+    pub fn new(plan: &search::PlanResult, fmt: &dyn Fn(Action) -> String) -> Self {
+        Self {
+            reason: format!("{:?}", plan.reason),
+            worlds: plan.worlds,
+            effective_size: plan.effective_size,
+            seed: plan.seed,
+            paired_difference: plan.paired_difference,
+            to_end: plan.to_end,
+            rows: plan
+                .candidates
+                .iter()
+                .map(|c| PlanRow {
+                    action: fmt(c.action),
+                    visits: c.visits,
+                    mean: c.mean,
+                    stderr: c.stderr,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -151,6 +177,8 @@ pub struct ComparisonTable {
 #[derive(Clone, Debug, Serialize)]
 pub struct ComparisonRow {
     pub action: String,
+    /// The action as `text::parse_action` reads it (`play 2`, `clue 1 red`).
+    pub spec: String,
     /// Why the row is listed: `blueprint`, `candidate`, `chosen`, `played`, `requested`,
     /// `legal`.
     pub sources: Vec<&'static str>,
@@ -201,7 +229,7 @@ fn breakdown(b: &search::Breakdown) -> Vec<(&'static str, f64)> {
     b.terms().to_vec()
 }
 
-fn reading_text(state: &GameState, t: &InterpretationTrace) -> String {
+pub(crate) fn reading_text(state: &GameState, t: &InterpretationTrace) -> String {
     let focus = text::slot(state, CardId(t.focus)).map_or_else(
         || format!("#{}", t.focus),
         |(_, s)| format!("slot {s} (#{})", t.focus),
@@ -334,12 +362,131 @@ fn guard_verdict(view: &View, baseline: &crate::conventions::Worth, action: Acti
     }
 }
 
+/// A game as `explain` reads it: every event with the turn of its action (0 = the deal,
+/// `k` = the `k`-th action and the draw after it), and the true deck when it is known.
+#[derive(Clone, Copy, Debug)]
+pub struct GameRecord<'a> {
+    pub variant: &'a Variant,
+    pub players: &'a [String],
+    pub events: &'a [(usize, Event)],
+    /// The true deck (replays); `None` while only one seat's observations are known.
+    pub world: Option<&'a World>,
+    /// A live game: the events are this seat's observations (its own draws are unknown),
+    /// so only its decisions and its notes can be recomputed.
+    pub observer: Option<Seat>,
+}
+
+impl GameRecord<'_> {
+    pub fn num_seats(&self) -> u8 {
+        self.players.len() as u8
+    }
+
+    /// The turn actions in order (`actions()[k - 1]` is turn `k`).
+    pub fn actions(&self) -> Vec<Action> {
+        self.events
+            .iter()
+            .filter_map(|(_, e)| event_action(e))
+            .collect()
+    }
+
+    /// The public state before turn `turn` (after `turn - 1` actions).
+    pub fn state_before(&self, turn: usize) -> GameState {
+        let mut state = GameState::new(self.variant, self.num_seats());
+        for (_, event) in self.events.iter().take_while(|(t, _)| *t < turn) {
+            engine::apply_event(self.variant, &mut state, event);
+        }
+        state
+    }
+
+    /// A bot of `seat` (`config`) that observed everything before turn `turn`.
+    pub fn bot_before(&self, config: &Config, seat: Seat, turn: usize) -> BotAgent {
+        let mut bot = BotAgent::new(config.clone());
+        bot.start(self.variant, self.num_seats(), seat);
+        for (_, event) in self.events.iter().take_while(|(t, _)| *t < turn) {
+            bot.observe(&event.observed_by(seat));
+        }
+        bot
+    }
+
+    /// Whether `seat`'s view can be recomputed: every seat in a replay, only the observer
+    /// in a live game.
+    pub fn check_viewer(&self, seat: Seat) -> Result<(), String> {
+        match self.observer {
+            Some(observer) if observer != seat => Err(format!(
+                "only {}'s view is known in a live game (the other seats' own cards are hidden \
+                 until it ends)",
+                Names::new(self.players).seat(observer)
+            )),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// The command of a turn action event.
+pub fn event_action(event: &Event) -> Option<Action> {
+    match *event {
+        Event::Play { card, .. } => Some(Action::Play(card)),
+        Event::Discard { card, .. } => Some(Action::Discard(card)),
+        Event::Clue { target, clue, .. } => Some(Action::Clue { target, clue }),
+        Event::Draw { .. } | Event::GameOver { .. } => None,
+    }
+}
+
+/// Every event of `replay` with the turn of its action (0 = the deal), simulated on its
+/// deck up to the end of the game.
+pub fn replay_events(variant: &Variant, replay: &Replay) -> Result<Vec<(usize, Event)>, String> {
+    let (mut state, deal) = engine::deal(variant, replay.num_seats(), &replay.deck);
+    let mut events: Vec<(usize, Event)> = deal.into_iter().map(|e| (0, e)).collect();
+    for (i, action) in replay.game_actions().enumerate() {
+        if state.is_over() {
+            break;
+        }
+        engine::check_legal(variant, &state, action)
+            .map_err(|e| format!("turn {}: {action:?} is illegal: {e:?}", i + 1))?;
+        for event in engine::step_recorded(variant, &mut state, &replay.deck, action) {
+            events.push((i + 1, event));
+        }
+    }
+    Ok(events)
+}
+
 /// Recompute and explain the decision before `request.turn` of `replay`.
 pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Explanation, String> {
     let variant = Variant::by_name(&replay.variant).map_err(|e| e.to_string())?;
-    let names = Names::new(&replay.players);
-    let num_seats = replay.num_seats();
-    let actions: Vec<Action> = replay.game_actions().collect();
+    let events = replay_events(&variant, replay)?;
+    let record = GameRecord {
+        variant: &variant,
+        players: &replay.players,
+        events: &events,
+        world: Some(&replay.deck),
+        observer: None,
+    };
+    explain_record(&record, config, request)
+}
+
+/// A world for the legality of clues: the identities `view` sees, the rest arbitrary. Only
+/// the hands of other seats are read through it.
+pub(crate) fn sight_world(view: &View) -> World {
+    let first = view.variant.all_identities().iter().next().expect("a deck");
+    let mut world = World::new(&vec![first; view.variant.num_cards() as usize]);
+    for card in view.state.dealt().iter() {
+        if let Some(identity) = view.identity(card) {
+            world.set(card, identity);
+        }
+    }
+    world
+}
+
+/// Recompute and explain the decision before `request.turn` of a recorded game (a replay or
+/// the observations of a live game's seat).
+pub fn explain_record(
+    record: &GameRecord,
+    config: &Config,
+    request: &Request,
+) -> Result<Explanation, String> {
+    let variant = record.variant;
+    let names = Names::new(record.players);
+    let actions = record.actions();
     if request.turn == 0 || request.turn > actions.len() + 1 {
         return Err(format!(
             "turn {} is outside 1..={} of this game",
@@ -348,34 +495,7 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
         ));
     }
     let prefix = request.turn - 1;
-    let world = &replay.deck;
-
-    let mut bots: Vec<BotAgent> = (0..num_seats)
-        .map(|_| BotAgent::new(config.clone()))
-        .collect();
-    for (s, bot) in bots.iter_mut().enumerate() {
-        bot.start(&variant, num_seats, Seat(s as u8));
-    }
-    let (mut state, deal) = engine::deal(&variant, num_seats, world);
-    let feed = |bots: &mut [BotAgent], event: &Event| {
-        for (s, bot) in bots.iter_mut().enumerate() {
-            bot.observe(&event.observed_by(Seat(s as u8)));
-        }
-    };
-    // Every event with its turn, for the card history.
-    let mut events: Vec<(usize, Event)> = Vec::new();
-    for event in &deal {
-        feed(&mut bots, event);
-        events.push((0, *event));
-    }
-    for (i, &action) in actions.iter().take(prefix).enumerate() {
-        engine::check_legal(&variant, &state, action)
-            .map_err(|e| format!("turn {}: {action:?} is illegal: {e:?}", i + 1))?;
-        for event in engine::step_recorded(&variant, &mut state, world, action) {
-            feed(&mut bots, &event);
-            events.push((i + 1, event));
-        }
-    }
+    let state = record.state_before(request.turn);
     if state.is_over() {
         return Err(format!(
             "the game is over before turn {} (its last decision is turn {})",
@@ -385,13 +505,17 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
     }
 
     let seat = state.current;
-    let bot = &mut bots[seat.index()];
+    record.check_viewer(seat)?;
+    let mut bot = record.bot_before(config, seat, request.turn);
     // a full copy: the comparison must see the kept teammate views, as the planner does
     let view = bot.view().clone();
     let blueprint = policy::choose_action(&view);
     let chosen_action = bot.choose_action(&state);
     let plan = bot.last_plan().cloned();
-    let fmt = |a: Action| text::action(&variant, &names, &state, Some(world), a);
+    let world = record.world;
+    let legal_world = world.copied().unwrap_or_else(|| sight_world(&view));
+    let fmt = |a: Action| text::action(variant, &names, &state, world, a);
+    let spec = |a: Action| text::spec(variant, &state, a);
     let intent = |a: Action| intent_text(&view, &names, a);
 
     let card_history = match &request.card {
@@ -409,9 +533,7 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
                     .ok_or_else(|| format!("unknown seat {v}"))?,
                 None => seat,
             };
-            Some(card_history(
-                &variant, &names, config, num_seats, viewer, card, world, &events,
-            )?)
+            Some(card_history(record, config, viewer, card, request.turn)?)
         }
         None => None,
     };
@@ -439,8 +561,8 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
         add(&mut rows, action, "played");
     }
     for spec in &request.candidates {
-        let action = text::parse_action(&variant, &names, &state, seat, spec)?;
-        engine::check_legal(&variant, &state, action)
+        let action = text::parse_action(variant, &names, &state, seat, spec)?;
+        engine::check_legal(variant, &state, action)
             .map_err(|e| format!("{spec}: illegal ({e:?})"))?;
         if let Action::Clue { target, clue } = action
             && view.visible_touched(target, clue).is_empty()
@@ -450,7 +572,7 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
         add(&mut rows, action, "requested");
     }
     if request.all {
-        for action in engine::legal_commands(&variant, &state, world) {
+        for action in engine::legal_commands(variant, &state, &legal_world) {
             add(&mut rows, action, "legal");
         }
     }
@@ -470,6 +592,7 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
         .zip(&comparison.paired)
         .map(|(((action, sources), stats), paired)| ComparisonRow {
             action: fmt(*action),
+            spec: spec(*action),
             sources: sources.clone(),
             guard: guard_verdict(&view, &baseline, *action),
             intent: intent(*action),
@@ -508,7 +631,7 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
         }
         for action in shown {
             rollouts.push(rollout(
-                &variant,
+                variant,
                 &names,
                 &view,
                 &compare_config,
@@ -534,8 +657,11 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
                     .map(|(i, &c)| CardView {
                         slot: hand.len() - i,
                         card: c.0,
-                        identity: variant.identity_name(world.identity(c)),
-                        note: text::note(&variant, view.note(c)),
+                        identity: world
+                            .map(|w| w.identity(c))
+                            .or_else(|| view.identity(c))
+                            .map_or_else(|| "?".to_string(), |i| variant.identity_name(i)),
+                        note: text::note(variant, view.note(c)),
                     })
                     .collect(),
             }
@@ -563,8 +689,8 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
         level: config.max_level,
         profile_digest: format!("{:016x}", view.profile.digest),
         position: Position {
-            stacks: text::stacks(&variant, &state),
-            score: state.score(&variant),
+            stacks: text::stacks(variant, &state),
+            score: state.score(variant),
             clue_tokens: state.clue_tokens(),
             strikes: state.strikes,
             deck: state.cards_left(),
@@ -573,11 +699,13 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
         },
         blueprint: Choice {
             action: fmt(blueprint.action),
+            spec: spec(blueprint.action),
             reason: format!("{:?}", blueprint.reason),
             intent: intent(blueprint.action),
         },
         chosen: Choice {
             action: fmt(chosen_action),
+            spec: spec(chosen_action),
             reason: plan.as_ref().map_or_else(
                 || format!("{:?}", blueprint.reason),
                 |p| format!("{:?}", p.reason),
@@ -585,24 +713,7 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
             intent: intent(chosen_action),
         },
         played: played.map(fmt),
-        plan: plan.map(|p| PlanTable {
-            reason: format!("{:?}", p.reason),
-            worlds: p.worlds,
-            effective_size: p.effective_size,
-            seed: p.seed,
-            paired_difference: p.paired_difference,
-            to_end: p.to_end,
-            rows: p
-                .candidates
-                .iter()
-                .map(|c| PlanRow {
-                    action: fmt(c.action),
-                    visits: c.visits,
-                    mean: c.mean,
-                    stderr: c.stderr,
-                })
-                .collect(),
-        }),
+        plan: plan.map(|p| PlanTable::new(&p, &fmt)),
         comparison: ComparisonTable {
             worlds: comparison.worlds,
             effective_size: comparison.effective_size,
@@ -614,30 +725,30 @@ pub fn explain(replay: &Replay, config: &Config, request: &Request) -> Result<Ex
     })
 }
 
-/// The viewer's note on `card` after every event that touched it or changed the note.
-#[allow(clippy::too_many_arguments)]
-fn card_history(
-    variant: &Variant,
-    names: &Names,
+/// The viewer's note on `card` after every event before turn `turn` that touched it or
+/// changed the note.
+pub fn card_history(
+    record: &GameRecord,
     config: &Config,
-    num_seats: u8,
     viewer: Seat,
     card: CardId,
-    world: &World,
-    events: &[(usize, Event)],
+    turn: usize,
 ) -> Result<CardHistory, String> {
+    record.check_viewer(viewer)?;
+    let variant = record.variant;
+    let names = Names::new(record.players);
     let profile = Profile::new(config.max_level, variant, config.require_complete)
         .map_err(|e| format!("{e:?}"))?;
     let mut view = View::with_seat_views(
         Arc::new(variant.clone()),
         Arc::new(profile),
-        num_seats,
+        record.num_seats(),
         viewer,
     );
     view.enable_trace();
     let mut entries: Vec<CardEntry> = Vec::new();
     let mut last: Option<String> = None;
-    for (turn, event) in events {
+    for (turn, event) in record.events.iter().take_while(|(t, _)| *t < turn) {
         view.observe(&event.observed_by(viewer));
         let traces = view.trace.take();
         if card.0 >= view.state.next_card {
@@ -660,16 +771,33 @@ fn card_history(
         if involves || last.as_deref() != Some(note.as_str()) {
             entries.push(CardEntry {
                 turn: *turn,
-                event: text::event(variant, names, event),
+                event: text::event(variant, &names, event),
                 rule,
                 note: note.clone(),
             });
             last = Some(note);
         }
     }
+    if card.0 >= view.state.next_card {
+        return Err(format!("card #{} is not dealt by turn {turn}", card.0));
+    }
+    // The true identity: from the deck, else from the event that revealed it.
+    let revealed = record.events.iter().find_map(|(_, e)| match *e {
+        Event::Draw {
+            card: c, identity, ..
+        }
+        | Event::Play {
+            card: c, identity, ..
+        }
+        | Event::Discard {
+            card: c, identity, ..
+        } if c == card => identity,
+        _ => None,
+    });
+    let identity = record.world.map(|w| w.identity(card)).or(revealed);
     Ok(CardHistory {
         card: card.0,
-        identity: variant.identity_name(world.identity(card)),
+        identity: identity.map_or_else(|| "?".to_string(), |i| variant.identity_name(i)),
         viewer: names.seat(viewer),
         entries,
     })

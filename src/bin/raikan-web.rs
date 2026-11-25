@@ -1,5 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use raikan::adapters::explain::PlanTable;
+use raikan::adapters::text::{self, Names};
+use raikan::adapters::web::{self, Hub, LiveDecision, Session};
 use raikan::agent::{Agent, BotAgent, Config};
 use raikan::domain::{CardId, CardSet, Seat};
 use raikan::engine::{self, Action, EndReason, Event, GameState};
@@ -7,6 +10,7 @@ use raikan::variants::{ClueValue, Variant};
 use serde::{Deserialize, Serialize};
 use std::net::TcpStream;
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
 use tungstenite::{
     ClientRequestBuilder, client::connect, http::Uri, protocol::Message, protocol::WebSocket,
@@ -47,6 +51,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(name) = &follow {
         println!("Auto-joining pregame tables created by {name}");
     }
+    let web = start_web();
 
     let mut client: HanabClient = HanabClient {
         client: connect(websocket_request(&cookie))
@@ -64,9 +69,33 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         pending_requests: BTreeMap::new(),
         follow,
         auto_joined: BTreeSet::new(),
+        web,
+        games_started: 0,
     };
     client.run();
     Ok(())
+}
+
+/// The web UI on `RAIKAN_HTTP` (default 127.0.0.1:7357, or the next free port; `off`
+/// disables it): the table being played and its decisions, finished games for analysis and
+/// bug reports.
+fn start_web() -> Option<Arc<Hub>> {
+    let addr = std::env::var("RAIKAN_HTTP").unwrap_or_else(|_| web::DEFAULT_ADDR.to_string());
+    let addr = addr.trim();
+    if addr.is_empty() || addr == "off" {
+        return None;
+    }
+    let hub = Hub::new(bot_config());
+    match web::serve(Arc::clone(&hub), addr) {
+        Ok((bound, _)) => {
+            println!("Web UI at http://{bound}/");
+            Some(hub)
+        }
+        Err(error) => {
+            eprintln!("Web UI disabled: cannot listen on {addr}: {error}");
+            None
+        }
+    }
 }
 
 fn websocket_request(cookie: &str) -> ClientRequestBuilder {
@@ -480,6 +509,9 @@ struct GameFinishedMessage {
     // Older servers sent only replay metadata.
     events: Option<Vec<GameAction>>,
     shared_replay: SharedReplayState,
+    /// The game's id in the hanab.live database (its replay URL).
+    #[serde(default)]
+    game_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
@@ -607,6 +639,10 @@ struct HanabClient {
     /// Tables already auto-joined: never retried, so a boot or a refused
     /// join does not loop.
     auto_joined: BTreeSet<usize>,
+    /// The web UI's games, when it runs (`RAIKAN_HTTP`).
+    web: Option<Arc<Hub>>,
+    /// Games loaded so far: each gets its own web UI session.
+    games_started: u32,
 }
 
 impl HanabClient {
@@ -1033,7 +1069,7 @@ impl HanabClient {
         let table_id = TableIdMessage {
             table_id: init.table_id as usize,
         };
-        let game = match HanabGame::from_message(&init) {
+        let mut game = match HanabGame::from_message(&init) {
             Ok(game) => game,
             Err(reason) => {
                 self.clear_game();
@@ -1044,6 +1080,8 @@ impl HanabClient {
                 return Ok(());
             }
         };
+        self.games_started += 1;
+        game.serial = self.games_started;
         self.game = Some(game);
         self.game_actions = Vec::with_capacity(256);
         self.replay_segment = None;
@@ -1081,6 +1119,7 @@ impl HanabClient {
             // The server sends live events after this snapshot. gameLoaded
             // marks us connected and must still precede our opening move.
             self.send("gameLoaded", &serde_json::to_string(&table_id)?);
+            self.publish();
             self.act()?;
         } else {
             eprintln!("Received game state before game initialization");
@@ -1104,6 +1143,7 @@ impl HanabClient {
                 game.process_action(&event);
                 self.game_actions.push(event);
             }
+            self.publish();
             self.act()?;
         } else {
             println!("Retrieved game action but I aren't in a game");
@@ -1118,6 +1158,7 @@ impl HanabClient {
         }
         if let Some(game) = &mut self.game {
             game.can_act = false;
+            game.game_id = finished.game_id.or(game.game_id);
             if let Some(events) = finished.events {
                 game.reset();
                 for event in &events {
@@ -1128,6 +1169,7 @@ impl HanabClient {
             game.current_player_index = None;
         }
         self.replay_segment = Some(finished.shared_replay.turn);
+        self.publish();
         if let Some(table) = self.table_states.get_mut(&self.table_id) {
             table.phase = TablePhase::SharedReplay;
         }
@@ -1158,6 +1200,7 @@ impl HanabClient {
     fn act(&mut self) -> Result<(), serde_json::Error> {
         if let Some(game) = &mut self.game {
             if let Some(action) = game.act(self.table_id as u64) {
+                self.publish();
                 // wait a bit to simulate thinking ...
                 let duration = std::time::Duration::from_secs(1);
                 std::thread::sleep(duration);
@@ -1165,6 +1208,34 @@ impl HanabClient {
             }
         }
         Ok(())
+    }
+
+    /// Show the current game in the web UI.
+    fn publish(&self) {
+        let (Some(hub), Some(game)) = (&self.web, &self.game) else {
+            return;
+        };
+        let mut label = format!(
+            "table {} ({}, {})",
+            self.table_id,
+            game.variant.name,
+            game.player_names.join(", ")
+        );
+        if let Some(id) = game.game_id {
+            label = format!("hanab.live game {id}: {label}");
+        }
+        let session = Session::observed(
+            format!("game-{}", game.serial),
+            label,
+            &game.variant,
+            &game.player_names,
+            game.seat.map(Seat),
+            &game.history,
+            !game.state.is_over(),
+        )
+        .with_decisions(game.decisions.clone())
+        .with_game_id(game.game_id);
+        hub.publish(session);
     }
 
     fn send(&mut self, command: &str, body: &str) {
@@ -1200,7 +1271,11 @@ struct Slot {
 /// The bot: H-Group conventions capped at `RAIKAN_LEVEL=<n>` (default 10), with the root
 /// planner when `RAIKAN_SEARCH=fast|full` (default off; all cores, at most
 /// `RAIKAN_TIME_LIMIT_MS`, default 3000, per decision).
-fn new_agent() -> Box<dyn Agent> {
+fn new_agent() -> BotAgent {
+    BotAgent::new(bot_config())
+}
+
+fn bot_config() -> Config {
     let mut config = Config::default();
     if let Some(level) = std::env::var("RAIKAN_LEVEL")
         .ok()
@@ -1222,7 +1297,7 @@ fn new_agent() -> Box<dyn Agent> {
                 .unwrap_or(3000),
         ));
     }
-    Box::new(BotAgent::new(config))
+    config
 }
 
 /// Public counters derived from the events (the server sends no status events).
@@ -1240,7 +1315,18 @@ struct HanabGame {
     own_player: u8,
     /// Hands newest first, as hanab.live shows them.
     hands: Vec<VecDeque<Slot>>,
-    agent: Box<dyn Agent>,
+    agent: BotAgent,
+    /// Our seat, unless we only watch.
+    seat: Option<u8>,
+    /// Every event, with the identities the server sent (our own draws only once the game
+    /// is over); the agent gets them redacted for its seat.
+    history: Vec<Event>,
+    /// Our decisions, for the web UI.
+    decisions: Vec<LiveDecision>,
+    /// Number of this game in the client (its web UI session).
+    serial: u32,
+    /// The hanab.live database id, once the game is finished.
+    game_id: Option<u64>,
     variant: Variant,
     /// Public state derived from the events (the server sends no status events).
     state: GameState,
@@ -1269,6 +1355,11 @@ impl HanabGame {
             hands: Vec::new(),
             own_player,
             agent: new_agent(),
+            seat: init.mode.our_player_index,
+            history: Vec::new(),
+            decisions: Vec::new(),
+            serial: 0,
+            game_id: None,
             state: GameState::new(&variant, init.player_names.len() as u8),
             variant,
             current_player_index: Some(0),
@@ -1286,6 +1377,8 @@ impl HanabGame {
         self.agent = new_agent();
         self.agent
             .start(&self.variant, seats, Seat(self.own_player));
+        // decisions stay: a reset reloads the same game
+        self.history.clear();
         self.state = GameState::new(&self.variant, seats);
         // New games contain only draw events: player zero must act before the server emits
         // its first turn event. Later history events override this opening turn, and the
@@ -1315,6 +1408,16 @@ impl HanabGame {
         if !summary.is_empty() {
             eprintln!("turn {}: {summary}", self.state.turn);
         }
+        let turn = self.history.iter().filter(|e| e.is_action()).count() + 1;
+        let names = Names::new(&self.player_names);
+        let fmt = |a: Action| text::action(&self.variant, &names, &self.state, None, a);
+        self.decisions.retain(|d| d.turn != turn);
+        self.decisions.push(LiveDecision {
+            turn,
+            action: fmt(action),
+            summary,
+            plan: self.agent.last_plan().map(|p| PlanTable::new(p, &fmt)),
+        });
         Some(self.action_message(table_id, action))
     }
 
@@ -1344,7 +1447,9 @@ impl HanabGame {
 
     fn observe(&mut self, event: Event) {
         engine::apply_event(&self.variant, &mut self.state, &event);
-        self.agent.observe(&event);
+        self.agent
+            .observe(&event.observed_by(Seat(self.own_player)));
+        self.history.push(event);
         self.update_status();
     }
 
@@ -1367,17 +1472,13 @@ impl HanabGame {
                 order,
                 identity,
             } => {
-                let identity = if *player_index == self.own_player {
-                    None
-                } else {
-                    match identity.as_ref().and_then(|i| self.identity(i)) {
-                        Some(identity) => Some(identity),
-                        None => {
-                            eprintln!("Missing identity for another player's drawn card");
-                            return;
-                        }
-                    }
-                };
+                // Our own cards arrive only in a finished game's history; the agent never
+                // sees them (`observe` redacts).
+                let identity = identity.as_ref().and_then(|i| self.identity(i));
+                if identity.is_none() && *player_index != self.own_player {
+                    eprintln!("Missing identity for another player's drawn card");
+                    return;
+                }
                 self.hands[*player_index as usize].push_front(Slot { index: *order });
                 self.observe(Event::Draw {
                     seat: Seat(*player_index),
@@ -1674,6 +1775,8 @@ mod protocol_tests {
                 pending_requests: BTreeMap::new(),
                 follow: None,
                 auto_joined: BTreeSet::new(),
+                web: None,
+                games_started: 0,
             },
             WebSocket::from_raw_socket(server, Role::Server, None),
         )
@@ -1741,6 +1844,17 @@ mod protocol_tests {
         ))
         .unwrap();
         let (mut bot, mut server) = connection();
+        let hub = Hub::new(Config::default());
+        bot.web = Some(Arc::clone(&hub));
+        let board = |hub: &Hub| -> Value {
+            let response = hub.handle(&web::Request {
+                method: "GET".into(),
+                path: "/api/board".into(),
+                ..web::Request::default()
+            });
+            assert_eq!(response.status, 200);
+            serde_json::from_slice(&response.body).unwrap()
+        };
         let mut expected_id = 1;
         for frame in fixture["frames"].as_array().unwrap() {
             bot.process_frame(&frame.to_string()).unwrap();
@@ -1754,6 +1868,13 @@ mod protocol_tests {
                     assert_eq!((game.status.score, game.status.turn), (1, 2));
                     assert_eq!(game.hands[1].len(), 5);
                     assert_eq!(game.hands[1][0].index, 10);
+                    // the web UI shows the live table from our seat, with our decision
+                    let live = board(&hub);
+                    assert_eq!(live["session"]["live"], true);
+                    assert_eq!(live["session"]["complete"], false);
+                    assert_eq!(live["session"]["observer"], 0);
+                    assert_eq!(live["session"]["decisions"], json!([3]));
+                    assert_eq!(live["board"]["decision"]["turn"], 3);
                     Some("playerAction")
                 }
                 (Some("gameFinished"), _) => {
@@ -1765,6 +1886,10 @@ mod protocol_tests {
                     );
                     assert_eq!(bot.replay_segment, Some(3));
                     assert!(!bot.game.as_ref().unwrap().can_act);
+                    // the unhidden history makes every seat's view available
+                    let finished = board(&hub);
+                    assert_eq!(finished["session"]["complete"], true, "{finished}");
+                    assert_eq!(finished["session"]["live"], false);
                     None
                 }
                 _ => None,

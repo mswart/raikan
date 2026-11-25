@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raikan</title>
+<style>
+:root {
+  --bg: #1d2a24; --panel: #25352d; --panel2: #2c3f35; --line: #3c5346;
+  --text: #e8efe9; --muted: #9db3a5; --accent: #f0c24b; --bad: #e5534b; --good: #57c97a;
+  --card-w: 58px; --card-h: 82px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+button, select, input, textarea {
+  font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 8px;
+}
+button { cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: #3d6b52; border-color: #4f8a69; }
+a { color: var(--accent); }
+header, nav {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+header h1 { font-size: 17px; margin: 0 8px 0 0; letter-spacing: .5px; }
+header .grow, nav .grow { flex: 1; }
+#session { max-width: 520px; }
+#load-text { width: 240px; }
+nav #turn-slider { flex: 1; min-width: 160px; accent-color: var(--accent); }
+#turn-label { min-width: 210px; font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.err { color: var(--bad); }
+.ok { color: var(--good); }
+main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 470px); gap: 12px; padding: 12px 14px; }
+@media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+section.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.hand { display: flex; gap: 14px; align-items: flex-start; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+.hand:last-child { border-bottom: 0; }
+.hand .who { width: 112px; flex: none; padding-top: 4px; }
+.hand .who .name { font-weight: 600; overflow-wrap: anywhere; }
+.hand.to-move .who .name { color: var(--accent); }
+.hand .cards { display: flex; gap: 8px; flex-wrap: wrap; }
+.slot { display: flex; flex-direction: column; align-items: center; gap: 3px; width: calc(var(--card-w) + 14px); }
+.card {
+  position: relative; width: var(--card-w); height: var(--card-h); border-radius: 7px;
+  background: var(--c, #59615c); color: var(--fg, #fff); border: 2px solid rgba(0,0,0,.35);
+  display: flex; align-items: center; justify-content: center; cursor: pointer; user-select: none;
+  box-shadow: 0 2px 4px rgba(0,0,0,.35);
+}
+.card.unknown { background: repeating-linear-gradient(135deg, #4a514d 0 6px, #424945 6px 12px); }
+.card.hidden::after {
+  content: "hidden"; position: absolute; bottom: 3px; left: 0; right: 0; text-align: center;
+  font-size: 9px; letter-spacing: .5px; color: var(--fg, #fff); opacity: .8;
+}
+.card.hidden { opacity: .72; border-style: dashed; }
+.card.clued { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(240,194,75,.35); }
+.card.selected { outline: 3px solid #fff; outline-offset: 2px; }
+.card .rank { font-size: 30px; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
+.card .corner { position: absolute; top: 3px; left: 5px; font-size: 11px; font-weight: 600; }
+.card .num { position: absolute; top: 3px; right: 5px; font-size: 9px; opacity: .75; }
+.tag { font-size: 10px; padding: 0 5px; border-radius: 8px; background: #555; white-space: nowrap; }
+.tag.chop { background: var(--bad); }
+.tag.play { background: #2f8a4c; }
+.tag.trash { background: #6b6b6b; }
+.tag.cm { background: #2f6b8a; }
+.tag.promised { background: #8a6d2f; }
+.tag.warn { background: #b4572f; }
+.chips { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; min-height: 14px; }
+.chip { min-width: 14px; height: 14px; border-radius: 3px; font-size: 10px; line-height: 14px; text-align: center; padding: 0 2px; background: var(--c, #777); color: var(--fg, #fff); }
+.pips { display: grid; gap: 1px; }
+.pip { width: 7px; height: 7px; border-radius: 1px; background: #1a2420; }
+.pip.on { background: var(--c); }
+.pip.lit { box-shadow: inset 0 0 0 1px var(--c); }
+.tags { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; }
+.table-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; margin-top: 12px; }
+.stacks { display: flex; gap: 6px; }
+.stacks .card { cursor: default; }
+.stacks .card.empty { background: transparent; border: 2px dashed var(--c); color: var(--muted); }
+.counters { display: grid; grid-template-columns: auto auto; gap: 2px 10px; align-items: baseline; }
+.counters b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.discards { display: flex; flex-direction: column; gap: 3px; }
+.discards .row { display: flex; gap: 3px; align-items: center; }
+.mini { width: 22px; height: 30px; border-radius: 4px; background: var(--c); color: var(--fg, #fff); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; position: relative; }
+.mini sub { position: absolute; bottom: -2px; right: 1px; font-size: 9px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.tabs button.active { background: #3d6b52; border-color: var(--accent); }
+#log { max-height: 70vh; overflow: auto; }
+.entry { padding: 4px 6px; border-radius: 5px; cursor: pointer; }
+.entry:hover { background: var(--panel2); }
+.entry.future { opacity: .45; }
+.entry.next { background: #4a4224; }
+.entry .t { display: inline-block; min-width: 30px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.entry .reading { font-size: 11px; color: var(--muted); margin-left: 30px; overflow-wrap: anywhere; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 4px 5px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+th { font-weight: 600; color: var(--muted); font-size: 12px; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.cand { cursor: pointer; }
+tr.cand:hover { background: var(--panel2); }
+tr.cand.best td:first-child { box-shadow: inset 3px 0 var(--good); }
+tr.cand.rejected { opacity: .6; }
+.marks { float: right; display: flex; gap: 3px; margin-left: 6px; }
+tr.detail td { background: #1f2d26; font-size: 12px; }
+.src { font-size: 10px; padding: 0 4px; border-radius: 6px; background: #45584d; margin-left: 3px; white-space: nowrap; }
+.src.chosen { background: #2f6b8a; } .src.blueprint { background: #6b5a2f; } .src.played { background: #5a2f6b; }
+.mark { padding: 0 6px; font-size: 12px; }
+.kv { display: grid; grid-template-columns: 96px 1fr; gap: 3px 8px; margin: 6px 0; }
+.kv > :nth-child(odd) { color: var(--muted); }
+pre { background: #141d19; padding: 8px; border-radius: 6px; overflow: auto; max-height: 50vh; font-size: 12px; }
+form.report { display: grid; grid-template-columns: 110px 1fr; gap: 6px 8px; align-items: center; }
+form.report textarea { min-height: 70px; resize: vertical; }
+form.report .full { grid-column: 1 / -1; }
+.spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.legend { font-size: 11px; color: var(--muted); margin-top: 8px; }
+#card-panel:empty { display: none; }
+#card-panel { margin-top: 12px; }
+.belief-line { margin: 2px 0; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Raikan</h1>
+  <select id="session" title="Game"></select>
+  <span class="grow"></span>
+  <input id="load-text" placeholder="hanab.live game id, replay URL or JSON">
+  <button id="load-btn">Load replay</button>
+  <label class="small muted">level <input id="level" type="number" min="1" max="20" style="width:56px"></label>
+  <label class="small muted">search <select id="search">
+    <option value="off">off</option><option value="fast">fast</option><option value="full">full</option>
+  </select></label>
+</header>
+<nav>
+  <button id="first" title="First turn (Home)">|&lt;</button>
+  <button id="prev" title="Previous turn (←)">&lt;</button>
+  <input id="turn-slider" type="range" min="1" max="1" value="1">
+  <button id="next" title="Next turn (→)">&gt;</button>
+  <button id="last" title="Latest turn (End)">&gt;|</button>
+  <span id="turn-label"></span>
+  <label class="small">viewer <select id="viewer"></select></label>
+  <label class="small" title="Jump to the newest turn and game as they arrive"><input id="follow" type="checkbox" checked> follow</label>
+  <span id="status" class="small muted"></span>
+</nav>
+<main>
+  <div>
+    <section class="panel" id="hands"></section>
+    <section class="panel table-row" id="table" style="margin-top:12px"></section>
+    <section class="panel" id="card-panel"></section>
+  </div>
+  <section class="panel">
+    <div class="tabs">
+      <button data-tab="decision" class="active">Decision</button>
+      <button data-tab="log">Log</button>
+      <button data-tab="report">Bug report</button>
+    </div>
+    <div id="tab-decision"></div>
+    <div id="tab-log" hidden><div id="log"></div></div>
+    <div id="tab-report" hidden></div>
+  </section>
+</main>
+<script>
+"use strict";
+const S = {
+  key: null, info: null, board: null, turn: null, viewer: null, version: 0, sessionsVersion: 0,
+  selected: null, history: null, explain: null, explainFor: null, explaining: false,
+  expanded: new Set(), report: { expected: "", rejected: "", rule: "", comment: "" }, reportResult: null,
+};
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function api(path, body) {
+  const options = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  const response = await fetch(path, options);
+  const data = await response.json().catch(() => ({ error: response.statusText }));
+  if (!response.ok || data.error) throw new Error(data.error || response.statusText);
+  return data;
+}
+
+// ---- colours -------------------------------------------------------------------------
+const SUIT_COLORS = [
+  [/dark rainbow/i, "linear-gradient(135deg,#7a1f1f,#7a6a1f,#1f6a2f,#1f3f7a,#4a1f7a)", "#fff"],
+  [/rainbow|omni|prism/i, "linear-gradient(135deg,#e53935,#fdd835,#43a047,#1e88e5,#8e24aa)", "#fff"],
+  [/black/i, "#1b1b1b", "#fff"], [/gray|grey/i, "#8d8d8d", "#111"], [/white/i, "#ececec", "#111"],
+  [/red/i, "#d23b36", "#fff"], [/yellow/i, "#f0c419", "#111"], [/green/i, "#2e9e48", "#fff"],
+  [/blue/i, "#2a6fd6", "#fff"], [/purple/i, "#7d3fc0", "#fff"], [/teal/i, "#119d9d", "#fff"],
+  [/pink/i, "#ef6fae", "#111"], [/brown/i, "#8b5a2b", "#fff"], [/orange/i, "#f08a1c", "#111"],
+  [/null/i, "#4d4d4d", "#fff"],
+];
+function suitColor(name) {
+  for (const [re, bg, fg] of SUIT_COLORS) if (re.test(name)) return { bg, fg, solid: bg.startsWith("#") ? bg : "#c9a227" };
+  return { bg: "#707070", fg: "#fff", solid: "#707070" };
+}
+const identity = (i) => S.info.variant.identities[i];
+const suitOf = (i) => S.info.variant.suits[identity(i).suit];
+const rankText = (r) => (r === 7 ? "S" : String(r));
+const playerName = (seat) => S.info.players[seat] ?? `seat ${seat}`;
+
+// ---- loading ---------------------------------------------------------------------------
+function readHash() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  if (p.get("session")) S.key = p.get("session");
+  if (p.get("turn")) S.turn = Number(p.get("turn"));
+  if (p.get("viewer")) S.viewer = Number(p.get("viewer"));
+}
+function writeHash() {
+  const p = new URLSearchParams();
+  if (S.key) p.set("session", S.key);
+  if (S.turn) p.set("turn", S.turn);
+  if (S.viewer !== null) p.set("viewer", S.viewer);
+  history.replaceState(null, "", "#" + p.toString());
+}
+function status(text, cls = "muted") { const el = $("#status"); el.className = "small " + cls; el.innerHTML = text; }
+
+async function refreshSessions() {
+  let data;
+  try { data = await api("/api/sessions"); } catch (e) { status("server unreachable", "err"); return; }
+  if (data.version === S.sessionsVersion) return;
+  S.sessionsVersion = data.version;
+  const select = $("#session");
+  select.innerHTML = data.sessions.map((s) => `<option value="${esc(s.key)}">${s.live ? "● " : ""}${esc(s.label)}</option>`).join("")
+    || `<option value="">no games yet — the bot shows its table here, or load a replay</option>`;
+  const newest = data.sessions[0];
+  if (!newest) return;
+  const current = data.sessions.find((s) => s.key === S.key);
+  if (!current || ($("#follow").checked && newest.key !== S.key && newest.live)) {
+    switchSession(newest.key);
+  } else {
+    select.value = S.key;
+    if (current.version !== S.version) loadBoard();
+  }
+}
+
+function switchSession(key) {
+  S.key = key; S.turn = null; S.viewer = null; S.version = 0; S.info = null;
+  S.selected = null; S.history = null; S.explain = null; S.reportResult = null;
+  $("#session").value = key;
+  $("#level").value = ""; $("#search").dataset.set = "";
+  loadBoard();
+}
+
+async function loadBoard() {
+  if (!S.key) return;
+  const p = new URLSearchParams({ session: S.key });
+  const follow = $("#follow").checked && S.info && S.turn === S.info.turns;
+  if (S.turn && !follow) p.set("turn", S.turn);
+  if (S.viewer !== null) p.set("viewer", S.viewer);
+  if ($("#level").value) p.set("level", $("#level").value);
+  try {
+    const data = await api("/api/board?" + p);
+    S.info = data.session; S.board = data.board; S.version = data.session.version;
+    S.turn = data.board.turn;
+    if (!$("#level").value) $("#level").value = S.info.level;
+    if (!$("#search").dataset.set) { $("#search").value = S.info.search; $("#search").dataset.set = "1"; }
+    if (S.explainFor !== explainKey()) S.explain = null;
+    status(S.info.live ? "live game: refreshes as it is played" : S.info.complete ? "replay: every card known" : "");
+    render();
+    writeHash();
+  } catch (e) { status(esc(e.message), "err"); }
+}
+function explainKey() { return `${S.key}/${S.turn}/${$("#level").value}/${$("#search").value}`; }
+
+function goTurn(turn) {
+  if (!S.info) return;
+  S.turn = Math.max(1, Math.min(S.info.turns, turn));
+  S.selected = null; S.history = null; S.reportResult = null;
+  loadBoard();
+}
+
+// ---- rendering -------------------------------------------------------------------------
+function render() {
+  renderNav(); renderHands(); renderTable(); renderCardPanel(); renderLog(); renderDecision(); renderReport();
+}
+
+function renderNav() {
+  const b = S.board, info = S.info;
+  const slider = $("#turn-slider");
+  slider.max = info.turns; slider.value = b.turn;
+  const who = b.over ? "game over" : `${esc(playerName(b.to_move))} to move`;
+  $("#turn-label").innerHTML = `Turn <b>${b.turn}</b> / ${info.turns} — ${who}`;
+  const viewer = $("#viewer");
+  viewer.innerHTML = (info.observer === null ? `<option value="">seat to move</option>` : "") +
+    info.players.map((p, i) => `<option value="${i}" ${info.observer !== null && info.observer !== i ? "disabled" : ""}>${esc(p)}</option>`).join("");
+  viewer.value = S.viewer === null ? (info.observer ?? "") : S.viewer;
+  viewer.title = info.observer === null ? "Whose notes the table shows" : "A live game: only the bot's own view is known until the game ends";
+}
+
+function pips(note) {
+  const v = S.info.variant;
+  const ranks = v.ranks;
+  const on = new Set(note.possible), lit = new Set(note.literal);
+  let cells = "";
+  v.suits.forEach((suit, si) => {
+    const c = suitColor(suit.name).solid;
+    for (const r of ranks) {
+      const idx = v.identities.findIndex((x) => x.suit === si && x.rank === r);
+      const cls = on.has(idx) ? "on" : lit.has(idx) ? "lit" : "";
+      cells += `<span class="pip ${cls}" style="--c:${c}"></span>`;
+    }
+  });
+  return `<div class="pips" style="grid-template-columns:repeat(${ranks.length},7px)">${cells}</div>`;
+}
+function tags(note) {
+  const map = { play: "play", trash: "trash", "chop-moved": "cm", promised: "promised" };
+  return note.flags.filter((f) => map[f] || f.startsWith("after"))
+    .map((f) => `<span class="tag ${map[f] || ""}">${esc(f === "chop-moved" ? "cm" : f)}</span>`).join("");
+}
+// Whether two notes on a card disagree in a way that matters: what to do with it (play,
+// trash, promised, chop moved, delayed), or what a touched card is. Unclued cards differ by
+// card counting alone (each seat sees other cards), which is no misunderstanding.
+function disagree(a, b) {
+  const flags = (n) => n.flags.filter((f) => f !== "clued").join();
+  const touched = a.flags.includes("clued") || b.flags.includes("clued") || a.flags.includes("promised") || b.flags.includes("promised");
+  return flags(a) !== flags(b) || (touched && a.possible.join() !== b.possible.join());
+}
+function cardFace(c, extra = "") {
+  if (c.identity === null || c.identity === undefined) {
+    return `<div class="card unknown ${extra}" data-card="${c.card}"><span class="num">#${c.card}</span><span class="rank">?</span></div>`;
+  }
+  const id = identity(c.identity), col = suitColor(suitOf(c.identity).name);
+  return `<div class="card ${extra}" data-card="${c.card}" style="--c:${col.bg};--fg:${col.fg}">
+    <span class="corner">${esc(suitOf(c.identity).abbreviation.toUpperCase())}</span><span class="num">#${c.card}</span>
+    <span class="rank">${rankText(id.rank)}</span></div>`;
+}
+function clueChips(clues) {
+  return clues.map((name) => {
+    if (/^\d+$/.test(name)) return `<span class="chip">${esc(name)}</span>`;
+    const col = suitColor(name);
+    return `<span class="chip" title="${esc(name)}" style="--c:${col.bg};--fg:${col.fg}">${esc(name[0].toUpperCase())}</span>`;
+  }).join("");
+}
+
+function renderHands() {
+  const b = S.board;
+  $("#hands").innerHTML = b.hands.map((h) => {
+    const own = h.seat === b.viewer;
+    const cards = h.cards.map((c) => {
+      // what the holder knows: the viewer's model of it, or the viewer's own note
+      const known = own ? c.note : (c.holder || c.note);
+      const mismatch = !own && c.actual && c.holder && disagree(c.actual, c.holder);
+      const cls = [c.note.flags.includes("clued") ? "clued" : "", own && c.identity !== null ? "hidden" : "", S.selected === c.card ? "selected" : ""].join(" ");
+      return `<div class="slot">
+        ${cardFace(c, cls)}
+        <div class="chips">${clueChips(c.clues)}</div>
+        <div title="${esc(own ? "What " + playerName(h.seat) + " believes" : "What " + playerName(b.viewer) + " thinks " + playerName(h.seat) + " knows")}: ${esc(known.text)}">${pips(known)}</div>
+        <div class="tags">${c.chop ? `<span class="tag chop">chop</span>` : ""}${tags(known)}${mismatch ? `<span class="tag warn" title="${esc(playerName(h.seat))} actually believes: ${esc(c.actual.text)}">≠</span>` : ""}</div>
+      </div>`;
+    }).join("");
+    return `<div class="hand ${h.seat === b.to_move && !b.over ? "to-move" : ""}">
+      <div class="who"><div class="name">${esc(h.player)}</div>
+        <div class="small muted">${h.seat === b.to_move && !b.over ? "to move" : ""}${own ? (h.seat === b.to_move && !b.over ? " · " : "") + "viewer" : ""}</div></div>
+      <div class="cards">${cards}</div></div>`;
+  }).join("") + `<div class="legend">Under each card: its clues, then what its holder knows as ${esc(playerName(b.viewer))} models it
+    (filled = possible, outlined = only literally possible); <span class="tag warn">≠</span> the holder's own view differs (replays).
+    Click a card for its notes and history.</div>`;
+  for (const el of document.querySelectorAll("#hands .card")) el.onclick = () => selectCard(Number(el.dataset.card));
+}
+
+function renderTable() {
+  const b = S.board, v = S.info.variant;
+  const stacks = b.stacks.map((s) => {
+    const suit = v.suits[s.suit], col = suitColor(suit.name);
+    const arrow = s.direction === "down" ? "↓" : s.direction === "undecided" ? "↕" : "";
+    return s.top === 0
+      ? `<div class="card empty" style="--c:${col.solid}"><span class="corner">${esc(suit.abbreviation.toUpperCase())}</span><span class="rank">${arrow}</span></div>`
+      : `<div class="card" style="--c:${col.bg};--fg:${col.fg}"><span class="corner">${esc(suit.abbreviation.toUpperCase())}</span><span class="rank">${rankText(s.top)}${arrow}</span></div>`;
+  }).join("");
+  const bySuit = {};
+  for (const [i, n] of b.discards) (bySuit[identity(i).suit] ??= []).push([i, n]);
+  const discards = Object.entries(bySuit).map(([suit, list]) => `<div class="row">${list.map(([i, n]) => {
+    const col = suitColor(v.suits[suit].name);
+    return `<span class="mini" style="--c:${col.bg};--fg:${col.fg}" title="${esc(identity(i).name)} ×${n}">${rankText(identity(i).rank)}${n > 1 ? `<sub>×${n}</sub>` : ""}</span>`;
+  }).join("")}</div>`).join("") || `<span class="muted small">no discards</span>`;
+  const strikes = "✕".repeat(b.strikes) || "–";
+  $("#table").innerHTML = `
+    <div><div class="small muted">Stacks</div><div class="stacks">${stacks}</div></div>
+    <div class="counters">
+      <span class="muted">Score</span><b>${b.score} / ${b.max_score}</b>
+      <span class="muted">Clues</span><b>${b.clues}</b>
+      <span class="muted">Strikes</span><b class="${b.strikes ? "err" : ""}">${strikes}</b>
+      <span class="muted">Deck</span><b>${b.deck}</b>
+      <span class="muted">Pace</span><b>${b.pace}</b>
+    </div>
+    <div><div class="small muted">Discards</div><div class="discards">${discards}</div></div>`;
+}
+
+async function selectCard(card) {
+  S.selected = S.selected === card ? null : card;
+  S.history = null;
+  renderHands(); renderCardPanel();
+  if (S.selected === null) return;
+  const p = new URLSearchParams({ session: S.key, turn: S.turn, viewer: S.board.viewer, card });
+  if ($("#level").value) p.set("level", $("#level").value);
+  try { S.history = await api("/api/card?" + p); } catch (e) { S.history = { error: e.message }; }
+  if (S.selected === card) renderCardPanel();
+}
+
+function renderCardPanel() {
+  const panel = $("#card-panel");
+  const b = S.board;
+  const found = b.hands.flatMap((h) => h.cards.map((c) => ({ ...c, seat: h.seat }))).find((c) => c.card === S.selected);
+  if (!found) { panel.innerHTML = ""; return; }
+  const viewer = playerName(b.viewer), holder = playerName(found.seat);
+  const own = found.seat === b.viewer;
+  const line = (label, note) => note ? `<span>${esc(label)}</span><span class="belief-line">${esc(note.text)}</span>` : "";
+  let history = `<div class="muted small"><span class="spinner"></span> loading history…</div>`;
+  if (S.history?.error) history = `<div class="err small">${esc(S.history.error)}</div>`;
+  else if (S.history) history = `<table><tr><th>turn</th><th>event</th><th>${esc(S.history.viewer)}'s note after it</th></tr>${S.history.entries.map((e) =>
+    `<tr><td class="num">${e.turn}</td><td>${esc(e.event)}${e.rule ? ` <span class="src">${esc(e.rule)}</span>` : ""}</td><td>${esc(e.note)}</td></tr>`).join("")}</table>`;
+  panel.innerHTML = `<div style="display:flex;gap:14px;align-items:flex-start">${cardFace(found)}
+    <div style="flex:1"><b>${esc(holder)}'s slot ${found.slot}</b> <span class="muted">(card #${found.card}${found.identity !== null ? ", " + esc(identity(found.identity).name) : ""})</span>
+    <div class="kv">${line(own ? `${viewer} (own)` : `${viewer}'s note`, found.note)}${own ? "" : line(`${holder} knows (as ${viewer} thinks)`, found.holder)}${line(`${holder} believes`, found.actual)}</div></div></div>${history}`;
+}
+
+function renderLog() {
+  const b = S.board;
+  $("#log").innerHTML = b.log.map((e) => {
+    const cls = e.turn === b.turn ? "next" : e.turn > b.turn ? "future" : "";
+    return `<div class="entry ${cls}" data-turn="${e.turn}"><span class="t">${e.turn}</span>${esc(e.text)}
+      ${e.reading ? `<div class="reading" title="How ${esc(playerName(b.viewer))} read the clue">${esc(e.reading)}</div>` : ""}</div>`;
+  }).join("") || `<div class="muted">no actions yet</div>`;
+  for (const el of document.querySelectorAll("#log .entry")) el.onclick = () => goTurn(Number(el.dataset.turn));
+  $("#log .next")?.scrollIntoView({ block: "nearest" });
+}
+
+// ---- decision and ranking ----------------------------------------------------------
+function renderDecision() {
+  const b = S.board, info = S.info;
+  const mover = playerName(b.to_move);
+  const canExplain = !b.over && (info.observer === null || info.observer === b.to_move);
+  let html = `<div class="kv">
+    <span>Position</span><span>turn ${b.turn}, ${b.over ? "game over" : esc(mover) + " to move"}</span>
+    ${b.played ? `<span>Played</span><span>${esc(b.played.text)}</span>` : ""}
+    ${b.decision ? `<span>Bot (live)</span><span>${esc(b.decision.summary || b.decision.action)}</span>` : ""}
+  </div>`;
+  if (b.decision?.plan) html += planTable(b.decision.plan, "Planner during the game");
+  html += `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:10px 0">
+    <button class="primary" id="rank" ${canExplain && !S.explaining ? "" : "disabled"}>Rank options</button>
+    <label class="small"><input type="checkbox" id="rank-all"> all legal actions</label>
+    <input id="rank-extra" class="small" placeholder="extra: clue 1 red, play 2" style="flex:1;min-width:120px">
+  </div>`;
+  if (!canExplain && !b.over) html += `<div class="small muted">Only ${esc(playerName(info.observer))}'s decisions can be recomputed while the game runs: the other seats' own cards are unknown until it ends.</div>`;
+  if (S.explaining) html += `<div class="muted"><span class="spinner"></span> simulating options on sampled worlds…</div>`;
+  if (S.explain?.error) html += `<div class="err">${esc(S.explain.error)}</div>`;
+  else if (S.explain) html += explanation(S.explain);
+  $("#tab-decision").innerHTML = html;
+  $("#rank")?.addEventListener("click", rank);
+  for (const tr of document.querySelectorAll("#tab-decision tr.cand")) tr.onclick = (ev) => {
+    if (ev.target.closest("button")) return;
+    const spec = tr.dataset.spec;
+    S.expanded.has(spec) ? S.expanded.delete(spec) : S.expanded.add(spec);
+    renderDecision();
+  };
+  for (const btn of document.querySelectorAll("#tab-decision button[data-mark]")) btn.onclick = () => {
+    S.report[btn.dataset.mark] = btn.dataset.spec;
+    S.reportResult = null;
+    showTab("report");
+  };
+}
+
+function planTable(plan, title) {
+  const rows = [...plan.rows].sort((a, b) => b.mean - a.mean);
+  return `<div class="small muted" style="margin-top:6px">${esc(title)}: ${esc(plan.reason)} on ${plan.worlds} worlds${plan.paired_difference ? `, best − blueprint ${plan.paired_difference[0].toFixed(2)} ± ${plan.paired_difference[1].toFixed(2)}` : ""}${plan.to_end ? ", to the end" : ""}</div>
+    <table><tr><th>action</th><th>mean</th><th>n</th></tr>${rows.map((r) =>
+      `<tr><td>${esc(r.action)}</td><td class="num">${r.mean.toFixed(2)} ± ${r.stderr.toFixed(2)}</td><td class="num">${r.visits}</td></tr>`).join("")}</table>`;
+}
+
+function explanation(e) {
+  const c = e.comparison;
+  const rows = [...c.rows].sort((a, b) => b.mean - a.mean);
+  // the planner only chooses among actions the legibility guard permits
+  const best = rows.find((r) => !r.guard.startsWith("rejected"))?.spec;
+  const fmt = (d) => (d >= 0 ? "+" : "") + d.toFixed(2);
+  const canReport = S.info.complete;
+  let html = `<div class="kv">
+    <span>Blueprint</span><span>${esc(e.blueprint.action)} <span class="muted small">[${esc(e.blueprint.reason)}]</span>${e.blueprint.intent ? `<div class="small muted">${esc(e.blueprint.intent)}</div>` : ""}</span>
+    <span>Bot (${esc($("#search").value)})</span><span>${esc(e.chosen.action)} <span class="muted small">[${esc(e.chosen.reason)}]</span>${e.chosen.intent ? `<div class="small muted">${esc(e.chosen.intent)}</div>` : ""}</span>
+  </div>`;
+  if (e.plan) html += planTable(e.plan, "Planner");
+  html += `<div class="small muted" style="margin:8px 0 4px">Compared on ${c.worlds} common worlds (ESS ${c.effective_size.toFixed(1)}); Δ = paired difference to the blueprint's choice. Click a row for details.</div>
+  <table><tr><th>action${canReport ? ` <span class="marks muted">report ✓ better / ✗ wrong</span>` : ""}</th><th>value</th><th>Δ</th></tr>`;
+  for (const r of rows) {
+    const rejected = r.guard.startsWith("rejected");
+    const marks = canReport ? `<span class="marks"><button class="mark" data-mark="expected" data-spec="${esc(r.spec)}" title="Report: this is the better action">✓</button><button class="mark" data-mark="rejected" data-spec="${esc(r.spec)}" title="Report: this action is wrong here">✗</button></span>` : "";
+    html += `<tr class="cand ${r.spec === best ? "best" : ""} ${rejected ? "rejected" : ""}" data-spec="${esc(r.spec)}">
+      <td>${marks}${esc(r.action)}${r.sources.map((s) => `<span class="src ${esc(s)}">${esc(s)}</span>`).join("")}
+        ${rejected ? `<div class="small err">${esc(r.guard)}</div>` : ""}${r.intent ? `<div class="small muted">${esc(r.intent)}</div>` : ""}</td>
+      <td class="num">${r.mean.toFixed(2)} ± ${r.stderr.toFixed(2)}</td>
+      <td class="num">${r.difference ? `${fmt(r.difference[0])} ± ${r.difference[1].toFixed(2)}` : "ref"}</td>
+    </tr>`;
+    if (S.expanded.has(r.spec)) {
+      const terms = r.breakdown.filter(([, v]) => Math.abs(v) >= 0.005).map(([n, v]) => `${esc(n)} ${v.toFixed(2)}`).join(", ");
+      html += `<tr class="detail"><td colspan="3">
+        <div>guard: ${esc(r.guard)}</div>
+        ${r.readings.map((x) => `<div>${esc(x)}</div>`).join("")}
+        <div class="muted">value: ${terms || "–"} · ${r.visits} worlds</div></td></tr>`;
+    }
+  }
+  return html + `</table>`;
+}
+
+async function rank() {
+  const turn = S.turn, key = explainKey();
+  S.explaining = true; S.explain = null; renderDecision();
+  const extra = ($("#rank-extra")?.value || "").split(",").map((s) => s.trim()).filter(Boolean);
+  try {
+    S.explain = await api("/api/explain", {
+      session: S.key, turn, candidates: extra, all: $("#rank-all")?.checked || false,
+      search: $("#search").value, level: Number($("#level").value) || null,
+    });
+  } catch (e) { S.explain = { error: e.message }; }
+  S.explaining = false;
+  if (S.turn === turn) { S.explainFor = key; renderDecision(); }
+}
+
+// ---- bug reports ------------------------------------------------------------------------
+function renderReport() {
+  const b = S.board, info = S.info, r = S.report;
+  const el = $("#tab-report");
+  if (!info.complete) {
+    el.innerHTML = `<p class="muted">Bug reports need every card, so they are available once the game is over (or for a loaded replay). Rank the options in the meantime to see what the bot thinks.</p>`;
+    return;
+  }
+  if (b.over || b.legal.length === 0) { el.innerHTML = `<p class="muted">No decision at this turn.</p>`; return; }
+  const options = (sel, none) => `<option value="">${esc(none)}</option>` + b.legal.map((a) => `<option value="${esc(a.spec)}" ${a.spec === sel ? "selected" : ""}>${esc(a.text)}</option>`).join("");
+  el.innerHTML = `<p class="small muted">Exports a scenario for <code>tests/scenarios</code>: the game up to turn ${b.turn}, then
+    <code>action</code> (the better move) and <code>not-action</code> (the wrong one) for ${esc(playerName(b.to_move))}. It fails until the bot decides as expected.</p>
+    <form class="report" onsubmit="return false">
+      <label>Better action</label><select id="r-expected">${options(r.expected, "(any other action)")}</select>
+      <label>Wrong action</label><select id="r-rejected">${options(r.rejected, "(the bot's choice)")}</select>
+      <label>Rule</label><input id="r-rule" placeholder="e.g. L2.finesse (TODO when empty)" value="${esc(r.rule)}">
+      <label>Comment</label><textarea id="r-comment" placeholder="Why is it better?">${esc(r.comment)}</textarea>
+      <div class="full"><button class="primary" id="r-export">Export scenario</button>
+        <span class="small muted">with level ${esc($("#level").value)}, search ${esc($("#search").value)}</span></div>
+    </form><div id="r-result"></div>`;
+  const save = () => { r.expected = $("#r-expected").value; r.rejected = $("#r-rejected").value; r.rule = $("#r-rule").value; r.comment = $("#r-comment").value; };
+  for (const id of ["#r-expected", "#r-rejected", "#r-rule", "#r-comment"]) $(id).addEventListener("input", save);
+  $("#r-export").onclick = async () => {
+    save();
+    $("#r-result").innerHTML = `<p class="muted"><span class="spinner"></span> replaying the game…</p>`;
+    try {
+      S.reportResult = await api("/api/report", {
+        session: S.key, turn: S.turn, expected: r.expected || null, rejected: r.rejected || null,
+        rule: r.rule || null, comment: r.comment, search: $("#search").value, level: Number($("#level").value) || null,
+      });
+    } catch (e) { S.reportResult = { error: e.message }; }
+    renderReportResult();
+  };
+  renderReportResult();
+}
+
+function renderReportResult() {
+  const el = $("#r-result"), res = S.reportResult;
+  if (!el || !res) return;
+  if (res.error) { el.innerHTML = `<p class="err">${esc(res.error)}</p>`; return; }
+  el.innerHTML = `${res.warnings.map((w) => `<p class="err small">Note: ${esc(w)}</p>`).join("")}
+    <div style="display:flex;gap:6px;align-items:center;margin:8px 0"><b>${esc(res.filename)}</b><span class="grow"></span>
+    <button id="r-copy">Copy</button><button id="r-download" class="primary">Download</button></div><pre>${esc(res.text)}</pre>`;
+  $("#r-copy").onclick = async () => { await navigator.clipboard.writeText(res.text); $("#r-copy").textContent = "Copied"; };
+  $("#r-download").onclick = () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([res.text], { type: "text/plain" }));
+    a.download = res.filename; a.click(); URL.revokeObjectURL(a.href);
+  };
+}
+
+// ---- wiring -----------------------------------------------------------------------------
+function showTab(name) {
+  for (const b of document.querySelectorAll(".tabs button")) b.classList.toggle("active", b.dataset.tab === name);
+  for (const t of ["decision", "log", "report"]) $("#tab-" + t).hidden = t !== name;
+  if (name === "report" && S.board) renderReport();
+}
+for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => showTab(b.dataset.tab);
+$("#session").onchange = (e) => switchSession(e.target.value);
+$("#turn-slider").oninput = (e) => { $("#turn-label").firstElementChild.textContent = e.target.value; };
+$("#turn-slider").onchange = (e) => goTurn(Number(e.target.value));
+$("#first").onclick = () => goTurn(1);
+$("#prev").onclick = () => goTurn(S.turn - 1);
+$("#next").onclick = () => goTurn(S.turn + 1);
+$("#last").onclick = () => goTurn(S.info?.turns ?? 1);
+$("#viewer").onchange = (e) => { S.viewer = e.target.value === "" ? null : Number(e.target.value); S.selected = null; loadBoard(); };
+$("#level").onchange = () => { S.explain = null; loadBoard(); };
+$("#search").onchange = () => { S.explain = null; renderDecision(); renderReport(); };
+$("#load-btn").onclick = async () => {
+  const text = $("#load-text").value.trim();
+  if (!text) return;
+  status(`<span class="spinner"></span> loading…`);
+  try {
+    const { key } = await api("/api/load", { replay: text });
+    $("#load-text").value = "";
+    S.sessionsVersion = -1;
+    await refreshSessions();
+    switchSession(key);
+  } catch (e) { status(esc(e.message), "err"); }
+};
+document.addEventListener("keydown", (e) => {
+  if (e.target.matches("input, textarea, select")) return;
+  if (e.key === "ArrowLeft") goTurn(S.turn - 1);
+  else if (e.key === "ArrowRight") goTurn(S.turn + 1);
+  else if (e.key === "Home") goTurn(1);
+  else if (e.key === "End") goTurn(S.info?.turns ?? 1);
+});
+readHash();
+refreshSessions();
+setInterval(refreshSessions, 2000);
+</script>
+</body>
+</html>

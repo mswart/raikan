@@ -46,6 +46,34 @@ The client loads game setup after `tableJoined`, applies each batch of live
 events before choosing a move, and replaces its history with the complete
 replay when `gameFinished` arrives. Paused games wait for a resume notification.
 
+### Web UI
+
+`raikan-web` serves a web UI on `RAIKAN_HTTP` (default `127.0.0.1:7357`; when the port is
+taken, one of the next nine; `RAIKAN_HTTP=off` disables it). Open the address it prints.
+`raikan serve [REPLAY]... [--listen ADDR] [--level L] [--search MODE]` serves the same UI
+over replays (any form `explain` reads); more can be loaded from the page by hanab.live
+game id or URL.
+
+- **Table:** hands, stacks, discards, clue tokens, strikes, deck and pace at any turn, like
+  hanab.live. Under each card: the clues that touched it and a grid of what its holder
+  knows, as the viewer models it (filled: possible, outlined: only literally possible),
+  with chop, play, trash, chop-moved and promised marks. In replays a mark shows where
+  the holder's own view disagrees. Clicking a card shows every note on it and its history.
+- **Log:** every action, with how the viewer read each clue (rule, focus, readings).
+- **Decision:** the bot's decision as taken live (with the planner's table), and
+  *Rank options*: the blueprint's candidates, the played action and any other action
+  simulated on common sampled worlds (as `raikan explain`), with the legibility guard's
+  verdict, intent, each seat's reading of a clue and the value terms.
+- **Bug report** (finished games and replays): pick the better and the wrong action (or
+  mark them in the ranking) and export a scenario for [tests/scenarios](tests/scenarios):
+  the game up to that turn, then `action` and `not-action` for the seat to move. It fails
+  until the bot decides as expected.
+
+While a game runs, only the bot's own view is known, so only its decisions can be ranked;
+once the game ends hanab.live sends the whole history and every seat becomes available.
+Rankings use all cores and compete with the bot's own search for CPU. The server accepts
+only local host names and JSON requests, so other web pages cannot use it.
+
 ## H-Group rule support
 
 [docs/support-matrix.md](docs/support-matrix.md) lists every convention of levels 1–20
@@ -411,6 +439,7 @@ raikan support                     # every H-Group level 1-20 convention and its
 raikan explain REPLAY [--turn T] [--candidate ACTION]... [--all] [--world W]
                [--card CARD [--viewer SEAT]] [--json]
 raikan fit-value [--players N] [--games G] [--paired] [--out data/value-weights.json]
+raikan serve [REPLAY]... [--listen ADDR]   # the web UI (see Web UI above)
 ```
 
 Every command that plays accepts `--search off|fast|full` (default `off`: the blueprint

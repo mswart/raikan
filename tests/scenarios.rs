@@ -405,3 +405,72 @@ fn scenarios() {
         failures.join("\n\n")
     );
 }
+
+/// A bug report exported by the web UI is a scenario of this format that replays the game
+/// to the reported decision: with the bot's own choice as the expected action it passes,
+/// with another action it fails on exactly that line.
+#[test]
+fn exported_reports_replay_the_game() {
+    use raikan::adapters::report::{ReportRequest, scenario};
+    use raikan::agent::run_game;
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"));
+    for (variant, seats, seed, turn) in [
+        ("No Variant", 4, 5, 10),
+        ("Rainbow (6 Suits)", 3, 11, 25),
+        ("Black (5 Suits)", 5, 2, 1),
+    ] {
+        let variant = Variant::by_name(variant).unwrap();
+        let world = engine::shuffled_world(&variant, seed);
+        let mut bots: Vec<BotAgent> = (0..seats).map(|_| BotAgent::default()).collect();
+        let mut refs: Vec<&mut dyn Agent> = bots.iter_mut().map(|b| b as &mut dyn Agent).collect();
+        let replay = run_game(&variant, &world, &mut refs).replay;
+        // `play 1` is always legal: the report names the bot's own choice
+        let chosen = scenario(
+            &replay,
+            &Config::default(),
+            &ReportRequest {
+                turn,
+                expected: Some("play 1".into()),
+                ..ReportRequest::default()
+            },
+        )
+        .expect("a report")
+        .chosen;
+        let report = scenario(
+            &replay,
+            &Config::default(),
+            &ReportRequest {
+                turn,
+                expected: Some(chosen.clone()),
+                rule: Some("test.report".into()),
+                comment: "exported by the test".into(),
+                ..ReportRequest::default()
+            },
+        )
+        .expect("a report");
+        assert!(
+            report.warnings.iter().any(|w| w.contains("already")),
+            "{:?}",
+            report.warnings
+        );
+        let path = dir.join(format!(
+            "{}-{}",
+            variant.name.replace(' ', "_"),
+            report.filename
+        ));
+        std::fs::write(&path, &report.text).unwrap();
+        run(&path);
+        // the same report with the action reversed fails at the decision
+        let reversed = report.text.replace(
+            &format!("action {}: ", report.seat),
+            &format!("not-action {}: ", report.seat),
+        );
+        std::fs::write(&path, reversed).unwrap();
+        let failure = std::panic::catch_unwind(|| run(&path)).expect_err("fails");
+        let message = failure
+            .downcast_ref::<String>()
+            .cloned()
+            .unwrap_or_default();
+        assert!(message.contains("chose it"), "{message}");
+    }
+}

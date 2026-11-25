@@ -21,6 +21,10 @@
 //!     `discard 4`, `clue Bob red` (slots count from the newest card). CARD: `#17` or
 //!     `Bob:2`.
 //!
+//! raikan serve [REPLAY]... [--listen ADDR] [--level L] [--search off|fast|full]
+//!     The web UI (default address 127.0.0.1:7357) over the given replays (as for
+//!     explain); more can be loaded from the page.
+//!
 //! search options (every command that plays):
 //!   --search off|fast|full  --simulations N  --worlds W  --margin M  --min-gain G
 //!   --to-end-pace P  --search-seed S  --spread P  --threads N  --time-limit-ms MS
@@ -32,7 +36,7 @@ use std::thread;
 use raikan::agent::{Agent, BotAgent, Config, GameResult, replay_prefix, run_game};
 use raikan::domain::Seat;
 use raikan::engine;
-use raikan::engine::{EndReason, GameReference, Replay, ReplayAction, shuffled_world};
+use raikan::engine::{EndReason, Replay, ReplayAction, shuffled_world};
 use raikan::search::{SearchConfig, value};
 use raikan::variants::Variant;
 
@@ -55,6 +59,8 @@ struct Options {
     card: Option<String>,
     viewer: Option<String>,
     json: bool,
+    // serve
+    listen: Option<String>,
     // fit-value --paired
     paired: bool,
     paired_candidates: usize,
@@ -79,6 +85,7 @@ fn parse_options(args: &[String]) -> Options {
         card: None,
         viewer: None,
         json: false,
+        listen: None,
         paired: false,
         paired_candidates: 4,
         stride: 3,
@@ -173,6 +180,7 @@ fn parse_options(args: &[String]) -> Options {
             "--card" => options.card = Some(value()),
             "--viewer" => options.viewer = Some(value()),
             "--json" => options.json = true,
+            "--listen" => options.listen = Some(value()),
             "--paired" => options.paired = true,
             "--candidates" => {
                 options.paired_candidates = value()
@@ -235,6 +243,7 @@ fn usage(message: &str) -> ! {
     eprintln!(
         "  raikan explain REPLAY [--turn T] [--candidate ACTION]... [--all] [--world W] [--card CARD [--viewer SEAT]] [--json]"
     );
+    eprintln!("  raikan serve [REPLAY]... [--listen ADDR] [--level L] [--search MODE]");
     eprintln!(
         "  search: --search off|fast|full [--simulations N] [--worlds W] [--margin M] [--min-gain G] [--to-end-pace P] [--search-seed S] [--spread P] [--threads N] [--time-limit-ms MS]"
     );
@@ -300,6 +309,7 @@ fn main() -> io::Result<()> {
             diff(&options, &options.positional[0], &options.positional[1])?;
         }
         "explain" => explain(&parse_options(rest)),
+        "serve" => serve(&parse_options(rest))?,
         "fit-value" => fit_value(&parse_options(rest)),
         "support" => print!("{}", raikan::conventions::catalogue::support_matrix()),
         "-h" | "--help" | "help" => usage("help requested"),
@@ -551,46 +561,36 @@ fn load_replay(options: &Options, spec: &str) -> (Replay, Option<usize>) {
         let seed = seed.parse().unwrap_or_else(|_| usage("invalid seed"));
         return (play(options, &variant(options), seed).replay, None);
     }
-    if !std::path::Path::new(spec).exists()
-        && let Some(game) = GameReference::parse(spec)
-    {
-        let json = download(&game.export_url())
-            .unwrap_or_else(|e| usage(&format!("cannot download game {}: {e}", game.id)));
-        let replay = Replay::from_json(&json)
-            .unwrap_or_else(|e| usage(&format!("cannot parse game {}: {e}", game.id)));
-        return (replay, game.turn);
-    }
-    let text = if spec.starts_with("http") {
-        spec.to_string()
-    } else {
+    let text = if std::path::Path::new(spec).exists() {
         std::fs::read_to_string(spec).unwrap_or_else(|e| usage(&format!("cannot read {spec}: {e}")))
-    };
-    let text = text.trim();
-    let parsed = if text.starts_with('{') {
-        Replay::from_json(text)
     } else {
-        Replay::from_url(text)
+        spec.to_string()
     };
-    let replay = parsed.unwrap_or_else(|e| usage(&format!("cannot parse replay {spec}: {e}")));
-    (replay, None)
+    let loaded = raikan::adapters::load::replay_from_text(&text).unwrap_or_else(|e| usage(&e));
+    (loaded.replay, loaded.turn)
 }
 
-#[cfg(feature = "fetch")]
-fn download(url: &str) -> Result<String, String> {
-    let response = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .and_then(|client| client.get(url).send())
-        .and_then(|response| response.error_for_status())
-        .map_err(|e| e.to_string())?;
-    response.text().map_err(|e| e.to_string())
-}
-
-#[cfg(not(feature = "fetch"))]
-fn download(url: &str) -> Result<String, String> {
-    Err(format!(
-        "built without the `fetch` feature; save {url} to a file and pass that instead"
-    ))
+/// The web UI over the given replays, until interrupted.
+fn serve(options: &Options) -> io::Result<()> {
+    use raikan::adapters::web;
+    let hub = web::Hub::new(config(options));
+    // in reverse, so the first replay is the newest session (the one the page opens)
+    for (i, spec) in options.positional.iter().enumerate().rev() {
+        let (replay, _) = load_replay(options, spec);
+        let label = if spec.starts_with("seed:") {
+            format!("self-play {spec}")
+        } else {
+            spec.chars().take(60).collect()
+        };
+        let game_id = raikan::engine::GameReference::parse(spec).map(|g| g.id);
+        hub.add_replay(&format!("arg-{i}"), &label, replay, game_id)
+            .unwrap_or_else(|e| usage(&format!("{spec}: {e}")));
+    }
+    let addr = options.listen.as_deref().unwrap_or(web::DEFAULT_ADDR);
+    let (addr, thread) = web::serve(hub, addr)?;
+    println!("web UI at http://{addr}/");
+    let _ = thread.join();
+    Ok(())
 }
 
 fn explain(options: &Options) {

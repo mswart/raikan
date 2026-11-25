@@ -33,6 +33,10 @@ impl Names {
             return ((n as usize) < self.players.len()).then_some(Seat(n));
         }
         let lower = text.to_lowercase();
+        // an exact name wins over prefixes (`bot1` with a `bot10` at the table)
+        if let Some(i) = self.players.iter().position(|p| p.to_lowercase() == lower) {
+            return Some(Seat(i as u8));
+        }
         let matches: Vec<usize> = (0..self.players.len())
             .filter(|&i| self.players[i].to_lowercase().starts_with(&lower))
             .collect();
@@ -97,6 +101,28 @@ pub fn action(
                 None => name,
             }
         }
+    }
+}
+
+/// An action in the form [`parse_action`] reads back without names: `play 2`, `discard 4`,
+/// `clue 1 red` (seat number, slots from the state before it).
+pub fn spec(variant: &Variant, state: &GameState, action: Action) -> String {
+    let at = |c: CardId| match slot(state, c) {
+        Some((_, s)) => s.to_string(),
+        None => format!("#{}", c.0),
+    };
+    match action {
+        Action::Play(c) => format!("play {}", at(c)),
+        Action::Discard(c) => format!("discard {}", at(c)),
+        Action::Clue { target, clue } => format!("clue {} {}", target.0, clue_word(variant, clue)),
+    }
+}
+
+/// A clue as one word that [`parse_clue`] reads: the rank, or the colour in lower case.
+pub fn clue_word(variant: &Variant, clue: ClueId) -> String {
+    match variant.clue_value(clue) {
+        ClueValue::Rank(rank) => rank.to_string(),
+        ClueValue::Color(color) => variant.clue_colors[color as usize].to_lowercase(),
     }
 }
 
@@ -216,6 +242,7 @@ pub fn note(variant: &Variant, note: &CardNote) -> String {
         (note.fixed, "fixed"),
         (note.stopped, "stopped"),
         (note.one_chop_focus, "chop-1"),
+        (note.chop_moved, "chop-moved"),
     ] {
         if flag {
             text.push(' ');
