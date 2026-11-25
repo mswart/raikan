@@ -178,9 +178,8 @@ impl View {
     /// locked hand or 8 clues; the first early 5 stall; a burn the end-game allows).
     pub fn may_stall(&self) -> bool {
         let severity = self.stall_severity(self.me);
-        severity >= StallSeverity::DoubleDiscard
+        severity >= StallSeverity::EndGame
             || (severity == StallSeverity::Early && !self.context.early_five_stalled)
-            || (severity == StallSeverity::EndGame && self.burn_allowed())
     }
 
     /// The intent of our clue to `receiver`, given `after` (this view after the clue, as

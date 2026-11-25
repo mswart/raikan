@@ -9,7 +9,7 @@ use crate::domain::{CardId, CardSet, ClueId, Seat};
 pub enum StallSeverity {
     Normal,
     Early,
-    /// The end-game (level 8): stalls are read by context, burns are allowed.
+    /// The end-game (level 8) where the giver may burn: stalls are read by context.
     EndGame,
     DoubleDiscard,
     Locked,
@@ -97,7 +97,9 @@ impl View {
             }
         }
         if self.in_end_game() {
-            EndGame
+            // The end-game alone is no stalling situation: a stall is read only where the
+            // giver may burn a clue instead of discarding.
+            if view.burn_allowed() { EndGame } else { Normal }
         } else if self.context.early_game {
             Early
         } else {

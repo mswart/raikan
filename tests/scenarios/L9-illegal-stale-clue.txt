@@ -1,0 +1,47 @@
+# rule: L9.stale
+# table 14781 (Black & Rainbow (5 Suits), hustenated2, hustenated3, hustenated1, msw), turn 35: hustenated1 (seat 2) chose clue msw 4 (slots 3) [KeptBlueprint].
+# This isn't a stalling situation. So no staling clue maybe given. this is interpreted as a finess (m2 e.g. on msw slot 1 / prompt (m3 on slot 4).
+# raikan explain 'https://hanab.live/replay-json/415quyeacndaxhkmlwfgxajbvkhitrcgluwbmifkvndfsoup,05vd0aalanibaeudamubagodap1cDaaqbvvbauakbx1bafbipaabahbjb07baybwb6adDd7da9idodbzaB0cbsa5aracudbCat0c7caI,66' --turn 35 --search full
+variant Black & Rainbow (5 Suits)
+level 10
+search full
+hand 0: r5 m5 m1 k2
+hand 1: r4 b4 r3 r1
+hand 2: b1 g3 m4 r1
+hand 3: g1 m3 b2 b3
+draws: g2 m4 r1 g5 r2 m2 b1 g3 g4 k5 k3 r3 g2 b2 m1 m3 r2 b3 g4 g1 b1
+clue 0 3 2
+clue 1 0 black
+play 2 1
+play 3 3
+clue 0 1 red
+play 1 4
+clue 2 3 blue
+play 3 4
+clue 0 1 blue
+play 1 3
+clue 2 3 green
+play 3 3
+clue 0 2 3
+clue 1 0 5
+play 2 1
+discard 3 1
+clue 0 1 2
+play 1 1
+play 2 2
+discard 3 1
+clue 0 1 3
+play 1 4
+discard 2 4
+clue 3 0 1
+play 0 3
+play 1 4
+discard 2 4
+discard 3 1
+clue 0 1 4
+play 1 3
+discard 2 4
+discard 3 1
+play 0 2
+clue 1 3 5
+not-action 2: clue 3 4

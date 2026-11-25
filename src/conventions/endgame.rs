@@ -214,8 +214,10 @@ impl View {
     }
 
     /// Burning (level 8): in the end-game, a stall clue is worth more than a discard when
-    /// we hold two or more useful clued cards (team distribution) or pace leaves at most
-    /// one discard (the Pace +1 rule: a teammate without plays needs it).
+    /// we hold two or more useful clued cards (team distribution), no discard is left
+    /// without losing a point (pace 0), or the last discard belongs to a teammate (the
+    /// Pace +1 rule: we have a play, a teammate has none; without a play of our own we may
+    /// discard).
     pub fn burn_allowed(&self) -> bool {
         if !self.rule(Rule::Burning) || !self.in_end_game() {
             return false;
@@ -229,9 +231,13 @@ impl View {
                 note.clued && !note.trash
             })
             .count();
-        let teammate_without_play = self
-            .others()
-            .any(|seat| self.decision_view(seat).next_play().is_none());
-        useful >= 2 || (self.pace() <= 1 && teammate_without_play)
+        if useful >= 2 || self.pace() <= 0 {
+            return true;
+        }
+        self.pace() == 1
+            && self.next_play().is_some()
+            && self
+                .others()
+                .any(|seat| self.decision_view(seat).next_play().is_none())
     }
 }
