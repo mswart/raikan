@@ -187,13 +187,27 @@ impl Interpretations {
         self.records.is_empty()
     }
 
-    fn reserved_finesse_cards(&self, skip_record: usize) -> SmallVec<[CardId; 20]> {
+    /// The cards other records' readings expect to be played blind. Readings that the play
+    /// of `played` as `identity` kills (they wait for that identity from another card)
+    /// reserve nothing.
+    fn reserved_finesse_cards(
+        &self,
+        skip_record: usize,
+        played: CardId,
+        identity: Option<Identity>,
+    ) -> SmallVec<[CardId; 20]> {
         let mut reserved = SmallVec::new();
         for (index, record) in self.records.iter().enumerate() {
             if index == skip_record {
                 continue;
             }
             for hypothesis in &record.hypotheses {
+                if hypothesis
+                    .pending_steps()
+                    .any(|s| Some(s.identity) == identity && s.card != played)
+                {
+                    continue;
+                }
                 for step in hypothesis.pending_steps() {
                     if step.kind == StepKind::Finesse && !reserved.contains(&step.card) {
                         reserved.push(step.card);
@@ -238,7 +252,7 @@ impl Interpretations {
                 })
             });
             let reserved = if needs_reservations {
-                self.reserved_finesse_cards(record_index)
+                self.reserved_finesse_cards(record_index, played, successful.then_some(identity))
             } else {
                 SmallVec::new()
             };
