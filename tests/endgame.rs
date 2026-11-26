@@ -170,3 +170,31 @@ fn positional_misplay_when_the_discard_would_be_expected() {
     let bob = table.bots[0].view();
     assert!(bob.note(r1).play, "Bob blind-plays slot 1\n{bob:?}");
 }
+
+#[test]
+fn burning_waits_for_a_nearly_empty_deck() {
+    // Alice only discards, so pace drops below the number of players with most of the deck
+    // left (as in hard variants): no burn until fewer than 1.5 × players cards remain.
+    let mut table = Table::new(
+        "g2 r1 g3 b2 b3",
+        "r3 r2 g1 g1 g1",
+        "r1 r1 r2 r3 r4 r4 r5 b1 b1 b1 b2 b3 b4 b4 b5 g2 g3 g4 g4 g5",
+    );
+    while table.state.cards_left() > 0 {
+        if table.state.current == Seat(0) {
+            let bob = table.bots[0].view();
+            let pace_burn = bob.in_end_game() && bob.pace() <= 0;
+            assert_eq!(
+                bob.burn_allowed(),
+                pace_burn && table.state.cards_left() < 3,
+                "deck {}, pace {}",
+                table.state.cards_left(),
+                bob.pace()
+            );
+            table.bob_clues();
+        } else {
+            let hand = table.state.hand(Seat(1));
+            table.step(Action::Discard(hand[0]));
+        }
+    }
+}

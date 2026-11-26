@@ -183,7 +183,7 @@ impl View {
     /// identities clued in a hand that already holds two or more queued plays (a
     /// distribution clue).
     pub(super) fn distribution_identities(&self, receiver: Seat) -> IdentitySet {
-        if !self.rule(Rule::DistributionClue) || !self.in_end_game() {
+        if !self.rule(Rule::DistributionClue) || !self.in_stall_end_game() {
             return IdentitySet::EMPTY;
         }
         let mut set = IdentitySet::EMPTY;
@@ -213,13 +213,20 @@ impl View {
         set
     }
 
-    /// Burning (level 8): in the end-game, a stall clue is worth more than a discard when
-    /// we hold two or more useful clued cards (team distribution), no discard is left
-    /// without losing a point (pace 0), or the last discard belongs to a teammate (the
-    /// Pace +1 rule: we have a play, a teammate has none; without a play of our own we may
-    /// discard).
+    /// The real end-game for stalling: fewer than 1.5 × players cards remain in the deck.
+    /// In hard variants pace drops below the number of players long before that, and an
+    /// early burn would waste clues on fill-ins while discards still draw useful cards.
+    pub fn in_stall_end_game(&self) -> bool {
+        self.in_end_game() && 2 * u16::from(self.state.cards_left()) < 3 * self.num_seats() as u16
+    }
+
+    /// Burning (level 8): in the real end-game ([`View::in_stall_end_game`]), a stall clue
+    /// is worth more than a discard when we hold two or more useful clued cards (team
+    /// distribution), no discard is left without losing a point (pace 0), or the last
+    /// discard belongs to a teammate (the Pace +1 rule: we have a play, a teammate has
+    /// none; without a play of our own we may discard).
     pub fn burn_allowed(&self) -> bool {
-        if !self.rule(Rule::Burning) || !self.in_end_game() {
+        if !self.rule(Rule::Burning) || !self.in_stall_end_game() {
             return false;
         }
         let useful = self

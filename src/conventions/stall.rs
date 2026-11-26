@@ -98,7 +98,7 @@ impl View {
         }
         if self.in_end_game() {
             // The end-game alone is no stalling situation: a stall is read only where the
-            // giver may burn a clue instead of discarding.
+            // giver may burn a clue instead of discarding, which needs a near-empty deck.
             if view.burn_allowed() { EndGame } else { Normal }
         } else if self.context.early_game {
             Early
