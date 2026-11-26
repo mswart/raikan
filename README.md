@@ -146,6 +146,12 @@ to later plays, discards and clues in [records.rs](src/conventions/records.rs).
   and precede starting-hand 1s. A newly clued chop 1 takes precedence over both.
   Rank-1 clue focus and simulated plays use the same order, with card provenance
   preserved through hand shifts and seat rotations.
+* **Play order:** With several known plays the bot plays first a finessed card,
+  then a card another player's finesse or prompt waits on, then one that gives a
+  teammate a known play (above all a teammate with none), then one that completes a
+  stack and returns a needed clue, then one that makes more of its own cards
+  playable. Ties keep the hand order, and clued 1s keep the order above
+  ([play_order.rs](src/conventions/play_order.rs)).
 * **Fixes and stops:** Literal corrections can break an incorrect inference
   without revealing a full identity. They cancel obsolete connections and do
   not promise plays from ancillary new touches. Repeating a clue with no new

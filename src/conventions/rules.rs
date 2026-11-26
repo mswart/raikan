@@ -425,26 +425,25 @@ impl View {
                 playable.push(card);
             }
         }
-        // Finessed (blind) cards come first: they prove the finesse, so teammates waiting on
-        // it learn where the connection is, before any clued known play.
-        if let Some(&blind) = playable.iter().find(|&&c| {
-            let note = self.note(c);
-            !note.clued && note.promised.is_some()
-        }) {
-            return Some(blind);
-        }
-        let first = *playable.first()?;
-        // Clued 1s retain their agreed order even when another clue queues one of them.
-        let note = self.note(first);
-        if !note.clued || !self.is_rank_belief(&note.belief, 1) {
-            return Some(first);
-        }
+        // Clued 1s retain their agreed order even when another clue queues one of them:
+        // only the first of them competes, at the place of the newest one.
         let ones: CardSet = playable
             .iter()
             .copied()
             .filter(|&c| self.note(c).clued && self.is_rank_belief(&self.note(c).belief, 1))
             .collect();
-        self.first_one(seat, ones)
+        let mut first_one = self.first_one(seat, ones);
+        let mut candidates: SmallVec<[CardId; 6]> = SmallVec::new();
+        for &card in &playable {
+            if !ones.contains(card) {
+                candidates.push(card);
+            } else if let Some(one) = first_one.take() {
+                candidates.push(one);
+            }
+        }
+        // Finessed (blind) cards come first, then plays others wait on, plays that unblock
+        // teammates, needed clue tokens and plays that unlock more of our own.
+        self.best_play(seat, &candidates)
     }
 
     pub fn next_play(&self) -> Option<CardId> {

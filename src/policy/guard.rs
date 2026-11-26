@@ -238,7 +238,8 @@ pub fn permitted_candidates(view: &View) -> SmallVec<[Action; 48]> {
                 .then_some(Action::Discard(card)),
         ];
         for action in extra.into_iter().flatten() {
-            if !actions.contains(&action) {
+            // A trash discard while holding a play can read as a signal (a Shout Discard).
+            if !actions.contains(&action) && permitted(view, &baseline, action) {
                 actions.push(action);
             }
         }

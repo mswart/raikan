@@ -14,6 +14,7 @@ mod gentleman;
 mod grade;
 mod intent;
 mod locator;
+mod play_order;
 pub mod profile;
 mod records;
 mod rules;

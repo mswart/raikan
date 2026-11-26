@@ -1,0 +1,21 @@
+# rule: bot.play-order
+# With several known plays, play first the card another player's connection waits on:
+# seat 2's r3 is a prompt through seat 1's r2, so seat 1 plays r2 before its newer y2.
+hand 0: r1 y1 g3 p5
+hand 1: y2 r2 g2 p3
+hand 2: r3 y3 g4 p4
+hand 3: g1 y4 b1 g5
+draws: b3 p2
+clue 0 3 5
+clue 1 0 1
+clue 2 1 yellow
+clue 3 1 red
+play 0 1
+clue 1 0 5
+clue 2 3 1
+clue 3 2 red
+play 0 2
+note 1 1 1: y2 clued play
+note 1 1 2: r2 clued play
+note * 2 1: r3 clued delayed
+action 1: play 2
