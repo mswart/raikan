@@ -485,18 +485,9 @@ impl View {
     /// Fold one observed event into the view (and into the kept views of the other seats).
     pub fn observe(&mut self, event: &Event) {
         self.observe_own(event);
+        let identified = self.identified_clued();
         if let Some(seats) = &mut self.seats {
             let me = self.me;
-            // Others see our cards; tell their views the clued ones our notes identify. A
-            // blind card's promised identity is unverified (a layered finesse may hide behind
-            // it): it stays a hint, or the seat's reading of the finesse would rest on it.
-            let identified: SmallVec<[(CardId, Identity); 6]> = self
-                .state
-                .hand(me)
-                .iter()
-                .filter(|&&c| self.notes[c.index()].clued)
-                .filter_map(|&c| self.notes[c.index()].belief.identity().map(|i| (c, i)))
-                .collect();
             let hints: SmallVec<[(CardId, IdentitySet); 6]> = self
                 .state
                 .hand(me)
@@ -514,18 +505,7 @@ impl View {
                 })
                 .collect();
             for view in Arc::make_mut(seats).iter_mut().filter(|v| v.me != me) {
-                let mut learned = false;
-                for &(card, identity) in &identified {
-                    if view.known.get(card).is_none() {
-                        view.known.set(card, identity);
-                        learned = true;
-                    }
-                }
-                // That seat saw these cards all along: its good touch already counts them.
-                if learned {
-                    view.refresh_derived();
-                    view.refresh_clued_cards();
-                }
+                view.learn_seen(&identified);
                 for &(card, hint) in &hints {
                     view.hints[card.index()] = hint;
                 }
@@ -540,6 +520,42 @@ impl View {
                 };
                 view.observe(&seen);
             }
+        }
+    }
+
+    /// Our clued cards that our notes identify. Others see our cards, so their views learn
+    /// these. A blind card's promised identity is unverified (a layered finesse may hide
+    /// behind it): it stays a hint, or the seat's reading of the finesse would rest on it.
+    fn identified_clued(&self) -> SmallVec<[(CardId, Identity); 6]> {
+        self.state
+            .hand(self.me)
+            .iter()
+            .filter(|&&c| self.notes[c.index()].clued)
+            .filter_map(|&c| self.notes[c.index()].belief.identity().map(|i| (c, i)))
+            .collect()
+    }
+
+    /// Learn identities of cards this seat sees but did not know yet.
+    fn learn_seen(&mut self, identified: &[(CardId, Identity)]) {
+        let mut learned = false;
+        for &(card, identity) in identified {
+            if self.known.get(card).is_none() {
+                self.known.set(card, identity);
+                learned = true;
+            }
+        }
+        // That seat saw these cards all along: its good touch already counts them.
+        if learned {
+            self.refresh_derived();
+            self.refresh_clued_cards();
+        }
+    }
+
+    /// Tell `view`, another seat's view, the clued cards of ours that our notes identify
+    /// (as [`View::observe`] does for kept seat views).
+    pub fn share_identified(&self, view: &mut View) {
+        if view.me != self.me {
+            view.learn_seen(&self.identified_clued());
         }
     }
 

@@ -1,0 +1,35 @@
+# rule: L2.self-finesse L1.prompt
+# hanab.live game 2080200 (Dark Rainbow & Gray (6 Suits)), turn 17: Cathy's 3 clue on Alice's
+# y3 (r3/y3) self-finesses Alice's slot 2 (r1 via Bob's r2, or y1 via Alice's 2-clued y2/a2 in
+# slot 4). Alice must start the finesse, or Bob reads his yellow y4 as the y1. The bot instead
+# saved Donald's m2 (Donald has a play first). Its forecast had Bob misplay his slot 1 as y2
+# after Alice's y1, because Alice's model of Bob could not identify Alice's slot 4. Guards:
+# - a kept seat view prompts a clued card of ours whose hint allows the connecting identity
+#   (Bob sees it) before it finesses itself;
+# - forecast views learn the clued cards our own play identified (y1 settles slot 4 as y2).
+# raikan explain 'https://hanab.live/replay-json/415gffhisbl1witboqkrmnrspv2hunmgpkzaalk0cxeypdjdqc3af,051cudvbapDcahbkucobarasbm1dva1aavvdaebuaoacbfid1aaabt7bazadb1ibawbba6aj0cb0agpaaqa5b3obanvcaCaAb4DdaHaib7icaxbliaaEaN,62' --turn 17
+variant Dark Rainbow & Gray (6 Suits)
+level 10
+hand 0: y3 y1 y1 y2
+hand 1: g2 r2 b4 y4
+hand 2: b5 y4 m3 a3
+hand 3: g1 b2 g5 r2
+draws: b3 g3 g4 b3 b4 b1 m2
+clue 0 2 3
+clue 1 3 green
+clue 2 1 2
+play 3 1
+clue 0 2 5
+play 1 1
+discard 2 2
+clue 3 2 green
+clue 0 1 yellow
+play 1 1
+play 2 1
+discard 3 4
+clue 0 3 3
+clue 1 0 2
+clue 2 0 3
+play 3 1
+action 0: play 2
+not-action 0: clue 3 2

@@ -294,6 +294,28 @@ impl PlayEvaluation {
                     None => {}
                 }
             }
+            // A clued card this view sees but cannot identify (the root's own card in a kept
+            // seat view, known only by its hint) may be the connecting card: the seat sees
+            // it, so it prompts that card before looking for a finesse.
+            if info.clued.is_none()
+                && prompts
+                && let Some((holder, card)) = view.others().find_map(|holder| {
+                    self.pick_prompt(view, holder, previous, |c| {
+                        let note = view.note(c);
+                        !self.marked.contains(c)
+                            && note.clued
+                            && view.identity(c).is_none()
+                            && view.may_be(c, previous)
+                            && !note.play
+                            && note.delayed == 0
+                    })
+                    .map(|card| (holder, card))
+                })
+            {
+                self.marked.insert(card);
+                self.add_step(view, previous, holder, card, StepKind::Prompt);
+                continue;
+            }
             // Finesse positions, from the seat before us backwards.
             if finesses {
                 for offset in (1..n).rev() {

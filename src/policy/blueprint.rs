@@ -608,9 +608,12 @@ impl Forecast {
                 break;
             }
             if k == self.views.len() {
-                // decision view of the original position, then the forecast's events
+                // decision view of the original position, then the forecast's events. Like a
+                // kept seat view, it first learns the clued cards our action identified (a
+                // played finesse card can settle what a prompted card is).
                 let initial = self.initial.as_ref().expect("lazy card forecast");
                 let mut view = initial.decision_view(seat);
+                self.views[0].share_identified(&mut view);
                 for event in &self.events {
                     view.observe(event);
                 }
