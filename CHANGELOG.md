@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/mswart/raikan/compare/v0.3.1...v0.4.0) - 2026-11-26
+
+### Added
+
+- *(conventions)* order several known plays by what they do for the team
+- *(web)* built-in web UI with option ranking and bug reports
+- *(search)* fit leaf weights to differences between candidates
+- *(search)* clue intent, end-game rollouts and a minimum gain
+- *(web)* auto-join pregame tables of a followed user
+- *(conventions)* black, white, gray and dark rainbow suits
+- *(conventions)* level 10 special discards
+- *(conventions)* level 9 stalling exceptions
+- *(conventions)* level 8 end-game
+- *(conventions)* level 7 emergency discards
+- *(conventions)* level 6 tempo clues
+- *(conventions)* level 5 intermediate finesses
+- *(conventions)* level 4 chop moves
+- *(conventions)* complete level 3
+- *(conventions)* complete level 2
+- *(conventions)* complete level 1
+- *(conventions)* play finessed cards before clued known plays
+- *(cli)* explain a hanab.live game by id or replay URL
+- partner spread, guard free choices and new variant mechanics
+- *(cli)* explain a decision of a replay
+- *(search)* root planner with partner model and legibility guard
+- *(conventions)* catalogue every required convention of levels 1-20
+- rainbow variant conventions
+- interpretation and decision traces, invariants and parity docs
+- web client and benchmark use the new bot
+- conventions layer, blueprint policy and CLI on the new architecture
+- knowledge layer (M2)
+- rules layer of the target architecture (M0, M1)
+
+### Fixed
+
+- *(conventions)* readings a play kills reserve no finesse cards
+- *(conventions)* end-game stalls only with a nearly empty deck
+- *(conventions)* kept views prompt our hinted cards; forecasts learn our play
+- *(web)* mark the bot, keep turn buttons in place, track game ends and ids
+- *(conventions)* new touches are not fixes; later clues settle sarcastic targets
+- *(conventions)* prompt the leftmost card over an ambiguous delayed one
+- *(conventions)* end-game stalls only where burning is allowed
+- *(guard)* do not discard to max clues while a play clue is available
+- *(locator)* skip promised cards on our own finesse position
+- *(guard)* do not delay a play to clue a potential finesse
+- *(conventions)* known plays no longer confirm prompt readings
+- *(conventions)* predict teammates from their own observations
+- *(variants)* report empty-clue variants as unsupported
+- *(knowledge)* compare sampler tables over the same cards
+- rejoin running games from the welcome message
+
+### Other
+
+- [**breaking**] remove the legacy implementation (M5)
+- rule-keyed scenarios and legacy equivalence for the conventions
+
 ## [0.3.1](https://github.com/mswart/raikan/compare/v0.3.0...v0.3.1) - 2026-11-19
 
 ### Fixed
