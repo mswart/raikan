@@ -71,8 +71,18 @@ pub struct Session {
     replay: Option<Replay>,
     /// Live: the seat whose observations the events are.
     observer: Option<Seat>,
+    /// The seat the bot played (it stays when a finished game becomes a replay).
+    bot: Option<Seat>,
     live: bool,
     game_id: Option<u64>,
+    /// The hanab.live table name.
+    table: Option<String>,
+    /// How the game ended or stopped (`normal`, `strikeout`, `terminatedByVote`,
+    /// `abandoned`), when the client knows.
+    outcome: Option<String>,
+    /// Score and whether it is over, after the last event.
+    score: u8,
+    over: bool,
     decisions: Vec<LiveDecision>,
     version: u64,
 }
@@ -95,11 +105,17 @@ impl Session {
             events,
             replay: Some(replay),
             observer: None,
+            bot: None,
             live: false,
             game_id,
+            table: None,
+            outcome: None,
+            score: 0,
+            over: false,
             decisions: Vec::new(),
             version: 0,
-        })
+        }
+        .with_final_state())
     }
 
     /// A game from the events `observer` saw (`None`: a spectator). Once every drawn card
@@ -130,13 +146,26 @@ impl Session {
             variant: variant.clone(),
             players: players.to_vec(),
             observer: if replay.is_some() { None } else { observer },
+            bot: observer,
             events,
             replay,
             live,
             game_id: None,
+            table: None,
+            outcome: None,
+            score: 0,
+            over: false,
             decisions: Vec::new(),
             version: 0,
         }
+        .with_final_state()
+    }
+
+    fn with_final_state(mut self) -> Self {
+        let state = self.record().state_before(usize::MAX);
+        self.score = state.score(&self.variant);
+        self.over = state.is_over();
+        self
     }
 
     pub fn with_decisions(mut self, decisions: Vec<LiveDecision>) -> Self {
@@ -147,6 +176,42 @@ impl Session {
     pub fn with_game_id(mut self, game_id: Option<u64>) -> Self {
         self.game_id = game_id;
         self
+    }
+
+    /// The hanab.live table the game was played at.
+    pub fn with_table(mut self, table: Option<String>) -> Self {
+        self.table = table;
+        self
+    }
+
+    /// How the game ended (hanab.live's end condition) or why it stopped (`abandoned`).
+    pub fn with_outcome(mut self, outcome: Option<String>) -> Self {
+        self.outcome = outcome;
+        self
+    }
+
+    pub fn is_live(&self) -> bool {
+        self.live
+    }
+
+    /// One line on how the game stands: `playing`, `score 23`, `score 4, strikeout`,
+    /// `abandoned at turn 12`.
+    pub fn result(&self) -> String {
+        if self.live {
+            return "playing".to_string();
+        }
+        let outcome = self
+            .outcome
+            .as_deref()
+            .filter(|o| !o.is_empty() && *o != "normal")
+            .map(words);
+        let turn = self.events.last().map_or(0, |(t, _)| *t) + 1;
+        match (self.over, outcome) {
+            (true, None) => format!("score {}", self.score),
+            (true, Some(outcome)) => format!("score {}, {outcome}", self.score),
+            (false, Some(outcome)) => format!("{outcome} at turn {turn}"),
+            (false, None) => format!("unfinished at turn {turn}"),
+        }
     }
 
     /// Whether every card is known (all seats, decisions and bug reports available).
@@ -235,6 +300,22 @@ struct HubState {
     sessions: Vec<Arc<Session>>,
     version: u64,
     uploads: u32,
+    /// The bot's hanab.live user name, when it plays.
+    bot_name: Option<String>,
+}
+
+/// `terminatedByVote` as `terminated by vote`.
+fn words(camel: &str) -> String {
+    let mut out = String::new();
+    for c in camel.chars() {
+        if c.is_ascii_uppercase() {
+            out.push(' ');
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// The games the web UI can show, and the bot configuration it recomputes them with.
@@ -251,6 +332,7 @@ impl Hub {
                 sessions: Vec::new(),
                 version: 0,
                 uploads: 0,
+                bot_name: None,
             }),
         })
     }
@@ -264,11 +346,39 @@ impl Hub {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Add `session`, replacing the one with the same key; it becomes the newest.
+    /// The bot's user name: its seat is marked in every game it played.
+    pub fn set_bot_name(&self, name: &str) {
+        let mut state = self.lock();
+        let name = Some(name.to_string()).filter(|n| !n.is_empty());
+        if state.bot_name != name {
+            state.bot_name = name;
+            state.version += 1;
+        }
+    }
+
+    /// Add `session`, replacing the one with the same key and any other session of the
+    /// same hanab.live game (a table reattended after a reconnect); it becomes the newest.
     pub fn publish(&self, mut session: Session) {
         let mut state = self.lock();
         state.version += 1;
         session.version = state.version;
+        if let Some(id) = session.game_id {
+            for other in state
+                .sessions
+                .iter()
+                .filter(|s| s.key != session.key && s.game_id == Some(id))
+            {
+                // keep what only the earlier session knew: the bot's decisions and seat
+                if session.decisions.is_empty() {
+                    session.decisions = other.decisions.clone();
+                }
+                session.bot = session.bot.or(other.bot);
+                session.table = session.table.take().or_else(|| other.table.clone());
+            }
+            state
+                .sessions
+                .retain(|s| s.key == session.key || s.game_id != Some(id));
+        }
         state.sessions.retain(|s| s.key != session.key);
         state.sessions.insert(0, Arc::new(session));
         state.sessions.truncate(MAX_SESSIONS);
@@ -278,8 +388,15 @@ impl Hub {
     /// session key.
     pub fn load(&self, text: &str) -> Result<String, String> {
         let loaded = super::load::replay_from_text(text)?;
+        if let Some(id) = loaded.game_id {
+            let state = self.lock();
+            if let Some(session) = state.sessions.iter().find(|s| s.game_id == Some(id)) {
+                // the bot's own game (with its decisions), or one loaded before
+                return Ok(session.key.clone());
+            }
+        }
         let (key, label) = match loaded.game_id {
-            Some(id) => (format!("game-{id}"), format!("hanab.live game {id}")),
+            Some(id) => (format!("hanab-{id}"), format!("hanab.live game {id}")),
             None => {
                 let n = {
                     let mut state = self.lock();
@@ -350,13 +467,20 @@ impl Hub {
                 serde_json::json!({
                     "key": s.key,
                     "label": s.label,
+                    "table": s.table,
+                    "game_id": s.game_id,
                     "live": s.live,
                     "complete": s.is_complete(),
+                    "result": s.result(),
                     "version": s.version,
                 })
             })
             .collect();
-        serde_json::json!({ "version": state.version, "sessions": sessions })
+        serde_json::json!({
+            "version": state.version,
+            "bot_name": state.bot_name,
+            "sessions": sessions,
+        })
     }
 
     /// The configuration of a recomputation: the bot's, with the requested level and
@@ -388,8 +512,9 @@ impl Hub {
         let level = parse_param::<u8>(request, "level")?;
         let config = self.analysis_config(level, None)?;
         let board = board(&session, &config, turn, viewer).map_err(|e| (422, e))?;
+        let bot_name = self.lock().bot_name.clone();
         Ok(Response::json(&serde_json::json!({
-            "session": session_info(&session, &config),
+            "session": session_info(&session, &config, bot_name),
             "board": board,
         })))
     }
@@ -465,7 +590,10 @@ impl Hub {
                 rejected: body.rejected,
                 rule: body.rule,
                 comment: body.comment,
-                source: Some(session.label.clone()),
+                source: Some(match session.game_id {
+                    Some(id) => format!("hanab.live game {id}"),
+                    None => session.label.clone(),
+                }),
                 game_id: session.game_id,
             },
         )
@@ -517,7 +645,12 @@ struct SessionInfo {
     live: bool,
     complete: bool,
     observer: Option<u8>,
+    /// The bot's seat: the one it played, or the player with its user name.
+    bot: Option<u8>,
+    bot_name: Option<String>,
     game_id: Option<u64>,
+    table: Option<String>,
+    result: String,
     variant: VariantInfo,
     players: Vec<String>,
     /// The last turn (the position after the last action).
@@ -559,15 +692,30 @@ fn mode_name(mode: SearchMode) -> &'static str {
     }
 }
 
-fn session_info(session: &Session, config: &Config) -> SessionInfo {
+fn session_info(session: &Session, config: &Config, bot_name: Option<String>) -> SessionInfo {
     let variant = &session.variant;
+    let bot = session.bot.map(|s| s.0).or_else(|| {
+        let name = bot_name.as_deref()?;
+        let seat = session
+            .players
+            .iter()
+            .position(|p| p.eq_ignore_ascii_case(name))?;
+        Some(seat as u8)
+    });
+    let bot_name = bot
+        .and_then(|s| session.players.get(s as usize).cloned())
+        .or(bot_name);
     SessionInfo {
         key: session.key.clone(),
         label: session.label.clone(),
         live: session.live,
         complete: session.is_complete(),
         observer: session.observer.map(|s| s.0),
+        bot,
+        bot_name,
         game_id: session.game_id,
+        table: session.table.clone(),
+        result: session.result(),
         variant: VariantInfo {
             name: variant.name.clone(),
             suits: variant

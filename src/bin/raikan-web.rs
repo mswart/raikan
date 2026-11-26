@@ -71,6 +71,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         auto_joined: BTreeSet::new(),
         web,
         games_started: 0,
+        interrupted: None,
     };
     client.run();
     Ok(())
@@ -290,16 +291,53 @@ struct TableJoinMessage {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
+#[serde(from = "TableStateWire")]
 struct TableState {
     table_id: usize,
-    #[serde(deserialize_with = "deserialize_table_phase")]
     phase: TablePhase,
+    /// The finished game a shared replay shows (its hanab.live database id).
+    game_id: Option<u64>,
+    player_names: Vec<String>,
+    owner: Option<TableOwner>,
+    settings: Option<TableSettings>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TableStateWire {
+    table_id: usize,
+    phase: PhasePayload,
     player_names: Vec<String>,
     #[serde(default)]
     owner: Option<TableOwner>,
     #[serde(default)]
     settings: Option<TableSettings>,
+}
+
+impl From<TableStateWire> for TableState {
+    fn from(wire: TableStateWire) -> Self {
+        let (phase, game_id) = match wire.phase {
+            PhasePayload::Current { phase, game_id } => (phase, game_id),
+            PhasePayload::Legacy(phase) => (phase, None),
+        };
+        Self {
+            table_id: wire.table_id,
+            phase,
+            game_id,
+            player_names: wire.player_names,
+            owner: wire.owner,
+            settings: wire.settings,
+        }
+    }
+}
+
+impl TableState {
+    fn name(&self) -> Option<String> {
+        self.settings
+            .as_ref()
+            .and_then(|settings| settings.name.clone())
+            .filter(|name| !name.trim().is_empty())
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -322,6 +360,8 @@ impl TableOwner {
 struct TableSettings {
     #[serde(default)]
     max_players: Option<usize>,
+    #[serde(default)]
+    name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -339,24 +379,17 @@ enum TablePhase {
     SharedReplay,
 }
 
-fn deserialize_table_phase<'de, D>(deserializer: D) -> Result<TablePhase, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Payload {
-        // Shared replays may also carry a gameId, which the bot does not need.
-        Current {
-            #[serde(rename = "type")]
-            phase: TablePhase,
-        },
-        Legacy(TablePhase),
-    }
-
-    Ok(match Payload::deserialize(deserializer)? {
-        Payload::Current { phase } | Payload::Legacy(phase) => phase,
-    })
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum PhasePayload {
+    /// Shared replays carry the game's id.
+    Current {
+        #[serde(rename = "type")]
+        phase: TablePhase,
+        #[serde(default, rename = "gameId")]
+        game_id: Option<u64>,
+    },
+    Legacy(TablePhase),
 }
 
 impl TableState {
@@ -508,8 +541,19 @@ struct GameFinishedMessage {
     // The current server sends the entire unhidden history on completion.
     // Older servers sent only replay metadata.
     events: Option<Vec<GameAction>>,
-    shared_replay: SharedReplayState,
-    /// The game's id in the hanab.live database (its replay URL).
+    #[serde(default)]
+    shared_replay: Option<SharedReplayState>,
+    /// The game's id in the hanab.live database (its replay URL): at the top level in
+    /// older messages, in `view` in current ones.
+    #[serde(default)]
+    game_id: Option<u64>,
+    #[serde(default)]
+    view: Option<FinishedView>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct FinishedView {
     #[serde(default)]
     game_id: Option<u64>,
 }
@@ -576,10 +620,47 @@ enum GameAction {
         identity: CardIdentity,
     },
     GameOver {
+        #[serde(deserialize_with = "deserialize_end_condition")]
         end_condition: String,
     },
     CardIdentity,
     PlayerTimes,
+    /// An event the bot does not know: ignored rather than losing its whole batch (and a
+    /// game end in it).
+    #[serde(other)]
+    Other,
+}
+
+/// hanab.live's end condition, by name or by its number (`ENDING_*` of the server).
+fn deserialize_end_condition<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Payload {
+        Name(String),
+        Number(u64),
+    }
+    const NAMES: [&str; 11] = [
+        "inProgress",
+        "normal",
+        "strikeout",
+        "timeout",
+        "terminated",
+        "speedrunFail",
+        "idleTimeout",
+        "characterSoftlock",
+        "allOrNothingFail",
+        "allOrNothingSoftlock",
+        "terminatedByVote",
+    ];
+    Ok(match Payload::deserialize(deserializer)? {
+        Payload::Name(name) => name,
+        Payload::Number(n) => NAMES
+            .get(n as usize)
+            .map_or_else(|| format!("ending {n}"), |name| name.to_string()),
+    })
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -643,6 +724,16 @@ struct HanabClient {
     web: Option<Arc<Hub>>,
     /// Games loaded so far: each gets its own web UI session.
     games_started: u32,
+    /// The last game left before it ended: reloading it (a reconnect) continues its web
+    /// UI session.
+    interrupted: Option<Interrupted>,
+}
+
+struct Interrupted {
+    table_id: usize,
+    player_names: Vec<String>,
+    serial: u32,
+    decisions: Vec<LiveDecision>,
 }
 
 impl HanabClient {
@@ -775,6 +866,9 @@ impl HanabClient {
         println!("Welcome {:?}", welcome);
         self.user_id = welcome.user_id;
         self.username = welcome.username;
+        if let Some(hub) = &self.web {
+            hub.set_bot_name(&self.username);
+        }
         if let Some(users) = welcome.users {
             self.user_states = users.into_iter().map(|user| (user.user_id, user)).collect();
         }
@@ -888,12 +982,42 @@ impl HanabClient {
 
     fn on_table(&mut self, json: &str) -> Result<(), serde_json::Error> {
         let table: TableState = serde_json::from_str(json)?;
+        if table.table_id == self.table_id {
+            self.adopt_table_details(&table);
+        }
         self.table_states.insert(table.table_id, table);
         self.follow_owner()
     }
 
+    /// The name of our table and, once its game is a shared replay, the game's id.
+    fn adopt_table_details(&mut self, table: &TableState) {
+        let Some(game) = &mut self.game else { return };
+        let mut changed = false;
+        if let Some(name) = table.name()
+            && game.table_name.as_ref() != Some(&name)
+        {
+            game.table_name = Some(name);
+            changed = true;
+        }
+        // a restarted table plays a new game: only a finished game takes the replay's id
+        if table.phase == TablePhase::SharedReplay
+            && (game.finished || game.state.is_over())
+            && let Some(id) = table.game_id
+            && game.game_id != Some(id)
+        {
+            game.game_id = Some(id);
+            changed = true;
+        }
+        if changed {
+            self.publish();
+        }
+    }
+
     fn on_table_gone(&mut self, json: &str) -> Result<(), serde_json::Error> {
         let table: TableIdMessage = serde_json::from_str(json)?;
+        if table.table_id == self.table_id {
+            self.retire_game();
+        }
         self.table_states.remove(&table.table_id);
         self.auto_joined.remove(&table.table_id);
         Ok(())
@@ -1035,7 +1159,25 @@ impl HanabClient {
         Ok(())
     }
 
+    /// Mark the current game as stopped in the web UI when it never ended.
+    fn retire_game(&mut self) {
+        if let Some(game) = &mut self.game
+            && game.is_live()
+        {
+            game.abandoned = true;
+            game.can_act = false;
+            self.interrupted = Some(Interrupted {
+                table_id: self.table_id,
+                player_names: game.player_names.clone(),
+                serial: game.serial,
+                decisions: game.decisions.clone(),
+            });
+            self.publish();
+        }
+    }
+
     fn clear_game(&mut self) {
+        self.retire_game();
         self.game = None;
         self.game_actions.clear();
         self.replay_segment = None;
@@ -1046,8 +1188,8 @@ impl HanabClient {
     fn on_left(&mut self, json: &str) -> Result<(), serde_json::Error> {
         let table: TableIdMessage = serde_json::from_str(json)?;
         if table.table_id == self.table_id {
-            self.table_id = 0;
             self.clear_game();
+            self.table_id = 0;
         }
         self.follow_owner()
     }
@@ -1065,6 +1207,7 @@ impl HanabClient {
     }
 
     fn initialize_game(&mut self, init: InitMessage) -> Result<(), serde_json::Error> {
+        self.retire_game();
         self.table_id = init.table_id as usize;
         let table_id = TableIdMessage {
             table_id: init.table_id as usize,
@@ -1080,8 +1223,26 @@ impl HanabClient {
                 return Ok(());
             }
         };
-        self.games_started += 1;
-        game.serial = self.games_started;
+        match self.interrupted.take() {
+            // the game we left, again: the same session
+            Some(left)
+                if left.table_id == self.table_id && left.player_names == game.player_names =>
+            {
+                game.serial = left.serial;
+                game.decisions = left.decisions;
+            }
+            _ => {
+                self.games_started += 1;
+                game.serial = self.games_started;
+            }
+        }
+        if let Some(table) = self.table_states.get(&self.table_id) {
+            game.table_name = table.name();
+            if table.phase == TablePhase::SharedReplay {
+                // watching a finished game: the table names it
+                game.game_id = table.game_id;
+            }
+        }
         self.game = Some(game);
         self.game_actions = Vec::with_capacity(256);
         self.replay_segment = None;
@@ -1109,6 +1270,7 @@ impl HanabClient {
                 }
                 Some(GamePhase::Replay { shared_replay }) => {
                     game.can_act = false;
+                    game.finished = true;
                     self.replay_segment = shared_replay.map(|replay| replay.turn);
                 }
                 None => {}
@@ -1158,7 +1320,11 @@ impl HanabClient {
         }
         if let Some(game) = &mut self.game {
             game.can_act = false;
-            game.game_id = finished.game_id.or(game.game_id);
+            game.finished = true;
+            game.game_id = finished
+                .game_id
+                .or(finished.view.and_then(|view| view.game_id))
+                .or(game.game_id);
             if let Some(events) = finished.events {
                 game.reset();
                 for event in &events {
@@ -1168,7 +1334,9 @@ impl HanabClient {
             }
             game.current_player_index = None;
         }
-        self.replay_segment = Some(finished.shared_replay.turn);
+        if let Some(shared_replay) = finished.shared_replay {
+            self.replay_segment = Some(shared_replay.turn);
+        }
         self.publish();
         if let Some(table) = self.table_states.get_mut(&self.table_id) {
             table.phase = TablePhase::SharedReplay;
@@ -1215,26 +1383,31 @@ impl HanabClient {
         let (Some(hub), Some(game)) = (&self.web, &self.game) else {
             return;
         };
-        let mut label = format!(
-            "table {} ({}, {})",
-            self.table_id,
-            game.variant.name,
-            game.player_names.join(", ")
+        // `#2 · Alice's game · hanab.live 1234 · No Variant · Alice, Bob, raikan`
+        let mut parts = vec![format!("#{}", game.serial)];
+        parts.push(
+            game.table_name
+                .clone()
+                .unwrap_or_else(|| format!("table {}", self.table_id)),
         );
         if let Some(id) = game.game_id {
-            label = format!("hanab.live game {id}: {label}");
+            parts.push(format!("hanab.live {id}"));
         }
+        parts.push(game.variant.name.clone());
+        parts.push(game.player_names.join(", "));
         let session = Session::observed(
-            format!("game-{}", game.serial),
-            label,
+            format!("live-{}", game.serial),
+            parts.join(" · "),
             &game.variant,
             &game.player_names,
             game.seat.map(Seat),
             &game.history,
-            !game.state.is_over(),
+            game.is_live(),
         )
         .with_decisions(game.decisions.clone())
-        .with_game_id(game.game_id);
+        .with_game_id(game.game_id)
+        .with_table(game.table_name.clone())
+        .with_outcome(game.outcome());
         hub.publish(session);
     }
 
@@ -1327,6 +1500,14 @@ struct HanabGame {
     serial: u32,
     /// The hanab.live database id, once the game is finished.
     game_id: Option<u64>,
+    /// The table's name in the lobby.
+    table_name: Option<String>,
+    /// hanab.live's end condition (`normal`, `strikeout`, `terminatedByVote`, ...).
+    end_condition: Option<String>,
+    /// The server reported the game finished (or it is a replay).
+    finished: bool,
+    /// We left the table, or another game replaced it, before it ended.
+    abandoned: bool,
     variant: Variant,
     /// Public state derived from the events (the server sends no status events).
     state: GameState,
@@ -1360,6 +1541,10 @@ impl HanabGame {
             decisions: Vec::new(),
             serial: 0,
             game_id: None,
+            table_name: None,
+            end_condition: None,
+            finished: false,
+            abandoned: false,
             state: GameState::new(&variant, init.player_names.len() as u8),
             variant,
             current_player_index: Some(0),
@@ -1387,6 +1572,19 @@ impl HanabGame {
         self.paused = false;
         self.status.turn = 0;
         self.update_status();
+    }
+
+    /// Whether the game is still being played.
+    fn is_live(&self) -> bool {
+        !self.finished && !self.abandoned && !self.state.is_over()
+    }
+
+    /// How the game ended or stopped, for the web UI.
+    fn outcome(&self) -> Option<String> {
+        if self.abandoned && !self.finished && !self.state.is_over() {
+            return Some("abandoned".to_string());
+        }
+        self.end_condition.clone()
     }
 
     fn update_status(&mut self) {
@@ -1574,6 +1772,7 @@ impl HanabGame {
             GameAction::GameOver { end_condition } => {
                 self.current_player_index = None;
                 self.can_act = false;
+                self.end_condition = Some(end_condition.clone());
                 let reason = if end_condition.contains("strike") {
                     EndReason::Strikeout
                 } else {
@@ -1582,7 +1781,7 @@ impl HanabGame {
                 self.observe(Event::GameOver { reason });
                 println!("Game finished: {end_condition}");
             }
-            GameAction::CardIdentity | GameAction::PlayerTimes => {}
+            GameAction::CardIdentity | GameAction::PlayerTimes | GameAction::Other => {}
         }
     }
 }
@@ -1777,6 +1976,7 @@ mod protocol_tests {
                 auto_joined: BTreeSet::new(),
                 web: None,
                 games_started: 0,
+                interrupted: None,
             },
             WebSocket::from_raw_socket(server, Role::Server, None),
         )
@@ -1873,6 +2073,10 @@ mod protocol_tests {
                     assert_eq!(live["session"]["live"], true);
                     assert_eq!(live["session"]["complete"], false);
                     assert_eq!(live["session"]["observer"], 0);
+                    assert_eq!(live["session"]["bot"], 0);
+                    assert_eq!(live["session"]["bot_name"], "test bot");
+                    assert_eq!(live["session"]["table"], "Current game");
+                    assert_eq!(live["session"]["result"], "playing");
                     assert_eq!(live["session"]["decisions"], json!([3]));
                     assert_eq!(live["board"]["decision"]["turn"], 3);
                     Some("playerAction")
@@ -1890,6 +2094,16 @@ mod protocol_tests {
                     let finished = board(&hub);
                     assert_eq!(finished["session"]["complete"], true, "{finished}");
                     assert_eq!(finished["session"]["live"], false);
+                    // the current protocol names the game in `view`
+                    assert_eq!(finished["session"]["game_id"], 124);
+                    let label = finished["session"]["label"].as_str().unwrap();
+                    assert!(
+                        label.starts_with("#1 · Current game · hanab.live 124 · "),
+                        "{label}"
+                    );
+                    assert_eq!(finished["session"]["result"], "score 1, terminated by vote");
+                    // a finished game becomes a replay, the bot's seat stays marked
+                    assert_eq!(finished["session"]["bot"], 0);
                     None
                 }
                 _ => None,
@@ -1916,6 +2130,139 @@ mod protocol_tests {
         );
         assert!(game.hands.iter().all(|hand| hand.len() == 5));
         bot.act().unwrap();
+        assert_no_message(&mut server);
+    }
+
+    fn sessions(hub: &Hub) -> Vec<Value> {
+        let response = hub.handle(&web::Request {
+            method: "GET".into(),
+            path: "/api/sessions".into(),
+            ..web::Request::default()
+        });
+        let body: Value = serde_json::from_slice(&response.body).unwrap();
+        body["sessions"].as_array().unwrap().clone()
+    }
+
+    #[test]
+    fn game_ends_are_read_by_name_or_number_and_unknown_events_are_skipped() {
+        for (end, expected) in [
+            (json!("strikeout"), "strikeout"),
+            (json!(2), "strikeout"),
+            (json!(10), "terminatedByVote"),
+            (json!(42), "ending 42"),
+        ] {
+            let mut game = dealt_game();
+            // an unknown event in the batch must not drop the game end with it
+            let batch: GameEventBatch = serde_json::from_value(json!({"events":[
+                {"type":"somethingNew","x":1},
+                {"type":"gameOver","endCondition":end,"playerIndex":0},
+            ]}))
+            .unwrap();
+            let GameEventBatch::Current { events } = batch else {
+                panic!("current batch")
+            };
+            for event in &events {
+                game.process_action(event);
+            }
+            assert!(!game.is_live());
+            assert_eq!(game.end_condition.as_deref(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn leaving_a_running_game_marks_it_and_a_reload_continues_its_session() {
+        let (mut bot, mut server) = connection();
+        let hub = Hub::new(Config::default());
+        bot.web = Some(Arc::clone(&hub));
+        let start = |bot: &mut HanabClient, server: &mut WebSocket<TcpStream>| {
+            bot.process_message(
+                "gameInit",
+                &serde_json::to_string(&init(json!({"type":"playing","ourPlayerIndex":0})))
+                    .unwrap(),
+            )
+            .unwrap();
+            receive(server, "gameStateLoad");
+            let events: Vec<Value> = initial_events()
+                .into_iter()
+                .chain([json!({"type":"turn","turn":0,"currentPlayerIndex":1})])
+                .collect();
+            bot.process_message(
+                "gameState",
+                &json!({"tableId":42,"events":events}).to_string(),
+            )
+            .unwrap();
+            receive(server, "gameLoaded");
+        };
+        start(&mut bot, &mut server);
+        assert_eq!(sessions(&hub)[0]["result"], "playing");
+        bot.process_message("tableLeft", r#"{"tableId":42}"#)
+            .unwrap();
+        let list = sessions(&hub);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["live"], false, "{list:?}");
+        assert_eq!(list[0]["result"], "abandoned at turn 1");
+        // back at the same game (a reconnect): the same session, live again
+        bot.table_id = 42;
+        start(&mut bot, &mut server);
+        let list = sessions(&hub);
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert_eq!(list[0]["key"], "live-1");
+        assert_eq!(list[0]["live"], true);
+        // a new game on the restarted table is a new session
+        bot.game.as_mut().unwrap().finished = true;
+        bot.publish();
+        start(&mut bot, &mut server);
+        let list = sessions(&hub);
+        assert_eq!(list.len(), 2, "{list:?}");
+        assert_eq!(list[0]["key"], "live-2");
+        assert_eq!(list[1]["live"], false);
+        assert_no_message(&mut server);
+    }
+
+    #[test]
+    fn a_shared_replay_table_names_the_finished_game() {
+        let (mut bot, mut server) = connection();
+        let hub = Hub::new(Config::default());
+        bot.web = Some(Arc::clone(&hub));
+        bot.process_message(
+            "table",
+            &table(42, "playing", "Alice", &["test bot", "Alice"], 6),
+        )
+        .unwrap();
+        bot.process_message(
+            "gameInit",
+            &serde_json::to_string(&init(json!({"type":"playing","ourPlayerIndex":0}))).unwrap(),
+        )
+        .unwrap();
+        receive(&mut server, "gameStateLoad");
+        assert_eq!(
+            bot.game.as_ref().unwrap().table_name.as_deref(),
+            Some("Table")
+        );
+        // a finished message without an id, then the table turns into the shared replay
+        bot.process_message(
+            "gameFinished",
+            r#"{"tableId":42,"sharedReplay":{"turn":0}}"#,
+        )
+        .unwrap();
+        assert_eq!(bot.game.as_ref().unwrap().game_id, None);
+        bot.process_message(
+            "table",
+            &json!({"tableId":42,"phase":{"type":"sharedReplay","gameId":777},
+                "playerNames":["test bot","Alice"],"settings":{"name":"Renamed"}})
+            .to_string(),
+        )
+        .unwrap();
+        let list = sessions(&hub);
+        assert_eq!(list[0]["game_id"], 777);
+        assert_eq!(list[0]["table"], "Renamed");
+        assert_eq!(list[0]["live"], false);
+        assert!(
+            list[0]["label"]
+                .as_str()
+                .unwrap()
+                .contains("hanab.live 777")
+        );
         assert_no_message(&mut server);
     }
 

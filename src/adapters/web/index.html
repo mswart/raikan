@@ -28,10 +28,22 @@ header, nav {
 }
 header h1 { font-size: 17px; margin: 0 8px 0 0; letter-spacing: .5px; }
 header .grow, nav .grow { flex: 1; }
-#session { max-width: 520px; }
+#session { width: 560px; max-width: 60vw; text-overflow: ellipsis; }
 #load-text { width: 240px; }
-nav #turn-slider { flex: 1; min-width: 160px; accent-color: var(--accent); }
-#turn-label { min-width: 210px; font-variant-numeric: tabular-nums; }
+/* the turn buttons come first and nothing before them changes size: they stay under the
+   mouse while stepping through a game; the strip sticks to the top when scrolling */
+nav { position: sticky; top: 0; z-index: 5; flex-wrap: nowrap; }
+nav .steps { display: flex; gap: 4px; flex: none; }
+nav .steps button { width: 40px; padding: 4px 0; font-variant-numeric: tabular-nums; }
+#turn-label { width: 250px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+nav #turn-slider { flex: 1; min-width: 80px; accent-color: var(--accent); }
+nav .rest { display: flex; gap: 10px; align-items: center; flex: none; }
+#status { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bot-chip { padding: 2px 9px; border-radius: 12px; background: #2f5a8a; border: 1px solid #4f86c0; font-weight: 600; white-space: nowrap; }
+.bot-chip:empty { display: none; }
+.bot-chip.absent { background: transparent; color: var(--muted); font-weight: 400; }
+.hand.bot { box-shadow: inset 3px 0 #4f86c0; }
+.hand .who .bot-tag { display: inline-block; margin-top: 2px; background: #2f5a8a; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .err { color: var(--bad); }
@@ -127,6 +139,7 @@ form.report .full { grid-column: 1 / -1; }
 <header>
   <h1>Raikan</h1>
   <select id="session" title="Game"></select>
+  <span id="bot-chip" class="bot-chip" title="The bot's hanab.live user"></span>
   <span class="grow"></span>
   <input id="load-text" placeholder="hanab.live game id, replay URL or JSON">
   <button id="load-btn">Load replay</button>
@@ -136,14 +149,18 @@ form.report .full { grid-column: 1 / -1; }
   </select></label>
 </header>
 <nav>
-  <button id="first" title="First turn (Home)">|&lt;</button>
-  <button id="prev" title="Previous turn (←)">&lt;</button>
-  <input id="turn-slider" type="range" min="1" max="1" value="1">
-  <button id="next" title="Next turn (→)">&gt;</button>
-  <button id="last" title="Latest turn (End)">&gt;|</button>
+  <span class="steps">
+    <button id="first" title="First turn (Home)">|&lt;</button>
+    <button id="prev" title="Previous turn (←)">&lt;</button>
+    <button id="next" title="Next turn (→)">&gt;</button>
+    <button id="last" title="Latest turn (End)">&gt;|</button>
+  </span>
   <span id="turn-label"></span>
-  <label class="small">viewer <select id="viewer"></select></label>
-  <label class="small" title="Jump to the newest turn and game as they arrive"><input id="follow" type="checkbox" checked> follow</label>
+  <input id="turn-slider" type="range" min="1" max="1" value="1">
+  <span class="rest">
+    <label class="small">viewer <select id="viewer"></select></label>
+    <label class="small" title="Jump to the newest turn and game as they arrive"><input id="follow" type="checkbox" checked> follow</label>
+  </span>
   <span id="status" class="small muted"></span>
 </nav>
 <main>
@@ -199,6 +216,9 @@ const identity = (i) => S.info.variant.identities[i];
 const suitOf = (i) => S.info.variant.suits[identity(i).suit];
 const rankText = (r) => (r === 7 ? "S" : String(r));
 const playerName = (seat) => S.info.players[seat] ?? `seat ${seat}`;
+const isBot = (seat) => S.info?.bot !== null && S.info?.bot !== undefined && S.info.bot === seat;
+// a player's name, marked when it is the bot
+const who = (seat) => esc(playerName(seat)) + (isBot(seat) ? " 🤖" : "");
 
 // ---- loading ---------------------------------------------------------------------------
 function readHash() {
@@ -221,8 +241,10 @@ async function refreshSessions() {
   try { data = await api("/api/sessions"); } catch (e) { status("server unreachable", "err"); return; }
   if (data.version === S.sessionsVersion) return;
   S.sessionsVersion = data.version;
+  S.botName = data.bot_name;
+  if (!S.info) renderBotChip();
   const select = $("#session");
-  select.innerHTML = data.sessions.map((s) => `<option value="${esc(s.key)}">${s.live ? "● " : ""}${esc(s.label)}</option>`).join("")
+  select.innerHTML = data.sessions.map((s) => `<option value="${esc(s.key)}" title="${esc(s.label)}">${s.live ? "● " : ""}${esc(s.label)} — ${esc(s.result)}</option>`).join("")
     || `<option value="">no games yet — the bot shows its table here, or load a replay</option>`;
   const newest = data.sessions[0];
   if (!newest) return;
@@ -257,7 +279,7 @@ async function loadBoard() {
     if (!$("#level").value) $("#level").value = S.info.level;
     if (!$("#search").dataset.set) { $("#search").value = S.info.search; $("#search").dataset.set = "1"; }
     if (S.explainFor !== explainKey()) S.explain = null;
-    status(S.info.live ? "live game: refreshes as it is played" : S.info.complete ? "replay: every card known" : "");
+    status(S.info.live ? "live game: refreshes as it is played" : `${esc(S.info.result)}${S.info.complete ? " · replay, every card known" : ""}`);
     render();
     writeHash();
   } catch (e) { status(esc(e.message), "err"); }
@@ -276,15 +298,27 @@ function render() {
   renderNav(); renderHands(); renderTable(); renderCardPanel(); renderLog(); renderDecision(); renderReport();
 }
 
+function renderBotChip() {
+  const chip = $("#bot-chip"), info = S.info;
+  const name = info?.bot_name ?? S.botName;
+  chip.classList.toggle("absent", !!info && info.bot === null);
+  if (!name) { chip.textContent = ""; return; }
+  chip.textContent = !info || info.bot === null ? `bot: ${name}${info ? " (not playing here)" : ""}` : `🤖 bot: ${name}`;
+}
+
 function renderNav() {
   const b = S.board, info = S.info;
+  renderBotChip();
   const slider = $("#turn-slider");
   slider.max = info.turns; slider.value = b.turn;
-  const who = b.over ? "game over" : `${esc(playerName(b.to_move))} to move`;
-  $("#turn-label").innerHTML = `Turn <b>${b.turn}</b> / ${info.turns} — ${who}`;
+  const mover = b.over ? "game over" : `${who(b.to_move)} to move`;
+  $("#turn-label").innerHTML = `Turn <b>${b.turn}</b> / ${info.turns} — ${mover}`;
+  $("#turn-label").title = $("#turn-label").textContent;
+  $("#first").disabled = $("#prev").disabled = b.turn <= 1;
+  $("#next").disabled = $("#last").disabled = b.turn >= info.turns;
   const viewer = $("#viewer");
   viewer.innerHTML = (info.observer === null ? `<option value="">seat to move</option>` : "") +
-    info.players.map((p, i) => `<option value="${i}" ${info.observer !== null && info.observer !== i ? "disabled" : ""}>${esc(p)}</option>`).join("");
+    info.players.map((p, i) => `<option value="${i}" ${info.observer !== null && info.observer !== i ? "disabled" : ""}>${esc(p)}${isBot(i) ? " (bot)" : ""}</option>`).join("");
   viewer.value = S.viewer === null ? (info.observer ?? "") : S.viewer;
   viewer.title = info.observer === null ? "Whose notes the table shows" : "A live game: only the bot's own view is known until the game ends";
 }
@@ -350,8 +384,8 @@ function renderHands() {
         <div class="tags">${c.chop ? `<span class="tag chop">chop</span>` : ""}${tags(known)}${mismatch ? `<span class="tag warn" title="${esc(playerName(h.seat))} actually believes: ${esc(c.actual.text)}">≠</span>` : ""}</div>
       </div>`;
     }).join("");
-    return `<div class="hand ${h.seat === b.to_move && !b.over ? "to-move" : ""}">
-      <div class="who"><div class="name">${esc(h.player)}</div>
+    return `<div class="hand ${h.seat === b.to_move && !b.over ? "to-move" : ""} ${isBot(h.seat) ? "bot" : ""}">
+      <div class="who"><div class="name">${esc(h.player)}</div>${isBot(h.seat) ? `<span class="tag bot-tag" title="The bot plays this seat">🤖 bot</span>` : ""}
         <div class="small muted">${h.seat === b.to_move && !b.over ? "to move" : ""}${own ? (h.seat === b.to_move && !b.over ? " · " : "") + "viewer" : ""}</div></div>
       <div class="cards">${cards}</div></div>`;
   }).join("") + `<div class="legend">Under each card: its clues, then what its holder knows as ${esc(playerName(b.viewer))} models it
@@ -430,10 +464,9 @@ function renderLog() {
 // ---- decision and ranking ----------------------------------------------------------
 function renderDecision() {
   const b = S.board, info = S.info;
-  const mover = playerName(b.to_move);
   const canExplain = !b.over && (info.observer === null || info.observer === b.to_move);
   let html = `<div class="kv">
-    <span>Position</span><span>turn ${b.turn}, ${b.over ? "game over" : esc(mover) + " to move"}</span>
+    <span>Position</span><span>turn ${b.turn}, ${b.over ? "game over" : who(b.to_move) + " to move"}</span>
     ${b.played ? `<span>Played</span><span>${esc(b.played.text)}</span>` : ""}
     ${b.decision ? `<span>Bot (live)</span><span>${esc(b.decision.summary || b.decision.action)}</span>` : ""}
   </div>`;

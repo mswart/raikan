@@ -3,7 +3,7 @@
 //! reports.
 
 use raikan::adapters::explain::replay_events;
-use raikan::adapters::web::{Hub, Request, Session};
+use raikan::adapters::web::{Hub, LiveDecision, Request, Session};
 use raikan::agent::{Agent, BotAgent, Config, run_game};
 use raikan::domain::Seat;
 use raikan::engine::{Event, Replay, shuffled_world};
@@ -210,6 +210,96 @@ fn a_finished_history_becomes_a_complete_replay() {
         text.contains(&format!("\nnot-action {seat}: {played}\n")),
         "{text}"
     );
+}
+
+#[test]
+fn sessions_name_the_bot_and_merge_one_game_seen_twice() {
+    let (variant, replay, events) = game();
+    let hub = Hub::new(Config::default());
+    hub.set_bot_name(&replay.players[2]);
+    let decision = LiveDecision {
+        turn: 3,
+        action: "play 1".into(),
+        summary: String::new(),
+        plan: None,
+    };
+    // the game as the bot played it, interrupted, then seen again after a reconnect
+    let partial = before(&events, 6);
+    hub.publish(
+        Session::observed(
+            "live-1",
+            "#1",
+            &variant,
+            &replay.players,
+            Some(Seat(2)),
+            &partial,
+            false,
+        )
+        .with_outcome(Some("abandoned".into())),
+    );
+    let sessions = get(&hub, "/api/sessions").1;
+    assert_eq!(sessions["bot_name"], replay.players[2].as_str());
+    assert_eq!(sessions["sessions"][0]["result"], "abandoned at turn 6");
+    hub.publish(
+        Session::observed(
+            "live-1",
+            "#1",
+            &variant,
+            &replay.players,
+            Some(Seat(2)),
+            &events,
+            false,
+        )
+        .with_decisions(vec![decision])
+        .with_game_id(Some(77))
+        .with_table(Some("Alice's game".into()))
+        .with_outcome(Some("normal".into())),
+    );
+    hub.publish(
+        Session::observed(
+            "live-2",
+            "#2",
+            &variant,
+            &replay.players,
+            None,
+            &events,
+            false,
+        )
+        .with_game_id(Some(77)),
+    );
+    let sessions = get(&hub, "/api/sessions").1;
+    let list = sessions["sessions"].as_array().unwrap();
+    assert_eq!(list.len(), 1, "one game, one session: {list:?}");
+    assert_eq!(list[0]["key"], "live-2");
+    assert_eq!(list[0]["table"], "Alice's game");
+    assert!(
+        list[0]["result"].as_str().unwrap().starts_with("score "),
+        "{list:?}"
+    );
+    let (_, board) = get(&hub, "/api/board?turn=3");
+    assert_eq!(
+        board["session"]["decisions"],
+        json!([3]),
+        "decisions carry over"
+    );
+    assert_eq!(board["session"]["bot"], 2);
+    assert_eq!(board["session"]["bot_name"], replay.players[2].as_str());
+
+    // a replay without the bot's seat recorded finds it by name
+    hub.add_replay("r", "replay", replay.clone(), None).unwrap();
+    let (_, board) = get(&hub, "/api/board?session=r");
+    assert_eq!(board["session"]["bot"], 2);
+    assert_eq!(
+        board["session"]["result"],
+        format!("score {}", replay_score(&events))
+    );
+}
+
+fn replay_score(events: &[Event]) -> u32 {
+    events
+        .iter()
+        .filter(|e| matches!(e, Event::Play { success: true, .. }))
+        .count() as u32
 }
 
 #[test]
